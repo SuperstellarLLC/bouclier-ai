@@ -1,0 +1,12 @@
+# Default owner for all files
+* @ilvarion/core-team
+
+# Infrastructure & CI
+.github/ @ilvarion/platform
+Dockerfile @ilvarion/platform
+docker-compose.yml @ilvarion/platform
+
+# Security-sensitive files
+src/middleware.ts @ilvarion/security
+src/env.ts @ilvarion/security
+next.config.ts @ilvarion/security
