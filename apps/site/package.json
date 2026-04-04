@@ -19,7 +19,7 @@
   "dependencies": {
     "@ilvarion/patterns": "workspace:*",
     "@n3rd-ai/ui": "^0.4.2",
-    "@t3-oss/env-nextjs": "^0.12.0",
+    "@t3-oss/env-nextjs": "^0.13.11",
     "@vercel/blob": "^2.3.3",
     "next": "^16.2.2",
     "react": "19.2.0",
