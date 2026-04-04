@@ -78,7 +78,7 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: "pnpm"
       - run: pnpm install --frozen-lockfile
-      - run: npx playwright install --with-deps chromium
+      - run: pnpm --filter site exec playwright install --with-deps chromium
       - run: pnpm build
       - run: pnpm --filter site test:e2e
       - name: Upload E2E report
@@ -105,7 +105,7 @@ jobs:
 
   build-desktop:
     name: Build Desktop (macOS)
-    runs-on: macos-14
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
       - name: Build Swift package
