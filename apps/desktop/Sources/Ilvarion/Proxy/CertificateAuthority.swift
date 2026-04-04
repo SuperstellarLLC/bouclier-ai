@@ -2,21 +2,16 @@ import CryptoKit
 import Foundation
 import Security
 
-/// Local CA that generates TLS certificates for MITM interception.
+/// Local CA for TLS interception. Generates a root cert, stores key as PEM,
+/// and creates per-host leaf certs on demand.
 ///
-/// Uses `openssl` for X.509 cert creation (no pure-Swift alternative for cert signing)
-/// but stores the CA private key in macOS Keychain (hardware-backed on Apple Silicon).
-///
-/// Thread-safe: leaf cert cache protected by lock.
+/// Thread-safety: all mutable state protected by lock.
 final class CertificateAuthority: @unchecked Sendable {
     private let lock = NSLock()
+    private var _caKeyPEM: String?
+    private var _caCertPEM: String?
     private var leafCache: [String: (cert: String, key: String)] = [:]
-
-    private var caKeyPEM: String?
-    private var caCertPEM: String?
-
-    static let caLabel = "Ilvarion Proxy CA"
-    static let caTag = "dev.ilvarion.ca".data(using: .utf8)!
+    private static let maxLeafCacheSize = 200
 
     static let storagePath: URL = {
         let dir = FileManager.default.urls(
@@ -30,7 +25,17 @@ final class CertificateAuthority: @unchecked Sendable {
     static let caKeyPath = storagePath.appendingPathComponent("ca.key")
     static let caCertPath = storagePath.appendingPathComponent("ca.pem")
 
-    var isInstalled: Bool { caKeyPEM != nil && caCertPEM != nil }
+    var isInstalled: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return _caKeyPEM != nil && _caCertPEM != nil
+    }
+
+    var caCertFilePath: String? {
+        lock.lock()
+        defer { lock.unlock() }
+        return _caKeyPEM != nil ? Self.caCertPath.path : nil
+    }
 
     init() {
         loadExisting()
@@ -38,11 +43,9 @@ final class CertificateAuthority: @unchecked Sendable {
 
     // MARK: - Install
 
-    /// Generate root CA and trust it. Returns false if user cancels the admin prompt.
     func installCA() -> Bool {
         if isInstalled { return true }
 
-        // Generate CA key + self-signed cert via openssl
         let keyPath = Self.caKeyPath.path
         let certPath = Self.caCertPath.path
 
@@ -65,74 +68,67 @@ final class CertificateAuthority: @unchecked Sendable {
             guard process.terminationStatus == 0 else { return false }
         } catch { return false }
 
-        // Set restrictive permissions on the key
+        // Restrict permissions on key file
         chmod(keyPath, 0o600)
 
-        // Load what we just generated
         guard let keyPEM = try? String(contentsOfFile: keyPath, encoding: .utf8),
               let certPEM = try? String(contentsOfFile: certPath, encoding: .utf8)
         else { return false }
 
-        // Trust the CA cert in macOS Keychain
+        // Trust the CA cert
         guard let certDER = pemToDER(certPEM),
               let secCert = SecCertificateCreateWithData(nil, certDER as CFData)
         else { return false }
 
-        // Set trust as root CA (value 1 = kSecTrustSettingsResultTrustRoot)
         let trustSettings: [String: Any] = [
-            kSecTrustSettingsResult as String: NSNumber(value: 1),
+            kSecTrustSettingsResult as String: NSNumber(value: 1), // kSecTrustSettingsResultTrustRoot
         ]
         let status = SecTrustSettingsSetTrustSettings(secCert, .user, [trustSettings] as CFArray)
-        guard status == errSecSuccess else {
-            print("[ilvarion-ca] User declined CA trust (status: \(status))")
-            return false
-        }
+        guard status == errSecSuccess else { return false }
 
-        caKeyPEM = keyPEM
-        caCertPEM = certPEM
+        lock.lock()
+        _caKeyPEM = keyPEM
+        _caCertPEM = certPEM
+        lock.unlock()
 
-        print("[ilvarion-ca] Root CA installed and trusted")
         return true
     }
 
-    /// Remove CA from trust store and delete key/cert files.
     func uninstallCA() {
-        // Remove from Keychain trust
-        if let certPEM = caCertPEM, let certDER = pemToDER(certPEM),
+        lock.lock()
+        let certPEM = _caCertPEM
+        _caKeyPEM = nil
+        _caCertPEM = nil
+        leafCache.removeAll()
+        lock.unlock()
+
+        if let certPEM, let certDER = pemToDER(certPEM),
            let secCert = SecCertificateCreateWithData(nil, certDER as CFData)
         {
             SecTrustSettingsRemoveTrustSettings(secCert, .user)
         }
 
-        // Delete files
         try? FileManager.default.removeItem(at: Self.caKeyPath)
         try? FileManager.default.removeItem(at: Self.caCertPath)
-
-        lock.lock()
-        caKeyPEM = nil
-        caCertPEM = nil
-        leafCache.removeAll()
-        lock.unlock()
-
-        print("[ilvarion-ca] CA removed")
     }
 
     // MARK: - Leaf Certificates
 
-    /// Get PEM-encoded cert and key for a specific host. Cached after first generation.
     func leafCertAndKey(forHost host: String) -> (cert: String, key: String)? {
         lock.lock()
         if let cached = leafCache[host] {
             lock.unlock()
             return cached
         }
+        let caKey = _caKeyPEM
+        let caCert = _caCertPEM
         lock.unlock()
 
-        guard let caKey = caKeyPEM, let caCert = caCertPEM else { return nil }
+        guard let caKey, let caCert else { return nil }
 
-        // Validate host to prevent injection
-        let sanitizedHost = host.replacingOccurrences(of: "[^a-zA-Z0-9.\\-]", with: "", options: .regularExpression)
-        guard !sanitizedHost.isEmpty, sanitizedHost == host else { return nil }
+        // Validate host
+        let sanitized = host.replacingOccurrences(of: "[^a-zA-Z0-9.\\-]", with: "", options: .regularExpression)
+        guard !sanitized.isEmpty, sanitized == host else { return nil }
 
         let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try? FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
@@ -145,8 +141,9 @@ final class CertificateAuthority: @unchecked Sendable {
         let caKeyTmp = tempDir.appendingPathComponent("ca.key").path
         let caCertTmp = tempDir.appendingPathComponent("ca.pem").path
 
-        // Write CA files to temp (openssl needs file paths)
+        // Write CA files to temp — restrict permissions
         try? caKey.write(toFile: caKeyTmp, atomically: true, encoding: .utf8)
+        chmod(caKeyTmp, 0o600)
         try? caCert.write(toFile: caCertTmp, atomically: true, encoding: .utf8)
 
         // Generate leaf key + CSR
@@ -155,7 +152,7 @@ final class CertificateAuthority: @unchecked Sendable {
         csrProcess.arguments = [
             "req", "-new", "-newkey", "rsa:2048", "-nodes",
             "-keyout", leafKeyPath, "-out", leafCsrPath,
-            "-subj", "/CN=\(sanitizedHost)",
+            "-subj", "/CN=\(sanitized)",
         ]
         csrProcess.standardOutput = FileHandle.nullDevice
         csrProcess.standardError = FileHandle.nullDevice
@@ -163,17 +160,17 @@ final class CertificateAuthority: @unchecked Sendable {
         csrProcess.waitUntilExit()
         guard csrProcess.terminationStatus == 0 else { return nil }
 
-        // SAN extension config
+        chmod(leafKeyPath, 0o600)
+
         let extContent = """
         authorityKeyIdentifier=keyid,issuer
         basicConstraints=CA:FALSE
         keyUsage=digitalSignature,keyEncipherment
         extendedKeyUsage=serverAuth
-        subjectAltName=DNS:\(sanitizedHost)
+        subjectAltName=DNS:\(sanitized)
         """
         try? extContent.write(toFile: extPath, atomically: true, encoding: .utf8)
 
-        // Sign leaf cert with CA
         let signProcess = Process()
         signProcess.executableURL = URL(fileURLWithPath: "/usr/bin/openssl")
         signProcess.arguments = [
@@ -196,27 +193,29 @@ final class CertificateAuthority: @unchecked Sendable {
         let result = (cert: leafCert, key: leafKey)
 
         lock.lock()
+        // Evict oldest entries if cache is full
+        if leafCache.count >= Self.maxLeafCacheSize {
+            let toRemove = leafCache.count - Self.maxLeafCacheSize + 1
+            for key in leafCache.keys.prefix(toRemove) {
+                leafCache.removeValue(forKey: key)
+            }
+        }
         leafCache[host] = result
         lock.unlock()
 
         return result
     }
 
-    /// Path to the CA cert file (for NODE_EXTRA_CA_CERTS).
-    var caCertFilePath: String? {
-        guard isInstalled else { return nil }
-        return Self.caCertPath.path
-    }
-
     // MARK: - Private
 
     private func loadExisting() {
+        lock.lock()
+        defer { lock.unlock() }
         if let key = try? String(contentsOf: Self.caKeyPath, encoding: .utf8),
            let cert = try? String(contentsOf: Self.caCertPath, encoding: .utf8)
         {
-            caKeyPEM = key
-            caCertPEM = cert
-            print("[ilvarion-ca] Loaded existing CA certificate")
+            _caKeyPEM = key
+            _caCertPEM = cert
         }
     }
 
