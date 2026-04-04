@@ -101,7 +101,7 @@ export default function BlockedPage() {
       <Divider variant="double" />
 
       <Stack gap="lg" style={{ paddingTop: "2rem", paddingBottom: "2rem" }}>
-        <Heading level={3}>What happened</Heading>
+        <Heading level={2}>What happened</Heading>
 
         <Box border="rounded" padding="lg" accent="warning">
           <Text>
@@ -121,7 +121,7 @@ export default function BlockedPage() {
       <Divider variant="dashed" />
 
       <Stack gap="lg" style={{ paddingTop: "2rem", paddingBottom: "2rem" }}>
-        <Heading level={3}>Detection categories</Heading>
+        <Heading level={2}>Detection categories</Heading>
 
         <Text color="secondary">Ilvarion scans for 35 patterns across these 11 categories:</Text>
 
@@ -131,7 +131,7 @@ export default function BlockedPage() {
       <Divider variant="dashed" />
 
       <Stack gap="lg" style={{ paddingTop: "2rem", paddingBottom: "2rem" }}>
-        <Heading level={3}>False positive?</Heading>
+        <Heading level={2}>False positive?</Heading>
 
         <Grid columns={2} gap="lg">
           <Card title="Check your logs" accent="info">

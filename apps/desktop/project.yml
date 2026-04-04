@@ -1,0 +1,129 @@
+name: Ilvarion
+options:
+  bundleIdPrefix: com.ilvarion
+  deploymentTarget:
+    macOS: "15.0"
+  createIntermediateGroups: true
+
+settings:
+  base:
+    DEVELOPMENT_TEAM: U86PR842AK
+    CODE_SIGN_STYLE: Manual
+    CODE_SIGN_IDENTITY: "Developer ID Application: Superstellar LLC (U86PR842AK)"
+
+packages:
+  GRDB:
+    url: https://github.com/groue/GRDB.swift.git
+    from: "7.0.0"
+  swift-nio:
+    url: https://github.com/apple/swift-nio.git
+    from: "2.76.0"
+  swift-nio-ssl:
+    url: https://github.com/apple/swift-nio-ssl.git
+    from: "2.29.0"
+  swift-nio-transport-services:
+    url: https://github.com/apple/swift-nio-transport-services.git
+    from: "1.23.0"
+  Sparkle:
+    url: https://github.com/sparkle-project/Sparkle.git
+    from: "2.6.0"
+
+targets:
+  Ilvarion:
+    type: application
+    platform: macOS
+    sources:
+      - path: Sources/Ilvarion
+    resources:
+      - path: Sources/Ilvarion/Resources
+      - path: icon/Ilvarion.icns
+    dependencies:
+      - package: GRDB
+      - package: swift-nio
+        product: NIO
+      - package: swift-nio
+        product: NIOCore
+      - package: swift-nio
+        product: NIOPosix
+      - package: swift-nio
+        product: NIOHTTP1
+      - package: swift-nio
+        product: NIOTLS
+      - package: swift-nio-ssl
+        product: NIOSSL
+      - package: swift-nio-transport-services
+        product: NIOTransportServices
+      - package: Sparkle
+      - target: IlvarionExtension
+        embed: true
+        codeSign: true
+        buildPhase:
+          copyFiles:
+            destination: systemExtension
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.ilvarion.app
+        PROVISIONING_PROFILE_SPECIFIER: "Ilvarion"
+        CODE_SIGN_ENTITLEMENTS: Ilvarion.entitlements
+        ENABLE_HARDENED_RUNTIME: YES
+        SWIFT_VERSION: "6.0"
+        LD_RUNPATH_SEARCH_PATHS:
+          - "@executable_path/../Frameworks"
+      configs:
+        Release:
+          SWIFT_OPTIMIZATION_LEVEL: -O
+    info:
+      path: Sources/Ilvarion/Resources/GeneratedInfo.plist
+      properties:
+        CFBundleName: Ilvarion
+        CFBundleDisplayName: Ilvarion
+        CFBundleIconFile: Ilvarion
+        LSUIElement: true
+        NSSystemExtensionUsageDescription: "Ilvarion needs a system extension to intercept AI API traffic for prompt injection scanning."
+        SUPublicEDKey: "QNMtWO7H9Z9Hv1J9bAsunleicPvJVP2bMJQezjV3vmM="
+        SUFeedURL: "https://ilvarion.com/appcast.xml"
+        SUEnableAutomaticChecks: true
+
+  IlvarionExtension:
+    type: tool
+    platform: macOS
+    sources:
+      - path: Sources/IlvarionExtension
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.ilvarion.app.extension
+        PROVISIONING_PROFILE_SPECIFIER: "Ilvarion Network Extension"
+        CODE_SIGN_ENTITLEMENTS: IlvarionExtension.entitlements
+        ENABLE_HARDENED_RUNTIME: YES
+        SWIFT_VERSION: "6.0"
+      configs:
+        Release:
+          SWIFT_OPTIMIZATION_LEVEL: -O
+    info:
+      path: Sources/IlvarionExtension/GeneratedInfo.plist
+      properties:
+        CFBundleName: IlvarionExtension
+        CFBundleDisplayName: "Ilvarion Network Extension"
+        CFBundlePackageType: SYSX
+        NSSystemExtensionUsageDescription: "Ilvarion intercepts AI API traffic to scan for prompt injections."
+        NetworkExtension:
+          NEProviderClasses:
+            com.apple.networkextension.transparent-proxy: "$(PRODUCT_MODULE_NAME).TransparentProxyProvider"
+
+  ilvarion-mcp-wrapper:
+    type: tool
+    platform: macOS
+    sources:
+      - path: Sources/MCPWrapper
+    settings:
+      base:
+        SWIFT_VERSION: "6.0"
+
+  ilvarion-env:
+    type: tool
+    platform: macOS
+    sources:
+      - path: Sources/EnvHelper
+    settings:
+      base:
+        SWIFT_VERSION: "6.0"
