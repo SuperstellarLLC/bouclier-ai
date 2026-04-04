@@ -1,6 +1,6 @@
 import Foundation
 import Network
-import NetworkExtension
+@preconcurrency import NetworkExtension
 
 /// System Extension: intercepts AI API domain TCP flows at the OS level
 /// and routes them through the local NIO TLS proxy via CONNECT tunneling.
