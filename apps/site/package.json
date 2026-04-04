@@ -1,0 +1,47 @@
+{
+  "name": "site",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev --turbopack",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "analyze": "ANALYZE=true next build"
+  },
+  "dependencies": {
+    "@ilvarion/patterns": "workspace:*",
+    "@t3-oss/env-nextjs": "^0.12.0",
+    "next": "^16.2.2",
+    "react": "19.2.0",
+    "react-dom": "19.2.0",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "@next/bundle-analyzer": "^16.2.2",
+    "@playwright/test": "^1.50.0",
+    "@tailwindcss/postcss": "^4",
+    "@testing-library/jest-dom": "^6.6.0",
+    "@testing-library/react": "^16.2.0",
+    "@types/node": "^22",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "@vitejs/plugin-react": "^4.4.0",
+    "@vitest/coverage-v8": "^3.1.0",
+    "eslint": "^9",
+    "eslint-config-next": "^16.2.2",
+    "eslint-config-prettier": "^10.1.0",
+    "jsdom": "^26.0.0",
+    "postcss": "^8",
+    "tailwindcss": "^4",
+    "typescript": "^5.9.0",
+    "vitest": "^3.1.0"
+  }
+}

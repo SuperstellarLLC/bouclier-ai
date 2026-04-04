@@ -19,18 +19,16 @@ function isRateLimited(ip: string): boolean {
   }
 
   entry.count++;
-  return entry.count > RATE_LIMIT_MAX_REQUESTS;
-}
 
-// Clean up stale entries periodically to prevent memory leaks
-setInterval(() => {
-  const now = Date.now();
-  for (const [ip, entry] of rateLimit) {
-    if (now > entry.resetTime) {
-      rateLimit.delete(ip);
+  // Lazy cleanup: evict stale entries when map grows large (avoids setInterval in serverless)
+  if (rateLimit.size > 10_000) {
+    for (const [key, val] of rateLimit) {
+      if (now > val.resetTime) rateLimit.delete(key);
     }
   }
-}, RATE_LIMIT_WINDOW_MS);
+
+  return entry.count > RATE_LIMIT_MAX_REQUESTS;
+}
 
 /**
  * Generate a nonce for inline scripts (CSP).
