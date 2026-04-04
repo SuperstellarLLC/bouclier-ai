@@ -32,7 +32,11 @@ struct GeneralSettingsView: View {
         Form {
             Section("Proxy") {
                 TextField("Port", value: $port, format: .number)
-                Toggle("Start proxy on launch", isOn: $launchAtLogin)
+                    .help("Requires proxy restart to take effect")
+                Toggle("Launch at login", isOn: $launchAtLogin)
+                    .onChange(of: launchAtLogin) { _, newValue in
+                        ProxyManager.setLaunchAtLogin(newValue)
+                    }
             }
             Section("Notifications") {
                 Toggle("Show block notifications", isOn: $showNotifications)
