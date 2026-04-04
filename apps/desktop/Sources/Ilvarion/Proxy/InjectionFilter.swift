@@ -20,8 +20,14 @@ final class InjectionFilter: Sendable {
         "\u{03B1}": "a", "\u{03B5}": "e", "\u{03BF}": "o", "\u{03C1}": "p",
     ]
 
+    /// Load patterns from bundled resource or fallback.
     init() {
         self.patterns = Self.loadAndVerifyPatterns()
+    }
+
+    /// Initialize with externally-provided patterns (used by PatternManager for hot-reload).
+    init(patterns: [FilterPattern]) {
+        self.patterns = patterns
     }
 
     /// Scan content for prompt injections.

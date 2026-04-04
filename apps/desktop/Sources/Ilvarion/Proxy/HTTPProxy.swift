@@ -4,19 +4,17 @@ import Network
 /// HTTP forward proxy that receives plaintext requests on localhost,
 /// scans JSON bodies for prompt injections, and forwards to upstream APIs via HTTPS.
 ///
-/// Supported routing:
-/// - /openai/*  → https://api.openai.com/*
-/// - /anthropic/* → https://api.anthropic.com/*
-/// - /custom/{host}/* → https://{host}/*
-///
-/// Clients configure their SDK base URL to http://localhost:{port}/{provider}
+/// Features:
+/// - SSE streaming: forwards chunks in real-time, scanning each for injections
+/// - Full body accumulation: reads until Content-Length is satisfied or connection closes
+/// - Loopback-only binding
+/// - SSRF protection on /custom routes
 final class HTTPProxy: @unchecked Sendable {
     private let filter: InjectionFilter
     private let port: UInt16
     private var listener: NWListener?
     private let lock = NSLock()
 
-    /// Upstream API mappings
     static let routeMap: [String: String] = [
         "openai": "https://api.openai.com",
         "anthropic": "https://api.anthropic.com",
@@ -38,7 +36,6 @@ final class HTTPProxy: @unchecked Sendable {
         let lower = host.lowercased()
         if blockedHosts.contains(lower) { return true }
         if lower.hasSuffix(".local") || lower.hasSuffix(".internal") { return true }
-        // Block RFC 1918 ranges
         if lower.hasPrefix("10.") || lower.hasPrefix("192.168.") { return true }
         if lower.hasPrefix("172.") {
             let parts = lower.split(separator: ".")
@@ -54,7 +51,6 @@ final class HTTPProxy: @unchecked Sendable {
     ) {
         let params = NWParameters.tcp
         params.allowLocalEndpointReuse = true
-        // Restrict to loopback only — never expose to the network
         params.requiredLocalEndpoint = NWEndpoint.hostPort(host: .ipv4(.loopback), port: NWEndpoint.Port(integerLiteral: port))
 
         do {
@@ -62,12 +58,9 @@ final class HTTPProxy: @unchecked Sendable {
 
             listener.stateUpdateHandler = { state in
                 switch state {
-                case .ready:
-                    onReady()
-                case .failed(let error):
-                    onFailed(error)
-                default:
-                    break
+                case .ready: onReady()
+                case .failed(let error): onFailed(error)
+                default: break
                 }
             }
 
@@ -101,6 +94,9 @@ private final class ConnectionHandler: Sendable {
     let filter: InjectionFilter
     let onLog: @Sendable (RequestLog) -> Void
 
+    // Max request size: 16MB (covers large context windows)
+    static let maxRequestSize = 16 * 1024 * 1024
+
     init(connection: NWConnection, filter: InjectionFilter, onLog: @Sendable @escaping (RequestLog) -> Void) {
         self.connection = connection
         self.filter = filter
@@ -109,33 +105,99 @@ private final class ConnectionHandler: Sendable {
 
     func start() {
         connection.start(queue: .global(qos: .userInitiated))
-        receiveHTTPRequest()
+        accumulateRequest()
     }
 
-    private func receiveHTTPRequest() {
-        connection.receive(minimumIncompleteLength: 1, maximumLength: 1_048_576) { [self] data, _, isComplete, error in
-            guard let data, !data.isEmpty else {
-                connection.cancel()
-                return
-            }
+    /// Read data in a loop until we have the full HTTP request (headers + body per Content-Length).
+    private func accumulateRequest() {
+        var buffer = Data()
 
-            guard let request = HTTPRequest.parse(data) else {
-                sendError(status: 400, message: "Bad Request")
-                return
-            }
+        func readMore() {
+            connection.receive(minimumIncompleteLength: 1, maximumLength: 65536) { [self] data, _, isComplete, error in
+                if let data, !data.isEmpty {
+                    buffer.append(data)
+                }
 
-            handleRequest(request)
+                // Safety limit
+                if buffer.count > Self.maxRequestSize {
+                    sendError(status: 413, message: "Request too large")
+                    return
+                }
+
+                // Check if we have complete headers
+                let separator: [UInt8] = [0x0D, 0x0A, 0x0D, 0x0A]
+                guard let sepRange = buffer.range(of: Data(separator)) else {
+                    if isComplete || error != nil {
+                        // Connection closed before headers arrived
+                        connection.cancel()
+                        return
+                    }
+                    readMore()
+                    return
+                }
+
+                // Parse headers to find Content-Length
+                let headerData = buffer[buffer.startIndex..<sepRange.lowerBound]
+                guard let headerString = String(data: headerData, encoding: .utf8) else {
+                    sendError(status: 400, message: "Bad Request")
+                    return
+                }
+
+                let bodyStart = sepRange.upperBound
+                let currentBody = buffer[bodyStart...]
+
+                // Determine expected body size
+                let contentLength = parseContentLength(from: headerString)
+
+                if let expected = contentLength {
+                    if currentBody.count >= expected {
+                        // Full request received
+                        let fullBody = Data(currentBody.prefix(expected))
+                        processFullRequest(headerString: headerString, body: fullBody)
+                    } else if isComplete || error != nil {
+                        // Connection closed early — process what we have
+                        processFullRequest(headerString: headerString, body: Data(currentBody))
+                    } else {
+                        readMore()
+                    }
+                } else {
+                    // No Content-Length — process with whatever body we have (or none)
+                    if isComplete || error != nil || currentBody.isEmpty {
+                        processFullRequest(headerString: headerString, body: currentBody.isEmpty ? nil : Data(currentBody))
+                    } else {
+                        readMore()
+                    }
+                }
+            }
         }
+
+        readMore()
+    }
+
+    private func parseContentLength(from headers: String) -> Int? {
+        for line in headers.components(separatedBy: "\r\n") {
+            let parts = line.split(separator: ":", maxSplits: 1)
+            if parts.count == 2, parts[0].trimmingCharacters(in: .whitespaces).lowercased() == "content-length" {
+                return Int(parts[1].trimmingCharacters(in: .whitespaces))
+            }
+        }
+        return nil
+    }
+
+    private func processFullRequest(headerString: String, body: Data?) {
+        guard let request = HTTPRequest.parse(headerString: headerString, body: body) else {
+            sendError(status: 400, message: "Bad Request")
+            return
+        }
+        handleRequest(request)
     }
 
     private func handleRequest(_ request: HTTPRequest) {
-        // Resolve upstream URL
         guard let upstream = resolveUpstream(path: request.path) else {
             sendError(status: 404, message: "Unknown route. Use /openai/, /anthropic/, etc.")
             return
         }
 
-        // Scan the request body for injections
         var scanResult: FilterResult?
         var sanitizedBody = request.body
 
@@ -149,7 +211,6 @@ private final class ConnectionHandler: Sendable {
             }
         }
 
-        // Log
         onLog(RequestLog(
             timestamp: Date(),
             method: request.method,
@@ -161,48 +222,44 @@ private final class ConnectionHandler: Sendable {
             bodySize: request.body?.count ?? 0
         ))
 
-        // Forward to upstream
-        forwardRequest(request: request, upstream: upstream, body: sanitizedBody)
+        // Check if this is a streaming request
+        let isStreaming = isStreamingRequest(body: sanitizedBody)
+
+        if isStreaming {
+            forwardStreaming(request: request, upstream: upstream, body: sanitizedBody)
+        } else {
+            forwardBuffered(request: request, upstream: upstream, body: sanitizedBody)
+        }
     }
 
-    private func resolveUpstream(path: String) -> URL? {
-        let components = path.split(separator: "/", maxSplits: 2)
-        guard let provider = components.first else { return nil }
-
-        let providerKey = String(provider).lowercased()
-        let remainingPath = components.count > 1 ? "/" + components.dropFirst().joined(separator: "/") : ""
-
-        if let baseURL = HTTPProxy.routeMap[providerKey] {
-            return URL(string: baseURL + remainingPath)
-        }
-
-        // Custom host: /custom/api.example.com/v1/chat
-        // Block private/internal IPs to prevent SSRF
-        if providerKey == "custom", components.count > 1 {
-            let host = String(components[1])
-            guard !HTTPProxy.isPrivateHost(host) else { return nil }
-            let rest = components.count > 2 ? "/" + String(components[2]) : ""
-            return URL(string: "https://\(host)\(rest)")
-        }
-
-        return nil
+    /// Detect if the request asks for streaming (OpenAI/Anthropic `"stream": true`)
+    private func isStreamingRequest(body: Data?) -> Bool {
+        guard let body, let str = String(data: body, encoding: .utf8) else { return false }
+        // Quick check without full JSON parse
+        return str.contains("\"stream\"") && str.contains("true")
     }
 
-    private func forwardRequest(request: HTTPRequest, upstream: URL, body: Data?) {
+    // MARK: - Streaming (SSE) Forward
+
+    private func forwardStreaming(request: HTTPRequest, upstream: URL, body: Data?) {
         var urlRequest = URLRequest(url: upstream)
         urlRequest.httpMethod = request.method
         urlRequest.httpBody = body
+        applyHeaders(from: request, to: &urlRequest, upstream: upstream, body: body)
 
-        // Forward headers (except Host, which we override)
-        for (key, value) in request.headers where key.lowercased() != "host" {
-            urlRequest.setValue(value, forHTTPHeaderField: key)
-        }
-        urlRequest.setValue(upstream.host, forHTTPHeaderField: "Host")
+        let delegate = StreamingDelegate(connection: connection, filter: filter)
+        let session = URLSession(configuration: .default, delegate: delegate, delegateQueue: nil)
+        let task = session.dataTask(with: urlRequest)
+        task.resume()
+    }
 
-        // Update content-length if body was modified
-        if let body {
-            urlRequest.setValue("\(body.count)", forHTTPHeaderField: "Content-Length")
-        }
+    // MARK: - Buffered Forward
+
+    private func forwardBuffered(request: HTTPRequest, upstream: URL, body: Data?) {
+        var urlRequest = URLRequest(url: upstream)
+        urlRequest.httpMethod = request.method
+        urlRequest.httpBody = body
+        applyHeaders(from: request, to: &urlRequest, upstream: upstream, body: body)
 
         let task = URLSession.shared.dataTask(with: urlRequest) { [self] data, response, error in
             if let error {
@@ -215,11 +272,9 @@ private final class ConnectionHandler: Sendable {
                 return
             }
 
-            // Build HTTP response to send back to client
             var responseLines = ["HTTP/1.1 \(httpResponse.statusCode) \(HTTPURLResponse.localizedString(forStatusCode: httpResponse.statusCode))"]
 
             for (key, value) in httpResponse.allHeaderFields {
-                // Skip transfer-encoding as we send the full body
                 let keyStr = "\(key)"
                 if keyStr.lowercased() == "transfer-encoding" { continue }
                 responseLines.append("\(key): \(value)")
@@ -239,6 +294,37 @@ private final class ConnectionHandler: Sendable {
         }
 
         task.resume()
+    }
+
+    private func applyHeaders(from request: HTTPRequest, to urlRequest: inout URLRequest, upstream: URL, body: Data?) {
+        for (key, value) in request.headers where key.lowercased() != "host" {
+            urlRequest.setValue(value, forHTTPHeaderField: key)
+        }
+        urlRequest.setValue(upstream.host, forHTTPHeaderField: "Host")
+        if let body {
+            urlRequest.setValue("\(body.count)", forHTTPHeaderField: "Content-Length")
+        }
+    }
+
+    private func resolveUpstream(path: String) -> URL? {
+        let components = path.split(separator: "/", maxSplits: 2)
+        guard let provider = components.first else { return nil }
+
+        let providerKey = String(provider).lowercased()
+        let remainingPath = components.count > 1 ? "/" + components.dropFirst().joined(separator: "/") : ""
+
+        if let baseURL = HTTPProxy.routeMap[providerKey] {
+            return URL(string: baseURL + remainingPath)
+        }
+
+        if providerKey == "custom", components.count > 1 {
+            let host = String(components[1])
+            guard !HTTPProxy.isPrivateHost(host) else { return nil }
+            let rest = components.count > 2 ? "/" + String(components[2]) : ""
+            return URL(string: "https://\(host)\(rest)")
+        }
+
+        return nil
     }
 
     private func sendError(status: Int, message: String) {
@@ -264,6 +350,95 @@ private final class ConnectionHandler: Sendable {
     }
 }
 
+// MARK: - SSE Streaming Delegate
+
+/// URLSession delegate that streams response data chunk-by-chunk to the client connection.
+/// Scans each SSE data line for injections before forwarding.
+private final class StreamingDelegate: NSObject, URLSessionDataDelegate, @unchecked Sendable {
+    let connection: NWConnection
+    let filter: InjectionFilter
+    private var headersSent = false
+    private var sseBuffer = ""
+
+    init(connection: NWConnection, filter: InjectionFilter) {
+        self.connection = connection
+        self.filter = filter
+    }
+
+    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse, completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) {
+        guard let httpResponse = response as? HTTPURLResponse else {
+            completionHandler(.cancel)
+            connection.cancel()
+            return
+        }
+
+        // Send HTTP response headers to the client
+        var lines = ["HTTP/1.1 \(httpResponse.statusCode) \(HTTPURLResponse.localizedString(forStatusCode: httpResponse.statusCode))"]
+
+        for (key, value) in httpResponse.allHeaderFields {
+            lines.append("\(key): \(value)")
+        }
+        lines.append("")
+        lines.append("")
+
+        let headerData = lines.joined(separator: "\r\n").data(using: .utf8) ?? Data()
+        connection.send(content: headerData, completion: .contentProcessed { _ in })
+        headersSent = true
+
+        completionHandler(.allow)
+    }
+
+    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
+        guard let chunk = String(data: data, encoding: .utf8) else {
+            // Binary chunk — forward as-is
+            connection.send(content: data, completion: .contentProcessed { _ in })
+            return
+        }
+
+        // SSE format: "data: {...}\n\n"
+        // Accumulate partial lines and process complete ones
+        sseBuffer += chunk
+
+        while let newlineRange = sseBuffer.range(of: "\n") {
+            let line = String(sseBuffer[sseBuffer.startIndex..<newlineRange.lowerBound])
+            sseBuffer = String(sseBuffer[newlineRange.upperBound...])
+
+            let processedLine = scanSSELine(line)
+            let lineData = (processedLine + "\n").data(using: .utf8) ?? Data()
+            connection.send(content: lineData, completion: .contentProcessed { _ in })
+        }
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        // Flush any remaining buffer
+        if !sseBuffer.isEmpty {
+            let lineData = sseBuffer.data(using: .utf8) ?? Data()
+            connection.send(content: lineData, completion: .contentProcessed { _ in
+                self.connection.cancel()
+            })
+            sseBuffer = ""
+        } else {
+            connection.cancel()
+        }
+        session.invalidateAndCancel()
+    }
+
+    /// Scan an SSE data line for injections. Only scans the JSON content payload.
+    private func scanSSELine(_ line: String) -> String {
+        guard line.hasPrefix("data: ") else { return line }
+
+        let jsonPart = String(line.dropFirst(6))
+        if jsonPart == "[DONE]" { return line }
+
+        // Scan the content field within the SSE JSON
+        let result = filter.scan(jsonPart)
+        if result.detected {
+            return "data: " + result.sanitized
+        }
+        return line
+    }
+}
+
 // MARK: - HTTP Request Parser
 
 struct HTTPRequest: Sendable {
@@ -272,25 +447,8 @@ struct HTTPRequest: Sendable {
     let headers: [(String, String)]
     let body: Data?
 
-    static func parse(_ data: Data) -> HTTPRequest? {
-        // Find header/body boundary (\r\n\r\n) as byte offset to avoid corrupting binary body data
-        let separator: [UInt8] = [0x0D, 0x0A, 0x0D, 0x0A]
-        guard let separatorRange = data.range(of: Data(separator)) else {
-            // No body — try to parse headers only
-            guard let raw = String(data: data, encoding: .utf8) else { return nil }
-            return parseHeadersOnly(raw, fullData: data, bodyStart: nil)
-        }
-
-        let headerData = data[data.startIndex..<separatorRange.lowerBound]
-        guard let headerString = String(data: headerData, encoding: .utf8) else { return nil }
-
-        let bodyStart = separatorRange.upperBound
-        let body = bodyStart < data.endIndex ? data[bodyStart...] : nil
-
-        return parseHeadersOnly(headerString, fullData: data, bodyStart: body.map { Data($0) })
-    }
-
-    private static func parseHeadersOnly(_ headerString: String, fullData: Data, bodyStart: Data?) -> HTTPRequest? {
+    /// Parse from already-split header string and body data.
+    static func parse(headerString: String, body: Data?) -> HTTPRequest? {
         let lines = headerString.components(separatedBy: "\r\n")
         guard let requestLine = lines.first else { return nil }
 
@@ -309,7 +467,7 @@ struct HTTPRequest: Sendable {
             }
         }
 
-        return HTTPRequest(method: method, path: path, headers: headers, body: bodyStart)
+        return HTTPRequest(method: method, path: path, headers: headers, body: body)
     }
 }
 

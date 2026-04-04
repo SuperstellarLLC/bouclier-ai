@@ -8,14 +8,6 @@ import Foundation
 /// Wraps an MCP server by spawning it as a child process, piping stdin to it,
 /// intercepting its stdout, scanning JSON-RPC responses for prompt injections
 /// in tool result content blocks, and forwarding sanitized output.
-///
-/// Example MCP config:
-/// ```json
-/// {
-///   "command": "ilvarion-mcp-wrapper",
-///   "args": ["npx", "-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
-/// }
-/// ```
 
 let redactionMessage = "[Possible prompt injection redacted by Ilvarion. See https://ilvarion.dev/blocked for details]"
 
@@ -23,14 +15,14 @@ let redactionMessage = "[Possible prompt injection redacted by Ilvarion. See htt
 
 let injectionPatterns: [(id: String, regex: NSRegularExpression)] = {
     let defs: [(String, String)] = [
-        ("role-001", "(?:you\\s+are\\s+now|from\\s+now\\s+on\\s+you\\s+are|ignore\\s+(?:all\\s+)?previous\\s+instructions?|forget\\s+(?:all\\s+)?(?:your\\s+)?(?:previous\\s+)?instructions?|disregard\\s+(?:all\\s+)?(?:your\\s+)?previous\\s+(?:instructions?|directives?))"),
+        ("role-001", "(?:you\\s+are\\s+now|from\\s+now\\s+on\\s+you\\s+are|ignore\\s+(?:all\\s+)?(?:your\\s+)?previous\\s+instructions?|forget\\s+(?:all\\s+)?(?:your\\s+)?(?:previous\\s+)?instructions?|disregard\\s+(?:all\\s+)?(?:your\\s+)?(?:previous|prior|above)\\s+(?:instructions?|directives?|rules?))"),
         ("role-002", "(?:you\\s+are\\s+(?:DAN|STAN|DUDE|AIM|KEVIN|APOPHIS)|act\\s+as\\s+(?:an?\\s+)?(?:unrestricted|unfiltered|uncensored)\\s+(?:AI|model|assistant))"),
         ("override-001", "(?:new\\s+instructions?:|(?:system|admin)\\s*(?:prompt|message)\\s*:|\\[\\s*(?:SYSTEM|INST|ADMIN)\\s*\\]|<\\s*(?:system|instruction)\\s*>)"),
         ("override-003", "(?:(?:remove|disable|bypass|ignore|override)\\s+(?:all\\s+)?(?:your\\s+)?(?:safety|security|content)\\s+(?:filters?|checks?|guidelines?|restrictions?))"),
         ("delim-001", "(?:<\\|(?:im_(?:start|end)|end(?:of(?:text|prompt))?|system|user|assistant)\\|>|\\[(?:INST|/INST|SYS|/SYS)\\])"),
         ("indirect-001", "(?:IMPORTANT:\\s*(?:ignore|override|disregard)|NOTE\\s+TO\\s+(?:AI|ASSISTANT|MODEL):|AI\\s+INSTRUCTION:|BEGIN\\s+(?:HIDDEN|SECRET)\\s+INSTRUCTION)"),
         ("exfil-001", "(?:(?:show|tell|reveal|output|repeat)\\s+(?:me\\s+)?(?:your|the)\\s+(?:system\\s+(?:prompt|message|instructions?)|(?:initial|original|hidden)\\s+(?:prompt|instructions?)))"),
-        ("recurse-001", "(?:(?:if|when)\\s+(?:anyone|someone|a\\s+filter)\\s+(?:asks?|tells?)\\s+(?:you\\s+)?(?:to\\s+)?(?:ignore|block|flag)\\s+this|this\\s+is\\s+not\\s+a\\s+prompt\\s+injection)"),
+        ("recurse-001", "(?:(?:if|when)\\s+(?:anyone|someone|a\\s+(?:filter|scanner))\\s+(?:asks?|tells?)\\s+(?:you\\s+)?(?:to\\s+)?(?:ignore|block|flag)\\s+this|this\\s+(?:is\\s+)?(?:not\\s+)?(?:a\\s+)?(?:prompt\\s+injection))"),
     ]
 
     return defs.compactMap { id, pattern in
@@ -39,18 +31,51 @@ let injectionPatterns: [(id: String, regex: NSRegularExpression)] = {
     }
 }()
 
+// MARK: - Normalization (minimal, matches InjectionFilter)
+
+func normalizeForScan(_ content: String) -> String {
+    var result = content.precomposedStringWithCompatibilityMapping
+
+    // Strip zero-width characters
+    result = result.replacingOccurrences(
+        of: "[\\u200B\\u200C\\u200D\\uFEFF\\u2060\\u00AD]",
+        with: "",
+        options: .regularExpression
+    )
+
+    // Cyrillic homoglyphs
+    let homoglyphs: [Character: Character] = [
+        "\u{0430}": "a", "\u{0435}": "e", "\u{043E}": "o",
+        "\u{0440}": "p", "\u{0441}": "c", "\u{0443}": "y",
+        "\u{0445}": "x", "\u{0410}": "A", "\u{0415}": "E",
+        "\u{041E}": "O", "\u{0420}": "P", "\u{0421}": "C",
+    ]
+
+    var chars: [Character] = []
+    chars.reserveCapacity(result.count)
+    for c in result {
+        chars.append(homoglyphs[c] ?? c)
+    }
+    return String(chars)
+}
+
 // MARK: - Scanner
 
 func scanForInjections(_ text: String) -> (detected: Bool, sanitized: String, count: Int) {
     guard !text.isEmpty else { return (false, text, 0) }
 
-    var matches: [(range: NSRange, id: String)] = []
-    let nsText = text as NSString
+    let normalized = normalizeForScan(text)
+    let variants = text == normalized ? [text] : [text, normalized]
 
-    for (id, regex) in injectionPatterns {
-        let results = regex.matches(in: text, range: NSRange(location: 0, length: nsText.length))
-        for result in results {
-            matches.append((result.range, id))
+    var matches: [(range: NSRange, id: String)] = []
+
+    for variant in variants {
+        let nsText = variant as NSString
+        for (id, regex) in injectionPatterns {
+            let results = regex.matches(in: variant, range: NSRange(location: 0, length: nsText.length))
+            for result in results {
+                matches.append((result.range, id))
+            }
         }
     }
 
@@ -68,7 +93,7 @@ func scanForInjections(_ text: String) -> (detected: Bool, sanitized: String, co
         }
     }
 
-    // Replace in reverse order
+    // Replace in original text (use only first-variant offsets for safety)
     var sanitized = text
     for match in deduped.reversed() {
         guard let range = Range(match.range, in: sanitized) else { continue }
@@ -85,7 +110,6 @@ func processJSONRPCResponse(_ data: Data) -> Data {
         return data
     }
 
-    // Check for tool call results: {"jsonrpc":"2.0","id":...,"result":{"content":[...]}}
     guard var result = json["result"] as? [String: Any],
           var content = result["content"] as? [[String: Any]]
     else {
@@ -120,6 +144,34 @@ func processJSONRPCResponse(_ data: Data) -> Data {
     return (try? JSONSerialization.data(withJSONObject: json)) ?? data
 }
 
+// MARK: - Line Buffer
+
+/// Accumulates partial reads and yields complete newline-delimited lines.
+/// Thread-safety: only accessed from the readabilityHandler callback queue.
+final class LineBuffer: @unchecked Sendable {
+    private var buffer = ""
+
+    func append(_ data: Data) -> [String] {
+        guard let str = String(data: data, encoding: .utf8) else { return [] }
+        buffer += str
+
+        var lines: [String] = []
+        while let newlineIndex = buffer.firstIndex(of: "\n") {
+            let line = String(buffer[buffer.startIndex..<newlineIndex])
+            buffer = String(buffer[buffer.index(after: newlineIndex)...])
+            lines.append(line)
+        }
+        return lines
+    }
+
+    func flush() -> String? {
+        guard !buffer.isEmpty else { return nil }
+        let remaining = buffer
+        buffer = ""
+        return remaining
+    }
+}
+
 // MARK: - Main
 
 guard CommandLine.arguments.count > 1 else {
@@ -132,18 +184,16 @@ guard CommandLine.arguments.count > 1 else {
 let command = CommandLine.arguments[1]
 let args = Array(CommandLine.arguments.dropFirst(2))
 
-// Spawn the real MCP server
 let process = Process()
 process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
 process.arguments = [command] + args
 
-// Set up pipes
-let stdinPipe = Pipe()   // Our stdin → child's stdin
-let stdoutPipe = Pipe()  // Child's stdout → our processing → our stdout
+let stdinPipe = Pipe()
+let stdoutPipe = Pipe()
 
 process.standardInput = stdinPipe
 process.standardOutput = stdoutPipe
-process.standardError = FileHandle.standardError // Pass through stderr
+process.standardError = FileHandle.standardError
 
 // Forward our stdin to child's stdin
 let stdinSource = DispatchSource.makeReadSource(fileDescriptor: FileHandle.standardInput.fileDescriptor, queue: .global())
@@ -158,45 +208,42 @@ stdinSource.setEventHandler {
 }
 stdinSource.resume()
 
-// Process child's stdout: scan JSON-RPC responses and forward
+// Process child's stdout with line buffering
+let lineBuffer = LineBuffer()
+
 stdoutPipe.fileHandleForReading.readabilityHandler = { handle in
     let data = handle.availableData
     guard !data.isEmpty else {
+        // EOF — flush remaining buffer
+        if let remaining = lineBuffer.flush() {
+            processAndForward(line: remaining)
+        }
         FileHandle.standardOutput.closeFile()
         return
     }
 
-    // MCP uses newline-delimited JSON
-    // Process each line separately
-    guard let raw = String(data: data, encoding: .utf8) else {
-        FileHandle.standardOutput.write(data)
-        return
-    }
-
-    let lines = raw.components(separatedBy: "\n")
+    let lines = lineBuffer.append(data)
     for line in lines {
-        if line.isEmpty {
-            FileHandle.standardOutput.write("\n".data(using: .utf8)!)
-            continue
-        }
-
-        if let lineData = line.data(using: .utf8),
-           (try? JSONSerialization.jsonObject(with: lineData)) != nil {
-            // Valid JSON — process it
-            let processed = processJSONRPCResponse(lineData)
-            FileHandle.standardOutput.write(processed)
-            FileHandle.standardOutput.write("\n".data(using: .utf8)!)
-        } else {
-            // Not JSON — pass through as-is
-            FileHandle.standardOutput.write(line.data(using: .utf8)!)
-            if !line.hasSuffix("\n") {
-                FileHandle.standardOutput.write("\n".data(using: .utf8)!)
-            }
-        }
+        processAndForward(line: line)
     }
 }
 
-// Launch
+@Sendable func processAndForward(line: String) {
+    if line.isEmpty {
+        FileHandle.standardOutput.write("\n".data(using: .utf8)!)
+        return
+    }
+
+    if let lineData = line.data(using: .utf8),
+       (try? JSONSerialization.jsonObject(with: lineData)) != nil {
+        let processed = processJSONRPCResponse(lineData)
+        FileHandle.standardOutput.write(processed)
+        FileHandle.standardOutput.write("\n".data(using: .utf8)!)
+    } else {
+        FileHandle.standardOutput.write((line + "\n").data(using: .utf8)!)
+    }
+}
+
 do {
     try process.run()
 } catch {
