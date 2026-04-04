@@ -123,18 +123,40 @@ cat > "$SYSEXT_CONTENTS/Info.plist" << EOF
 </plist>
 EOF
 
+# ── Embed Provisioning Profiles ─────────────────
+APP_PROFILE="$PROJECT_DIR/profiles/Ilvarion.provisionprofile"
+EXT_PROFILE="$PROJECT_DIR/profiles/Ilvarion_Network_Extension.provisionprofile"
+
+if [ -f "$APP_PROFILE" ]; then
+  cp "$APP_PROFILE" "$CONTENTS/embedded.provisionprofile"
+  echo "Embedded app provisioning profile"
+fi
+
+if [ -f "$EXT_PROFILE" ]; then
+  cp "$EXT_PROFILE" "$SYSEXT_CONTENTS/embedded.provisionprofile"
+  echo "Embedded extension provisioning profile"
+fi
+
 # ── Code Signing ────────────────────────────────
 if [ "$SIGN" = true ]; then
   IDENTITY="${SIGNING_IDENTITY:-Developer ID Application}"
 
+  # Sign Sparkle framework first (innermost)
+  if [ -d "$CONTENTS/Frameworks/Sparkle.framework" ]; then
+    echo "Signing Sparkle framework..."
+    codesign --force --options runtime \
+      --sign "$IDENTITY" \
+      "$CONTENTS/Frameworks/Sparkle.framework"
+  fi
+
   echo "Signing System Extension..."
-  codesign --force --deep --options runtime \
+  codesign --force --options runtime \
     --sign "$IDENTITY" \
     --entitlements "$PROJECT_DIR/IlvarionExtension.entitlements" \
     "$SYSEXT"
 
   echo "Signing main app..."
-  codesign --force --deep --options runtime \
+  codesign --force --options runtime \
     --sign "$IDENTITY" \
     --entitlements "$PROJECT_DIR/Ilvarion.entitlements" \
     "$APP"
