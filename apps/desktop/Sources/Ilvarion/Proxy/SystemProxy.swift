@@ -4,8 +4,8 @@ import Foundation
 /// Uses `networksetup` to set HTTP/HTTPS proxy on the active network interface.
 /// Only intercepts AI API domains via PAC (Proxy Auto-Config).
 enum SystemProxy {
-    /// AI API domains that Ilvarion intercepts
-    static let interceptedDomains = [
+    /// Built-in AI API domains.
+    static let builtinDomains: Set<String> = [
         "api.openai.com",
         "api.anthropic.com",
         "api.cohere.com",
@@ -18,7 +18,15 @@ enum SystemProxy {
         "openrouter.ai",
     ]
 
-    /// PAC file content — only routes AI domains through the proxy
+    /// All intercepted domains (built-in + MDM-configured).
+    static var interceptedDomains: Set<String> {
+        var domains = builtinDomains
+        for domain in ManagedConfig.additionalDomains {
+            domains.insert(domain.lowercased())
+        }
+        return domains
+    }
+
     static func pacFileContent(port: Int) -> String {
         let domainChecks = interceptedDomains
             .map { "    if (dnsDomainIs(host, \"\($0)\")) return PROXY;" }
