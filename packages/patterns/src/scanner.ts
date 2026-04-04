@@ -4,7 +4,7 @@ import { computeScore } from "./scorer.js";
 import type { Pattern, ScanMatch, ScanResult } from "./types.js";
 
 const REDACTION_MESSAGE =
-  "[Possible prompt injection redacted by Ilvarion. See https://ilvarion.dev/blocked for details]";
+  "[Possible prompt injection redacted by Ilvarion. See https://ilvarion.com/blocked for details]";
 
 /**
  * Compile a Pattern into a RegExp.

@@ -69,7 +69,7 @@ cat > "$CONTENTS/Info.plist" << EOF
 <dict>
     <key>CFBundleName</key><string>Ilvarion</string>
     <key>CFBundleDisplayName</key><string>Ilvarion</string>
-    <key>CFBundleIdentifier</key><string>dev.ilvarion.app</string>
+    <key>CFBundleIdentifier</key><string>com.ilvarion.app</string>
     <key>CFBundleVersion</key><string>$VERSION</string>
     <key>CFBundleShortVersionString</key><string>$VERSION</string>
     <key>CFBundleExecutable</key><string>Ilvarion</string>
@@ -82,7 +82,7 @@ cat > "$CONTENTS/Info.plist" << EOF
     <key>SUPublicEDKey</key>
     <string>QNMtWO7H9Z9Hv1J9bAsunleicPvJVP2bMJQezjV3vmM=</string>
     <key>SUFeedURL</key>
-    <string>https://ilvarion.dev/appcast.xml</string>
+    <string>https://ilvarion.com/appcast.xml</string>
     <key>SUEnableAutomaticChecks</key>
     <true/>
 </dict>
@@ -90,7 +90,7 @@ cat > "$CONTENTS/Info.plist" << EOF
 EOF
 
 # ── System Extension Bundle ─────────────────────
-SYSEXT="$CONTENTS/Library/SystemExtensions/dev.ilvarion.app.extension.systemextension"
+SYSEXT="$CONTENTS/Library/SystemExtensions/com.ilvarion.app.extension.systemextension"
 SYSEXT_CONTENTS="$SYSEXT/Contents"
 mkdir -p "$SYSEXT_CONTENTS/MacOS"
 
@@ -103,7 +103,7 @@ cat > "$SYSEXT_CONTENTS/Info.plist" << EOF
 <dict>
     <key>CFBundleName</key><string>IlvarionExtension</string>
     <key>CFBundleDisplayName</key><string>Ilvarion Network Extension</string>
-    <key>CFBundleIdentifier</key><string>dev.ilvarion.app.extension</string>
+    <key>CFBundleIdentifier</key><string>com.ilvarion.app.extension</string>
     <key>CFBundleVersion</key><string>$VERSION</string>
     <key>CFBundleShortVersionString</key><string>$VERSION</string>
     <key>CFBundleExecutable</key><string>IlvarionExtension</string>
