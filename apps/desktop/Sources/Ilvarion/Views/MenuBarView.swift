@@ -3,6 +3,7 @@ import SwiftUI
 struct MenuBarView: View {
     @ObservedObject var proxyManager: ProxyManager
     @ObservedObject var updater: AutoUpdater
+    @Environment(\.openSettings) private var openSettings
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -100,7 +101,7 @@ struct MenuBarView: View {
 
             Button(action: {
                 NSApp.activate(ignoringOtherApps: true)
-                NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+                openSettings()
             }) {
                 Label("Settings...", systemImage: "gear")
             }
