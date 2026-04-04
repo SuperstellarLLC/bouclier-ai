@@ -1,7 +1,0 @@
-{
-  "$schema": "https://openapi.vercel.sh/vercel.json",
-  "installCommand": "pnpm install --frozen-lockfile",
-  "buildCommand": "pnpm --filter @ilvarion/patterns build && pnpm --filter site build",
-  "outputDirectory": "apps/site/.next",
-  "framework": "nextjs"
-}
