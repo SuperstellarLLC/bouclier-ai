@@ -4,17 +4,6 @@ import ServiceManagement
 import SwiftUI
 import UserNotifications
 
-/// Central coordinator for all proxy components.
-///
-/// Setup flow:
-/// 1. Install CA certificate (admin password prompt)
-/// 2. Start NIO TLS proxy on localhost
-/// 3. Install System Extension (macOS approval prompt)
-/// 4. Enable NETransparentProxyManager (routes all AI traffic to NIO proxy)
-/// 5. Also configure system proxy PAC as fallback for apps that bypass the extension
-///
-/// The System Extension captures traffic at the OS level and sends CONNECT
-/// requests to the NIO proxy. The NIO proxy does TLS interception + scanning.
 @MainActor
 final class ProxyManager: ObservableObject {
     @Published var isRunning = false
@@ -25,7 +14,8 @@ final class ProxyManager: ObservableObject {
     @Published var logs: [LogEntry] = []
 
     var port: Int {
-        UserDefaults.standard.object(forKey: "proxyPort") as? Int ?? 8484
+        let p = UserDefaults.standard.object(forKey: "proxyPort") as? Int ?? 8484
+        return (1...65535).contains(p) ? p : 8484
     }
 
     private var tlsProxy: TLSProxy?
@@ -33,9 +23,14 @@ final class ProxyManager: ObservableObject {
     let ca = CertificateAuthority()
     let extensionManager = ExtensionManager()
     private let patternManager = PatternManager(onChange: {
-        print("[ilvarion] Patterns updated — active on new connections")
+        print("[ilvarion] Patterns updated")
     })
     private var storage: StorageManager?
+
+    init() {
+        // Register crash cleanup — disable system proxy if we die unexpectedly
+        registerCleanupHandlers()
+    }
 
     func initializeStorage() {
         guard storage == nil else { return }
@@ -52,11 +47,9 @@ final class ProxyManager: ObservableObject {
         }
     }
 
-    /// Full first-time setup: CA → NIO proxy → System Extension → system proxy fallback.
     func setup() {
         errorMessage = nil
 
-        // Step 1: CA certificate
         if !ca.isInstalled {
             let success = ca.installCA()
             caInstalled = success
@@ -67,28 +60,23 @@ final class ProxyManager: ObservableObject {
             log("CA certificate installed and trusted", blocked: false)
         }
 
-        // Step 2: Start NIO TLS proxy
         start()
 
-        // Step 3: Install System Extension
         extensionManager.installExtension { [weak self] success in
             guard let self, success else { return }
             Task { @MainActor in
-                // Step 4: Enable the transparent proxy through the extension
                 let enabled = await self.extensionManager.enableProxy()
                 self.extensionActive = enabled
                 if enabled {
-                    self.log("System Extension active — ALL AI traffic is now intercepted", blocked: false)
+                    self.log("System Extension active — all AI traffic intercepted", blocked: false)
                 }
 
-                // Step 5: Also set system proxy PAC as belt-and-suspenders fallback
                 if SystemProxy.enable(port: self.port) {
                     self.log("System proxy PAC configured as fallback", blocked: false)
                 }
 
-                // Log CLI helper info
                 if let certPath = self.ca.caCertFilePath {
-                    self.log("For CLI tools: eval $(ilvarion-env) — add to ~/.zshrc", blocked: false)
+                    self.log("CLI: eval $(ilvarion-env)", blocked: false)
                 }
             }
         }
@@ -110,32 +98,44 @@ final class ProxyManager: ObservableObject {
         )
         tlsProxy = proxy
 
-        Task {
+        Task.detached { [weak self] in
+            guard let self else { return }
             do {
                 let channel = try await proxy.start()
-                proxyChannel = channel
-                isRunning = true
-                log("TLS proxy listening on 127.0.0.1:\(port)", blocked: false)
+                await MainActor.run {
+                    self.proxyChannel = channel
+                    self.isRunning = true
+                    self.log("TLS proxy listening on 127.0.0.1:\(self.port)", blocked: false)
+                }
             } catch {
-                isRunning = false
-                let msg = Self.friendlyError(error)
-                errorMessage = msg
-                log("Proxy failed: \(msg)", blocked: true)
+                await MainActor.run {
+                    self.isRunning = false
+                    let msg = Self.friendlyError(error)
+                    self.errorMessage = msg
+                    self.log("Proxy failed: \(msg)", blocked: true)
+                }
             }
         }
     }
 
     func stop() {
-        proxyChannel?.close(promise: nil)
+        // Close channel first (non-blocking)
+        proxyChannel?.close(mode: .all, promise: nil)
         proxyChannel = nil
-        tlsProxy?.shutdown()
+
+        // Shutdown NIO on a background thread to avoid deadlock
+        let proxy = tlsProxy
         tlsProxy = nil
+        Task.detached {
+            proxy?.shutdown()
+        }
+
         isRunning = false
         errorMessage = nil
 
         Task {
             await extensionManager.disableProxy()
-            extensionActive = false
+            await MainActor.run { extensionActive = false }
         }
         _ = SystemProxy.disable()
 
@@ -157,8 +157,21 @@ final class ProxyManager: ObservableObject {
         do {
             if enabled { try SMAppService.mainApp.register() }
             else { try SMAppService.mainApp.unregister() }
-        } catch {
-            print("[ilvarion] Launch at login error: \(error)")
+        } catch {}
+    }
+
+    // MARK: - Crash Recovery
+
+    private nonisolated func registerCleanupHandlers() {
+        // Disable system proxy on SIGTERM (e.g., force quit from Activity Monitor)
+        signal(SIGTERM) { _ in
+            _ = SystemProxy.disable()
+            exit(0)
+        }
+
+        // Disable on normal exit
+        atexit {
+            _ = SystemProxy.disable()
         }
     }
 
