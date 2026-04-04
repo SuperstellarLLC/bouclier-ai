@@ -58,6 +58,9 @@ if [ -n "$SPARKLE_PATH" ]; then
   echo "Bundled Sparkle.framework"
 fi
 
+# Fix rpath so the binary can find Sparkle.framework at runtime
+install_name_tool -add_rpath @executable_path/../Frameworks "$CONTENTS/MacOS/Ilvarion" 2>/dev/null || true
+
 # Info.plist
 cat > "$CONTENTS/Info.plist" << EOF
 <?xml version="1.0" encoding="UTF-8"?>
