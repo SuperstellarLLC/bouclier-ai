@@ -5,15 +5,14 @@ struct MenuBarView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            // Header
             HStack {
                 Circle()
-                    .fill(proxyManager.errorMessage != nil ? Color.red : proxyManager.isRunning ? Color.green : Color.secondary)
+                    .fill(statusColor)
                     .frame(width: 10, height: 10)
                 Text("Ilvarion")
                     .font(.headline)
                 Spacer()
-                Text(proxyManager.errorMessage != nil ? "Error" : proxyManager.isRunning ? "Active" : "Stopped")
+                Text(statusText)
                     .font(.caption)
                     .foregroundStyle(proxyManager.errorMessage != nil ? .red : .secondary)
             }
@@ -35,14 +34,8 @@ struct MenuBarView: View {
             if proxyManager.isRunning {
                 Divider()
 
-                // Stats
                 HStack {
-                    StatBadge(
-                        value: "\(proxyManager.stats.requestsScanned)",
-                        label: "Scanned",
-                        icon: "magnifyingglass",
-                        color: .blue
-                    )
+                    StatBadge(value: "\(proxyManager.stats.requestsScanned)", label: "Scanned", icon: "magnifyingglass", color: .blue)
                     Spacer()
                     StatBadge(
                         value: "\(proxyManager.stats.injectionsBlocked)",
@@ -52,8 +45,7 @@ struct MenuBarView: View {
                     )
                 }
 
-                // Last blocked (if any)
-                if let lastBlocked = proxyManager.logs.first(where: { $0.blocked }) {
+                if let lastBlocked = proxyManager.logs.first(where: { $0.blocked && $0.message.contains("Blocked") }) {
                     HStack(spacing: 6) {
                         Image(systemName: "exclamationmark.triangle.fill")
                             .foregroundStyle(.orange)
@@ -67,36 +59,34 @@ struct MenuBarView: View {
                     .background(.orange.opacity(0.1))
                     .clipShape(RoundedRectangle(cornerRadius: 6))
                 }
-
-                Text("localhost:\(proxyManager.port)")
-                    .font(.system(.caption, design: .monospaced))
-                    .foregroundStyle(.secondary)
             }
 
             Divider()
 
-            // Actions
-            Button(action: {
-                if proxyManager.isRunning { proxyManager.stop() }
-                else { proxyManager.start() }
-            }) {
-                Label(
-                    proxyManager.isRunning ? "Stop Proxy" : "Start Proxy",
-                    systemImage: proxyManager.isRunning ? "stop.fill" : "play.fill"
-                )
-            }
-            .keyboardShortcut("s")
+            if !proxyManager.caInstalled {
+                Button(action: { proxyManager.setup() }) {
+                    Label("Enable Protection", systemImage: "lock.shield")
+                }
+            } else if proxyManager.isRunning {
+                Button(action: { proxyManager.stop() }) {
+                    Label("Stop Protection", systemImage: "stop.fill")
+                }
+                .keyboardShortcut("s")
 
-            if proxyManager.isRunning {
                 Button(action: { proxyManager.stats.reset() }) {
                     Label("Reset Stats", systemImage: "arrow.counterclockwise")
                 }
+            } else {
+                Button(action: { proxyManager.start() }) {
+                    Label("Start Protection", systemImage: "play.fill")
+                }
+                .keyboardShortcut("s")
             }
 
             Divider()
 
             SettingsLink {
-                Label("Settings…", systemImage: "gear")
+                Label("Settings...", systemImage: "gear")
             }
             .keyboardShortcut(",")
 
@@ -108,6 +98,19 @@ struct MenuBarView: View {
         }
         .padding()
         .frame(width: 280)
+    }
+
+    private var statusColor: Color {
+        if proxyManager.errorMessage != nil { return .red }
+        if proxyManager.isRunning { return .green }
+        return .secondary
+    }
+
+    private var statusText: String {
+        if proxyManager.errorMessage != nil { return "Error" }
+        if proxyManager.isRunning { return "Active" }
+        if !proxyManager.caInstalled { return "Not Configured" }
+        return "Stopped"
     }
 }
 

@@ -8,8 +8,8 @@ struct SettingsView: View {
             GeneralSettingsView(proxyManager: proxyManager)
                 .tabItem { Label("General", systemImage: "gear") }
 
-            ConnectionSettingsView(proxyManager: proxyManager)
-                .tabItem { Label("Connection", systemImage: "network") }
+            ProtectionSettingsView(proxyManager: proxyManager)
+                .tabItem { Label("Protection", systemImage: "shield.checkered") }
 
             LogsView(proxyManager: proxyManager)
                 .tabItem { Label("Logs", systemImage: "doc.text") }
@@ -49,56 +49,67 @@ struct GeneralSettingsView: View {
     }
 }
 
-struct ConnectionSettingsView: View {
+struct ProtectionSettingsView: View {
     @ObservedObject var proxyManager: ProxyManager
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("SDK Configuration")
+            Text("Protection Status")
                 .font(.headline)
-            Text("Set these environment variables to route AI traffic through Ilvarion:")
-                .foregroundStyle(.secondary)
-                .font(.callout)
 
-            VStack(alignment: .leading, spacing: 8) {
-                ConfigRow(
-                    label: "OpenAI",
-                    value: "OPENAI_BASE_URL=http://localhost:\(proxyManager.port)/openai/v1",
-                    copyPrefix: "export "
-                )
-                ConfigRow(
-                    label: "Anthropic",
-                    value: "ANTHROPIC_BASE_URL=http://localhost:\(proxyManager.port)/anthropic",
-                    copyPrefix: "export "
-                )
-                ConfigRow(
-                    label: "Mistral",
-                    value: "MISTRAL_API_URL=http://localhost:\(proxyManager.port)/mistral",
-                    copyPrefix: "export "
-                )
+            Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 8) {
+                GridRow {
+                    Label("CA Certificate", systemImage: proxyManager.caInstalled ? "checkmark.circle.fill" : "xmark.circle")
+                        .foregroundStyle(proxyManager.caInstalled ? .green : .secondary)
+                    Text(proxyManager.caInstalled ? "Installed & Trusted" : "Not installed")
+                        .foregroundStyle(.secondary)
+                }
+                GridRow {
+                    Label("System Proxy", systemImage: proxyManager.systemProxyEnabled ? "checkmark.circle.fill" : "xmark.circle")
+                        .foregroundStyle(proxyManager.systemProxyEnabled ? .green : .secondary)
+                    Text(proxyManager.systemProxyEnabled ? "Enabled (AI domains only)" : "Not configured")
+                        .foregroundStyle(.secondary)
+                }
+                GridRow {
+                    Label("Proxy Server", systemImage: proxyManager.isRunning ? "checkmark.circle.fill" : "xmark.circle")
+                        .foregroundStyle(proxyManager.isRunning ? .green : .secondary)
+                    Text(proxyManager.isRunning ? "Running on port \(proxyManager.port)" : "Stopped")
+                        .foregroundStyle(.secondary)
+                }
             }
+            .font(.callout)
 
             Divider()
 
-            Text("MCP Server Wrapping")
+            Text("Intercepted Domains")
                 .font(.headline)
-            Text("Wrap your MCP servers with the ilvarion-mcp-wrapper binary to scan tool results.")
+            Text("Ilvarion only inspects traffic to these AI API domains. All other traffic is unaffected.")
                 .foregroundStyle(.secondary)
                 .font(.callout)
 
-            Text("""
-            {
-              "command": "ilvarion-mcp-wrapper",
-              "args": ["npx", "-y", "@your/mcp-server"]
+            ScrollView {
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(SystemProxy.interceptedDomains, id: \.self) { domain in
+                        Text(domain)
+                            .font(.system(.caption, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                    }
+                }
             }
-            """)
-            .font(.system(.caption, design: .monospaced))
-            .padding(8)
-            .background(.quaternary)
-            .clipShape(RoundedRectangle(cornerRadius: 6))
-            .textSelection(.enabled)
+            .frame(maxHeight: 100)
 
             Spacer()
+
+            HStack {
+                if !proxyManager.caInstalled {
+                    Button("Enable Protection") { proxyManager.setup() }
+                        .buttonStyle(.borderedProminent)
+                } else {
+                    Button("Remove Certificate & Proxy", role: .destructive) {
+                        proxyManager.uninstall()
+                    }
+                }
+            }
         }
         .padding()
     }
@@ -168,10 +179,9 @@ struct AboutView: View {
                 .font(.caption)
                 .foregroundStyle(.tertiary)
 
-            Divider()
-                .frame(width: 200)
+            Divider().frame(width: 200)
 
-            Text("All detection runs locally. No data ever leaves your machine.")
+            Text("All detection runs locally.\nNo data ever leaves your machine.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
