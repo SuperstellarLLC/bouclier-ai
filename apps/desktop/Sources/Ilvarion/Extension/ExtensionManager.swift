@@ -15,7 +15,7 @@ final class ExtensionManager: NSObject, ObservableObject {
     @Published var proxyEnabled = false
     @Published var errorMessage: String?
 
-    static let extensionBundleID = "dev.ilvarion.app.extension"
+    static let extensionBundleID = "com.ilvarion.app.extension"
 
     private var activationCompletion: ((Bool) -> Void)?
 

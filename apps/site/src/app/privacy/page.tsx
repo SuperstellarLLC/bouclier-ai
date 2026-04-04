@@ -65,7 +65,7 @@ export default function PrivacyPage() {
         </Text>
         <Text color="secondary">
           - Scan results (blocked/allowed, pattern matched, target host, timestamp) are stored in a
-          local SQLite database at ~/Library/Application Support/dev.ilvarion.Ilvarion/
+          local SQLite database at ~/Library/Application Support/com.ilvarion.Ilvarion/
         </Text>
         <Text color="secondary">- Logs are automatically deleted after 30 days</Text>
         <Text color="secondary">
@@ -92,7 +92,7 @@ export default function PrivacyPage() {
 
         <Heading level={3}>Automatic updates</Heading>
         <Text color="secondary">
-          Ilvarion checks for updates via an appcast.xml file hosted on ilvarion.dev. This check
+          Ilvarion checks for updates via an appcast.xml file hosted on ilvarion.com. This check
           transmits only the current app version. Updates are verified using EdDSA signatures and
           must pass Apple notarization. No personal data is included in update checks.
         </Text>
@@ -106,8 +106,8 @@ export default function PrivacyPage() {
         </Text>
 
         <Heading level={3}>Contact</Heading>
-        <Text color="secondary">For privacy questions: privacy@ilvarion.dev</Text>
-        <Text color="secondary">For support: support@ilvarion.dev</Text>
+        <Text color="secondary">For privacy questions: privacy@ilvarion.com</Text>
+        <Text color="secondary">For support: support@ilvarion.com</Text>
       </Stack>
 
       <Divider />

@@ -47,15 +47,22 @@ struct MenuBarView: View {
                 }
 
                 if let lastBlocked = proxyManager.logs.first(where: { $0.blocked && $0.message.contains("Blocked") }) {
-                    HStack(spacing: 6) {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .foregroundStyle(.orange)
-                            .font(.caption)
-                        Text(lastBlocked.message)
-                            .font(.caption2)
-                            .lineLimit(2)
-                            .foregroundStyle(.secondary)
+                    Button(action: { openLogFile() }) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .foregroundStyle(.orange)
+                                .font(.caption)
+                            Text(lastBlocked.message)
+                                .font(.caption2)
+                                .lineLimit(2)
+                                .foregroundStyle(.secondary)
+                            Spacer()
+                            Image(systemName: "arrow.up.right.square")
+                                .font(.caption2)
+                                .foregroundStyle(.tertiary)
+                        }
                     }
+                    .buttonStyle(.plain)
                     .padding(8)
                     .background(.orange.opacity(0.1))
                     .clipShape(RoundedRectangle(cornerRadius: 6))
@@ -107,6 +114,30 @@ struct MenuBarView: View {
         }
         .padding()
         .frame(width: 280)
+    }
+
+    private func openLogFile() {
+        let logDir = FileManager.default.urls(
+            for: .applicationSupportDirectory, in: .userDomainMask
+        ).first!.appendingPathComponent("com.ilvarion.Ilvarion", isDirectory: true)
+        try? FileManager.default.createDirectory(at: logDir, withIntermediateDirectories: true)
+
+        let logFile = logDir.appendingPathComponent("ilvarion.log")
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
+
+        var content = "ILVARION SCAN LOG\n"
+        content += "Generated: \(dateFormatter.string(from: Date()))\n"
+        content += String(repeating: "=", count: 80) + "\n\n"
+
+        for entry in proxyManager.logs {
+            let icon = entry.blocked ? "BLOCKED" : "OK"
+            let time = dateFormatter.string(from: entry.timestamp)
+            content += "[\(time)] [\(icon)] \(entry.message)\n"
+        }
+
+        try? content.write(to: logFile, atomically: true, encoding: .utf8)
+        NSWorkspace.shared.open(logFile)
     }
 
     private var statusColor: Color {

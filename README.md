@@ -44,5 +44,5 @@ Ilvarion runs as a lightweight macOS menubar app that acts as a local proxy. It 
 Detected injections are replaced with:
 
 ```
-[Possible prompt injection redacted by Ilvarion. See https://ilvarion.dev/blocked for details]
+[Possible prompt injection redacted by Ilvarion. See https://ilvarion.com/blocked for details]
 ```

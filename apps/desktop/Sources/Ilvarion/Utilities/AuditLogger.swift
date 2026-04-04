@@ -24,7 +24,7 @@ import os.log
 final class AuditLogger: Sendable {
     static let shared = AuditLogger()
 
-    private let osLog = OSLog(subsystem: "dev.ilvarion.app", category: "audit")
+    private let osLog = OSLog(subsystem: "com.ilvarion.app", category: "audit")
     private let encoder = JSONEncoder()
     private let webhookSession = URLSession(configuration: .ephemeral)
 
