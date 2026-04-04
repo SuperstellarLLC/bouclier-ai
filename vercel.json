@@ -3,6 +3,5 @@
   "buildCommand": "pnpm --filter @ilvarion/patterns build && pnpm --filter site build",
   "outputDirectory": "apps/site/.next",
   "installCommand": "pnpm install --frozen-lockfile",
-  "framework": "nextjs",
-  "rootDirectory": "apps/site"
+  "framework": "nextjs"
 }
