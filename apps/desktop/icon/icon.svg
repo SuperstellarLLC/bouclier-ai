@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0a0a0a"/>
+      <stop offset="100%" stop-color="#171717"/>
+    </linearGradient>
+    <linearGradient id="shield" x1="0.5" y1="0" x2="0.5" y2="1">
+      <stop offset="0%" stop-color="#22d3ee"/>
+      <stop offset="100%" stop-color="#06b6d4"/>
+    </linearGradient>
+    <linearGradient id="check" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#22c55e"/>
+      <stop offset="100%" stop-color="#16a34a"/>
+    </linearGradient>
+  </defs>
+  <!-- Background rounded square (macOS icon shape) -->
+  <rect width="1024" height="1024" rx="228" fill="url(#bg)"/>
+  <!-- Shield body -->
+  <path d="M512 160 L780 280 L780 520 C780 700 660 840 512 900 C364 840 244 700 244 520 L244 280 Z"
+        fill="none" stroke="url(#shield)" stroke-width="40" stroke-linejoin="round"/>
+  <!-- Inner shield fill (subtle) -->
+  <path d="M512 200 L748 308 L748 520 C748 680 640 808 512 864 C384 808 276 680 276 520 L276 308 Z"
+        fill="url(#shield)" opacity="0.08"/>
+  <!-- Checkered pattern on shield (matches SF Symbol shield.checkered) -->
+  <path d="M512 308 L512 864" stroke="url(#shield)" stroke-width="3" opacity="0.3"/>
+  <path d="M276 520 L748 520" stroke="url(#shield)" stroke-width="3" opacity="0.3"/>
+  <!-- Checkmark -->
+  <path d="M380 520 L480 620 L660 400"
+        fill="none" stroke="url(#check)" stroke-width="52" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

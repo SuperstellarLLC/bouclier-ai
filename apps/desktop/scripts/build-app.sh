@@ -50,6 +50,11 @@ if [ -d "$BUILD_DIR/Ilvarion_Ilvarion.bundle" ]; then
   cp -r "$BUILD_DIR/Ilvarion_Ilvarion.bundle" "$CONTENTS/Resources/"
 fi
 
+# App icon
+if [ -f "$PROJECT_DIR/icon/Ilvarion.icns" ]; then
+  cp "$PROJECT_DIR/icon/Ilvarion.icns" "$CONTENTS/Resources/AppIcon.icns"
+fi
+
 # Sparkle framework
 mkdir -p "$CONTENTS/Frameworks"
 SPARKLE_PATH=$(find "$PROJECT_DIR/.build/artifacts" -name "Sparkle.framework" -type d | head -1)
@@ -77,6 +82,7 @@ cat > "$CONTENTS/Info.plist" << EOF
     <key>LSUIElement</key><true/>
     <key>LSMinimumSystemVersion</key><string>14.0</string>
     <key>NSHumanReadableCopyright</key><string>Copyright 2026 Ilvarion</string>
+    <key>CFBundleIconFile</key><string>AppIcon</string>
     <key>NSSystemExtensionUsageDescription</key>
     <string>Ilvarion needs a system extension to intercept AI API traffic for prompt injection scanning.</string>
     <key>SUPublicEDKey</key>
