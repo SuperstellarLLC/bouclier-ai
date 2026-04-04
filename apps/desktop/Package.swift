@@ -4,7 +4,7 @@ import PackageDescription
 let package = Package(
     name: "Ilvarion",
     platforms: [
-        .macOS(.v14),
+        .macOS(.v15),
     ],
     products: [
         .executable(name: "Ilvarion", targets: ["Ilvarion"]),
@@ -50,6 +50,18 @@ let package = Package(
             path: "Sources/EnvHelper",
             swiftSettings: [
                 .swiftLanguageMode(.v6),
+            ]
+        ),
+        .executableTarget(
+            name: "IlvarionExtension",
+            dependencies: [],
+            path: "Sources/IlvarionExtension",
+            swiftSettings: [
+                .swiftLanguageMode(.v6),
+                .unsafeFlags(["-Xfrontend", "-enable-upcoming-feature", "-Xfrontend", "InternalImportsByDefault"], .when(platforms: [])),
+            ],
+            linkerSettings: [
+                .linkedFramework("NetworkExtension"),
             ]
         ),
         .testTarget(

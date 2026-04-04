@@ -4,11 +4,22 @@ import ServiceManagement
 import SwiftUI
 import UserNotifications
 
+/// Central coordinator for all proxy components.
+///
+/// Setup flow:
+/// 1. Install CA certificate (admin password prompt)
+/// 2. Start NIO TLS proxy on localhost
+/// 3. Install System Extension (macOS approval prompt)
+/// 4. Enable NETransparentProxyManager (routes all AI traffic to NIO proxy)
+/// 5. Also configure system proxy PAC as fallback for apps that bypass the extension
+///
+/// The System Extension captures traffic at the OS level and sends CONNECT
+/// requests to the NIO proxy. The NIO proxy does TLS interception + scanning.
 @MainActor
 final class ProxyManager: ObservableObject {
     @Published var isRunning = false
     @Published var caInstalled = false
-    @Published var systemProxyEnabled = false
+    @Published var extensionActive = false
     @Published var errorMessage: String?
     @Published var stats = ProxyStats()
     @Published var logs: [LogEntry] = []
@@ -19,7 +30,8 @@ final class ProxyManager: ObservableObject {
 
     private var tlsProxy: TLSProxy?
     private var proxyChannel: Channel?
-    private let ca = CertificateAuthority()
+    let ca = CertificateAuthority()
+    let extensionManager = ExtensionManager()
     private let patternManager = PatternManager(onChange: {
         print("[ilvarion] Patterns updated — active on new connections")
     })
@@ -30,38 +42,55 @@ final class ProxyManager: ObservableObject {
         storage = try? StorageManager()
         caInstalled = ca.isInstalled
 
+        Task {
+            await extensionManager.checkStatus()
+            extensionActive = extensionManager.proxyEnabled
+        }
+
         if UserDefaults.standard.bool(forKey: "launchAtLogin") && !isRunning && caInstalled {
             start()
         }
     }
 
-    /// Full setup: install CA + start proxy + configure system proxy.
+    /// Full first-time setup: CA → NIO proxy → System Extension → system proxy fallback.
     func setup() {
         errorMessage = nil
 
+        // Step 1: CA certificate
         if !ca.isInstalled {
             let success = ca.installCA()
             caInstalled = success
             if !success {
-                errorMessage = "CA installation was cancelled. Ilvarion needs a trusted certificate to inspect HTTPS traffic."
+                errorMessage = "CA installation was cancelled."
                 return
             }
             log("CA certificate installed and trusted", blocked: false)
         }
 
+        // Step 2: Start NIO TLS proxy
         start()
 
-        if SystemProxy.enable(port: port) {
-            systemProxyEnabled = true
-            log("System proxy configured for AI domains", blocked: false)
-        } else {
-            log("System proxy could not be configured automatically", blocked: true)
-        }
+        // Step 3: Install System Extension
+        extensionManager.installExtension { [weak self] success in
+            guard let self, success else { return }
+            Task { @MainActor in
+                // Step 4: Enable the transparent proxy through the extension
+                let enabled = await self.extensionManager.enableProxy()
+                self.extensionActive = enabled
+                if enabled {
+                    self.log("System Extension active — ALL AI traffic is now intercepted", blocked: false)
+                }
 
-        // Export CA path for CLI helper
-        if let certPath = ca.caCertFilePath {
-            log("CLI: eval $(ilvarion-env) — or add to ~/.zshrc", blocked: false)
-            log("CA cert: \(certPath)", blocked: false)
+                // Step 5: Also set system proxy PAC as belt-and-suspenders fallback
+                if SystemProxy.enable(port: self.port) {
+                    self.log("System proxy PAC configured as fallback", blocked: false)
+                }
+
+                // Log CLI helper info
+                if let certPath = self.ca.caCertFilePath {
+                    self.log("For CLI tools: eval $(ilvarion-env) — add to ~/.zshrc", blocked: false)
+                }
+            }
         }
     }
 
@@ -104,22 +133,25 @@ final class ProxyManager: ObservableObject {
         isRunning = false
         errorMessage = nil
 
-        if SystemProxy.disable() {
-            systemProxyEnabled = false
+        Task {
+            await extensionManager.disableProxy()
+            extensionActive = false
         }
+        _ = SystemProxy.disable()
+
         log("Proxy stopped", blocked: false)
     }
 
     func uninstall() {
         stop()
+        extensionManager.removeExtension()
         ca.uninstallCA()
         caInstalled = false
-        log("CA certificate removed", blocked: false)
+        extensionActive = false
+        log("Ilvarion fully uninstalled", blocked: false)
     }
 
     func clearLogs() { logs.removeAll() }
-
-    // MARK: - Launch at Login
 
     static func setLaunchAtLogin(_ enabled: Bool) {
         do {
@@ -163,12 +195,10 @@ final class ProxyManager: ObservableObject {
 
     private func sendBlockNotification(count: Int, target: String) {
         guard UserDefaults.standard.object(forKey: "showNotifications") as? Bool ?? true else { return }
-
         let content = UNMutableNotificationContent()
         content.title = "Injection Blocked"
-        content.body = "Blocked \(count) injection\(count > 1 ? "s" : "") in request to \(target)"
+        content.body = "Blocked \(count) injection\(count > 1 ? "s" : "") → \(target)"
         content.sound = UserDefaults.standard.bool(forKey: "quietMode") ? nil : .default
-
         let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
         UNUserNotificationCenter.current().add(request)
     }
@@ -188,11 +218,7 @@ final class ProxyManager: ObservableObject {
 struct ProxyStats {
     var requestsScanned: Int = 0
     var injectionsBlocked: Int = 0
-
-    mutating func reset() {
-        requestsScanned = 0
-        injectionsBlocked = 0
-    }
+    mutating func reset() { requestsScanned = 0; injectionsBlocked = 0 }
 }
 
 struct LogEntry: Identifiable {

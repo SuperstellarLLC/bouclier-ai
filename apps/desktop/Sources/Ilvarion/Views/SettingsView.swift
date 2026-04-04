@@ -58,24 +58,12 @@ struct ProtectionSettingsView: View {
                 .font(.headline)
 
             Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 8) {
-                GridRow {
-                    Label("CA Certificate", systemImage: proxyManager.caInstalled ? "checkmark.circle.fill" : "xmark.circle")
-                        .foregroundStyle(proxyManager.caInstalled ? .green : .secondary)
-                    Text(proxyManager.caInstalled ? "Installed & Trusted" : "Not installed")
-                        .foregroundStyle(.secondary)
-                }
-                GridRow {
-                    Label("System Proxy", systemImage: proxyManager.systemProxyEnabled ? "checkmark.circle.fill" : "xmark.circle")
-                        .foregroundStyle(proxyManager.systemProxyEnabled ? .green : .secondary)
-                    Text(proxyManager.systemProxyEnabled ? "Enabled (AI domains only)" : "Not configured")
-                        .foregroundStyle(.secondary)
-                }
-                GridRow {
-                    Label("Proxy Server", systemImage: proxyManager.isRunning ? "checkmark.circle.fill" : "xmark.circle")
-                        .foregroundStyle(proxyManager.isRunning ? .green : .secondary)
-                    Text(proxyManager.isRunning ? "Running on port \(proxyManager.port)" : "Stopped")
-                        .foregroundStyle(.secondary)
-                }
+                StatusRow(label: "CA Certificate", active: proxyManager.caInstalled,
+                          detail: proxyManager.caInstalled ? "Installed & Trusted" : "Not installed")
+                StatusRow(label: "TLS Proxy", active: proxyManager.isRunning,
+                          detail: proxyManager.isRunning ? "Port \(proxyManager.port)" : "Stopped")
+                StatusRow(label: "System Extension", active: proxyManager.extensionActive,
+                          detail: proxyManager.extensionActive ? "Capturing all AI traffic" : "Not active")
             }
             .font(.callout)
 
@@ -100,18 +88,50 @@ struct ProtectionSettingsView: View {
 
             Spacer()
 
+            if let certPath = proxyManager.ca.caCertFilePath {
+                Divider()
+                Text("CLI Tools")
+                    .font(.headline)
+                Text("Add to ~/.zshrc for Python/Node.js coverage:")
+                    .foregroundStyle(.secondary)
+                    .font(.callout)
+                Text("eval $(ilvarion-env)")
+                    .font(.system(.caption, design: .monospaced))
+                    .textSelection(.enabled)
+                    .padding(6)
+                    .background(.quaternary)
+                    .clipShape(RoundedRectangle(cornerRadius: 4))
+            }
+
+            Spacer()
+
             HStack {
                 if !proxyManager.caInstalled {
                     Button("Enable Protection") { proxyManager.setup() }
                         .buttonStyle(.borderedProminent)
                 } else {
-                    Button("Remove Certificate & Proxy", role: .destructive) {
+                    Button("Uninstall Everything", role: .destructive) {
                         proxyManager.uninstall()
                     }
                 }
             }
         }
         .padding()
+    }
+}
+
+private struct StatusRow: View {
+    let label: String
+    let active: Bool
+    let detail: String
+
+    var body: some View {
+        GridRow {
+            Label(label, systemImage: active ? "checkmark.circle.fill" : "xmark.circle")
+                .foregroundStyle(active ? .green : .secondary)
+            Text(detail)
+                .foregroundStyle(.secondary)
+        }
     }
 }
 
