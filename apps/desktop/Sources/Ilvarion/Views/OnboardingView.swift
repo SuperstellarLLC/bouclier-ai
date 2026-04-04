@@ -4,13 +4,13 @@ struct OnboardingView: View {
     @ObservedObject var proxyManager: ProxyManager
     @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
     @State private var currentStep = 0
+    @State private var isSettingUp = false
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         VStack(spacing: 0) {
-            // Progress bar
             HStack(spacing: 4) {
-                ForEach(0..<3, id: \.self) { step in
+                ForEach(0..<2, id: \.self) { step in
                     Capsule()
                         .fill(step <= currentStep ? Color.accentColor : Color.secondary.opacity(0.3))
                         .frame(height: 4)
@@ -20,18 +20,15 @@ struct OnboardingView: View {
             .padding(.top, 20)
 
             Group {
-                switch currentStep {
-                case 0:
+                if currentStep == 0 {
                     welcomeStep
-                case 1:
-                    configureStep
-                default:
-                    startStep
+                } else {
+                    protectStep
                 }
             }
             .padding(32)
         }
-        .frame(width: 500, height: 400)
+        .frame(width: 480, height: 380)
     }
 
     private var welcomeStep: some View {
@@ -42,77 +39,83 @@ struct OnboardingView: View {
                 .foregroundStyle(.tint)
             Text("Welcome to Ilvarion")
                 .font(.title.bold())
-            Text("Ilvarion protects your AI interactions by scanning for prompt injections locally. No data ever leaves your machine.")
+            Text("Ilvarion scans all AI API traffic on your Mac for prompt injections. Everything runs locally — no data ever leaves your machine.")
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.secondary)
-                .frame(maxWidth: 360)
+                .frame(maxWidth: 380)
             Spacer()
-            Button("Get Started") { currentStep = 1 }
+            Button("Continue") { currentStep = 1 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
         }
     }
 
-    private var configureStep: some View {
+    private var protectStep: some View {
         VStack(spacing: 16) {
             Spacer()
-            Image(systemName: "terminal")
-                .font(.system(size: 48))
-                .foregroundStyle(.tint)
-            Text("Configure Your AI SDKs")
-                .font(.title2.bold())
-            Text("Point your AI SDK to the local proxy:")
-                .foregroundStyle(.secondary)
 
-            VStack(alignment: .leading, spacing: 12) {
-                ConfigRow(
-                    label: "OpenAI",
-                    value: "OPENAI_BASE_URL=http://localhost:\(proxyManager.port)/openai/v1"
-                )
-                ConfigRow(
-                    label: "Anthropic",
-                    value: "ANTHROPIC_BASE_URL=http://localhost:\(proxyManager.port)/anthropic"
-                )
+            if proxyManager.isRunning {
+                Image(systemName: "checkmark.shield.fill")
+                    .font(.system(size: 56))
+                    .foregroundStyle(.green)
+                Text("You're Protected")
+                    .font(.title2.bold())
+                Text("Ilvarion is now scanning all AI traffic. You'll see a shield icon in your menubar.")
+                    .multilineTextAlignment(.center)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: 380)
+            } else {
+                Image(systemName: "lock.shield")
+                    .font(.system(size: 56))
+                    .foregroundStyle(.tint)
+                Text("Enable Protection")
+                    .font(.title2.bold())
+                Text("Ilvarion will install a local security certificate and configure your network to route AI traffic through the scanner. You'll be prompted for your admin password.")
+                    .multilineTextAlignment(.center)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: 380)
+
+                if let error = proxyManager.errorMessage {
+                    Text(error)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                        .multilineTextAlignment(.center)
+                        .frame(maxWidth: 380)
+                }
             }
-            .padding()
-            .background(.quaternary.opacity(0.5))
-            .clipShape(RoundedRectangle(cornerRadius: 8))
 
             Spacer()
-            Button("Next") { currentStep = 2 }
+
+            if proxyManager.isRunning {
+                Button("Done") {
+                    hasCompletedOnboarding = true
+                    dismiss()
+                }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
-        }
-    }
+            } else {
+                Button(action: {
+                    isSettingUp = true
+                    proxyManager.setup()
+                    isSettingUp = false
+                }) {
+                    if isSettingUp {
+                        ProgressView()
+                            .controlSize(.small)
+                    } else {
+                        Text("Enable Protection")
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .disabled(isSettingUp)
 
-    private var startStep: some View {
-        VStack(spacing: 16) {
-            Spacer()
-            Image(systemName: proxyManager.isRunning ? "checkmark.shield" : "play.circle")
-                .font(.system(size: 48))
-                .foregroundStyle(proxyManager.isRunning ? Color.green : Color.accentColor)
-            Text(proxyManager.isRunning ? "You're Protected" : "Start the Proxy")
-                .font(.title2.bold())
-            Text(proxyManager.isRunning
-                 ? "Ilvarion is now scanning all AI traffic for prompt injections."
-                 : "Start the proxy to begin protecting your AI interactions.")
-                .multilineTextAlignment(.center)
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: 360)
-
-            Spacer()
-            if !proxyManager.isRunning {
-                Button("Start Proxy") { proxyManager.start() }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.large)
+                Button("Skip for Now") {
+                    hasCompletedOnboarding = true
+                    dismiss()
+                }
+                .buttonStyle(.bordered)
             }
-
-            Button(proxyManager.isRunning ? "Done" : "Skip for Now") {
-                hasCompletedOnboarding = true
-                dismiss()
-            }
-            .buttonStyle(.bordered)
         }
     }
 }
-

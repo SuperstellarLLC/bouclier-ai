@@ -6,6 +6,8 @@ import UserNotifications
 @MainActor
 final class ProxyManager: ObservableObject {
     @Published var isRunning = false
+    @Published var caInstalled = false
+    @Published var systemProxyEnabled = false
     @Published var errorMessage: String?
     @Published var stats = ProxyStats()
     @Published var logs: [LogEntry] = []
@@ -15,6 +17,7 @@ final class ProxyManager: ObservableObject {
     }
 
     private var httpProxy: HTTPProxy?
+    private let ca = CertificateAuthority()
     private let patternManager = PatternManager(onChange: {
         print("[ilvarion] Pattern update detected — new connections will use updated patterns")
     })
@@ -23,10 +26,37 @@ final class ProxyManager: ObservableObject {
     func initializeStorage() {
         guard storage == nil else { return }
         storage = try? StorageManager()
+        caInstalled = ca.isInstalled
 
-        // Auto-start if the setting is enabled
-        if UserDefaults.standard.bool(forKey: "launchAtLogin") && !isRunning {
+        if UserDefaults.standard.bool(forKey: "launchAtLogin") && !isRunning && caInstalled {
             start()
+        }
+    }
+
+    /// Full setup: install CA (prompts admin) + enable system proxy + start listening.
+    func setup() {
+        errorMessage = nil
+
+        // Step 1: Install CA certificate (prompts admin password)
+        if !ca.isInstalled {
+            let success = ca.installCA()
+            caInstalled = success
+            if !success {
+                errorMessage = "CA certificate installation was cancelled. Ilvarion needs a trusted certificate to inspect HTTPS traffic."
+                return
+            }
+            log("CA certificate installed and trusted", blocked: false)
+        }
+
+        // Step 2: Start the proxy
+        start()
+
+        // Step 3: Configure system proxy
+        if SystemProxy.enable(port: port) {
+            systemProxyEnabled = true
+            log("System proxy configured — AI traffic is now routed through Ilvarion", blocked: false)
+        } else {
+            log("Could not configure system proxy automatically. You may need to set it manually in System Settings > Network.", blocked: true)
         }
     }
 
@@ -34,7 +64,7 @@ final class ProxyManager: ObservableObject {
         guard !isRunning else { return }
         errorMessage = nil
 
-        let proxy = HTTPProxy(port: UInt16(port), filter: patternManager.filter)
+        let proxy = HTTPProxy(port: UInt16(port), filter: patternManager.filter, ca: ca)
         httpProxy = proxy
 
         proxy.start(
@@ -42,7 +72,7 @@ final class ProxyManager: ObservableObject {
                 Task { @MainActor in
                     self?.isRunning = true
                     self?.errorMessage = nil
-                    self?.log("Proxy started on localhost:\(self?.port ?? 0)", blocked: false)
+                    self?.log("Proxy listening on localhost:\(self?.port ?? 0)", blocked: false)
                 }
             },
             onFailed: { [weak self] error in
@@ -66,7 +96,20 @@ final class ProxyManager: ObservableObject {
         httpProxy = nil
         isRunning = false
         errorMessage = nil
+
+        // Disable system proxy
+        if SystemProxy.disable() {
+            systemProxyEnabled = false
+        }
         log("Proxy stopped", blocked: false)
+    }
+
+    /// Remove CA certificate and all proxy config.
+    func uninstall() {
+        stop()
+        ca.uninstallCA()
+        caInstalled = false
+        log("CA certificate removed", blocked: false)
     }
 
     func clearLogs() {
@@ -95,7 +138,7 @@ final class ProxyManager: ObservableObject {
         if requestLog.detected {
             stats.injectionsBlocked += requestLog.matchCount
             log(
-                "Blocked \(requestLog.matchCount) injection(s) in \(requestLog.method) \(requestLog.path) → \(requestLog.targetHost): \(requestLog.patternNames.joined(separator: ", "))",
+                "Blocked \(requestLog.matchCount) injection(s) → \(requestLog.targetHost): \(requestLog.patternNames.joined(separator: ", "))",
                 blocked: true
             )
             sendBlockNotification(count: requestLog.matchCount, target: requestLog.targetHost)
@@ -128,18 +171,14 @@ final class ProxyManager: ObservableObject {
         content.body = "Blocked \(count) injection\(count > 1 ? "s" : "") in request to \(target)"
         content.sound = UserDefaults.standard.bool(forKey: "quietMode") ? nil : .default
 
-        let request = UNNotificationRequest(
-            identifier: UUID().uuidString,
-            content: content,
-            trigger: nil
-        )
+        let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
         UNUserNotificationCenter.current().add(request)
     }
 
     private static func friendlyError(_ error: Error) -> String {
         let desc = error.localizedDescription
         if desc.contains("Address already in use") || desc.contains("48") {
-            return "Port is already in use. Change the port in Settings or close the other app using it."
+            return "Port is already in use. Change the port in Settings or close the other app."
         }
         if desc.contains("Permission denied") || desc.contains("13") {
             return "Permission denied. Ports below 1024 require admin privileges."
