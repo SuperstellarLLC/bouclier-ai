@@ -4,6 +4,7 @@ import UserNotifications
 @main
 struct IlvarionApp: App {
     @StateObject private var proxyManager = ProxyManager()
+    @StateObject private var updater = AutoUpdater()
 
     init() {
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
@@ -11,7 +12,7 @@ struct IlvarionApp: App {
 
     var body: some Scene {
         MenuBarExtra {
-            MenuBarView(proxyManager: proxyManager)
+            MenuBarView(proxyManager: proxyManager, updater: updater)
                 .onAppear {
                     proxyManager.initializeStorage()
                 }
@@ -22,7 +23,7 @@ struct IlvarionApp: App {
         .menuBarExtraStyle(.window)
 
         Settings {
-            SettingsView(proxyManager: proxyManager)
+            SettingsView(proxyManager: proxyManager, updater: updater)
         }
 
         Window("Welcome to Ilvarion", id: "onboarding") {
