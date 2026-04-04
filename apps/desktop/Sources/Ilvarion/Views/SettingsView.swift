@@ -2,6 +2,7 @@ import SwiftUI
 
 struct SettingsView: View {
     @ObservedObject var proxyManager: ProxyManager
+    @ObservedObject var updater: AutoUpdater
 
     var body: some View {
         TabView {
@@ -14,7 +15,7 @@ struct SettingsView: View {
             LogsView(proxyManager: proxyManager)
                 .tabItem { Label("Logs", systemImage: "doc.text") }
 
-            AboutView()
+            AboutView(updater: updater)
                 .tabItem { Label("About", systemImage: "info.circle") }
         }
         .frame(width: 520, height: 400)
@@ -182,6 +183,8 @@ struct LogsView: View {
 }
 
 struct AboutView: View {
+    @ObservedObject var updater: AutoUpdater
+
     var body: some View {
         VStack(spacing: 12) {
             Image(systemName: "shield.checkered")
@@ -198,6 +201,9 @@ struct AboutView: View {
             Text("Version \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.1.0")")
                 .font(.caption)
                 .foregroundStyle(.tertiary)
+
+            Button("Check for Updates...") { updater.checkForUpdates() }
+                .disabled(!updater.canCheckForUpdates)
 
             Divider().frame(width: 200)
 

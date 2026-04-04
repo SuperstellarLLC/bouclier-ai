@@ -2,6 +2,7 @@ import SwiftUI
 
 struct MenuBarView: View {
     @ObservedObject var proxyManager: ProxyManager
+    @ObservedObject var updater: AutoUpdater
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -84,6 +85,11 @@ struct MenuBarView: View {
             }
 
             Divider()
+
+            Button(action: { updater.checkForUpdates() }) {
+                Label("Check for Updates...", systemImage: "arrow.triangle.2.circlepath")
+            }
+            .disabled(!updater.canCheckForUpdates)
 
             SettingsLink {
                 Label("Settings...", systemImage: "gear")

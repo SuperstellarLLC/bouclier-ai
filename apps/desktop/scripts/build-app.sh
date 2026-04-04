@@ -50,6 +50,14 @@ if [ -d "$BUILD_DIR/Ilvarion_Ilvarion.bundle" ]; then
   cp -r "$BUILD_DIR/Ilvarion_Ilvarion.bundle" "$CONTENTS/Resources/"
 fi
 
+# Sparkle framework
+mkdir -p "$CONTENTS/Frameworks"
+SPARKLE_PATH=$(find "$PROJECT_DIR/.build/artifacts" -name "Sparkle.framework" -type d | head -1)
+if [ -n "$SPARKLE_PATH" ]; then
+  cp -R "$SPARKLE_PATH" "$CONTENTS/Frameworks/"
+  echo "Bundled Sparkle.framework"
+fi
+
 # Info.plist
 cat > "$CONTENTS/Info.plist" << EOF
 <?xml version="1.0" encoding="UTF-8"?>
@@ -68,6 +76,12 @@ cat > "$CONTENTS/Info.plist" << EOF
     <key>NSHumanReadableCopyright</key><string>Copyright 2026 Ilvarion</string>
     <key>NSSystemExtensionUsageDescription</key>
     <string>Ilvarion needs a system extension to intercept AI API traffic for prompt injection scanning.</string>
+    <key>SUPublicEDKey</key>
+    <string>QNMtWO7H9Z9Hv1J9bAsunleicPvJVP2bMJQezjV3vmM=</string>
+    <key>SUFeedURL</key>
+    <string>https://ilvarion.dev/appcast.xml</string>
+    <key>SUEnableAutomaticChecks</key>
+    <true/>
 </dict>
 </plist>
 EOF
