@@ -81,20 +81,31 @@ export default function Home() {
 
           <Code title="architecture" prompt="">
             {`
-    ╭──────────╮       ╭──────────────────────────╮       ╭──────────╮
-    │ Your App │──TLS─▶│       I L V A R I O N    │──TLS─▶│  AI API  │
-    │          │       │                          │       │          │
-    │ Browser  │       │  ┌────────────────────┐  │       │ OpenAI   │
-    │ Python   │       │  │ Decrypt with       │  │       │ Anthropic│
-    │ Node.js  │◀─TLS──│  │ local CA cert      │  │◀─TLS──│ Mistral  │
-    │ curl     │       │  │                    │  │       │ Cohere   │
-    │ Any app  │       │  │ Scan 35 patterns   │  │       │ Groq     │
-    ╰──────────╯       │  │ Score threats      │  │       ╰──────────╯
-                       │  │ Redact injections  │  │
-                       │  └────────────────────┘  │
-                       │                          │
-                       │  localhost ── 0 data out  │
-                       ╰──────────────────────────╯
+ ┌─────────────┐
+ │  Any app    │
+ │  on your    ├──── HTTPS ────┐
+ │  machine    │               │
+ └─────────────┘               ▼
+                ╔══════════════════════╗▒
+                ║   I L V A R I O N    ║▒
+                ║                      ║▒
+                ║   ► Decrypt (CA)     ║▒
+                ║   ► Scan 35 rules    ║▒
+                ║   ► Score threats    ║▒
+                ║   ► Redact attacks   ║▒
+                ║                      ║▒
+                ║   Localhost only.    ║▒
+                ║   Zero data out.     ║▒
+                ╚══════════════════════╝▒
+                 ▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒
+                               │
+                          HTTPS│clean
+                               ▼
+                ┌───────────────────────┐
+                │  OpenAI · Anthropic   │
+                │  Mistral · Cohere     │
+                │  Groq · Perplexity    │
+                └───────────────────────┘
 `}
           </Code>
 
