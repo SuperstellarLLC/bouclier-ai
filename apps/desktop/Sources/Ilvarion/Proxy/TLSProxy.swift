@@ -6,17 +6,19 @@ import NIOPosix
 import NIOSSL
 import NIOTLS
 
-/// NIO-based TLS-intercepting proxy with proper HTTP framing.
+/// NIO-based TLS-intercepting proxy with HTTP-aware inspection.
 ///
-/// Pipeline for intercepted connections:
+/// Intercepted pipeline (after TLS handshake):
 /// ```
 /// Client ──[TLS]──► NIOSSLServerHandler
-///                         │
-///                   HTTPRequestDecoder ──► InspectionHandler ──► HTTPRequestEncoder
-///                         │                                           │
-///                   NIOSSLClientHandler ◄── HTTPResponseEncoder ◄── HTTPResponseDecoder
-///                         │
-///                  ──[TLS]──► Upstream
+///                       │ (plaintext bytes)
+///                 HTTPRequestDecoder
+///                       │ (HTTPServerRequestPart)
+///                 HTTPInspectionHandler  ←── scans body, adjusts Content-Length
+///                       │ (raw bytes, rewritten)
+///                 NIOSSLClientHandler ──[TLS]──► Upstream
+///                       │
+///                 UpstreamRelayHandler ──► back to client
 /// ```
 final class TLSProxy: Sendable {
     private let group: EventLoopGroup
@@ -43,10 +45,8 @@ final class TLSProxy: Sendable {
                 )
             }
             .childChannelOption(.socketOption(.so_reuseaddr), value: 1)
-            .childChannelOption(.maxMessagesPerRead, value: 16)
 
-        let channel = try await bootstrap.bind(host: "127.0.0.1", port: port).get()
-        return channel
+        return try await bootstrap.bind(host: "127.0.0.1", port: port).get()
     }
 
     func shutdown() {
@@ -85,10 +85,10 @@ private final class ConnectHandler: ChannelInboundHandler, RemovableChannelHandl
         let parts = firstLine.split(separator: " ", maxSplits: 2)
 
         guard parts.count >= 2, parts[0] == "CONNECT" else {
-            let body = "{\"service\":\"Ilvarion TLS Proxy\",\"status\":\"running\"}"
-            let response = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: \(body.utf8.count)\r\nConnection: close\r\n\r\n\(body)"
-            var outBuf = context.channel.allocator.buffer(capacity: response.utf8.count)
-            outBuf.writeString(response)
+            let body = "{\"service\":\"Ilvarion\",\"status\":\"running\"}"
+            let resp = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: \(body.utf8.count)\r\nConnection: close\r\n\r\n\(body)"
+            var outBuf = context.channel.allocator.buffer(capacity: resp.utf8.count)
+            outBuf.writeString(resp)
             context.writeAndFlush(wrapInboundOut(outBuf), promise: nil)
             context.close(promise: nil)
             return
@@ -99,30 +99,27 @@ private final class ConnectHandler: ChannelInboundHandler, RemovableChannelHandl
         let host = String(hostPort.first ?? "")
         let port = hostPort.count > 1 ? Int(hostPort[1]) ?? 443 : 443
 
-        let shouldIntercept = SystemProxy.interceptedDomains.contains(host)
-
-        // SSRF: reject CONNECT to non-intercepted hosts entirely
-        guard shouldIntercept else {
-            let errorResp = "HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n"
-            var errBuf = context.channel.allocator.buffer(capacity: errorResp.utf8.count)
-            errBuf.writeString(errorResp)
+        // Only allow intercepted domains (SSRF protection)
+        guard SystemProxy.interceptedDomains.contains(host) else {
+            let resp = "HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n"
+            var errBuf = context.channel.allocator.buffer(capacity: resp.utf8.count)
+            errBuf.writeString(resp)
             context.writeAndFlush(wrapInboundOut(errBuf), promise: nil)
             context.close(promise: nil)
             return
         }
 
-        // Send 200 then set up interception
         let established = "HTTP/1.1 200 Connection Established\r\n\r\n"
-        var responseBuf = context.channel.allocator.buffer(capacity: established.utf8.count)
-        responseBuf.writeString(established)
+        var respBuf = context.channel.allocator.buffer(capacity: established.utf8.count)
+        respBuf.writeString(established)
 
-        context.writeAndFlush(wrapInboundOut(responseBuf)).whenSuccess { [self] in
+        context.writeAndFlush(wrapInboundOut(respBuf)).whenSuccess { [self] in
             context.pipeline.removeHandler(self, promise: nil)
-            setupInterception(context: context, host: host, port: port)
+            setupTLS(context: context, host: host, port: port)
         }
     }
 
-    private func setupInterception(context: ChannelHandlerContext, host: String, port: Int) {
+    private func setupTLS(context: ChannelHandlerContext, host: String, port: Int) {
         guard let (certPEM, keyPEM) = ca.leafCertAndKey(forHost: host) else {
             context.close(promise: nil)
             return
@@ -132,22 +129,19 @@ private final class ConnectHandler: ChannelInboundHandler, RemovableChannelHandl
             let cert = try NIOSSLCertificate(bytes: Array(certPEM.utf8), format: .pem)
             let key = try NIOSSLPrivateKey(bytes: Array(keyPEM.utf8), format: .pem)
 
-            var serverTLSConfig = TLSConfiguration.makeServerConfiguration(
+            var tlsConfig = TLSConfiguration.makeServerConfiguration(
                 certificateChain: [.certificate(cert)],
                 privateKey: .privateKey(key)
             )
-            serverTLSConfig.minimumTLSVersion = .tlsv12
+            tlsConfig.minimumTLSVersion = .tlsv12
 
-            let sslServerContext = try NIOSSLContext(configuration: serverTLSConfig)
-            let sslServerHandler = NIOSSLServerHandler(context: sslServerContext)
+            let sslContext = try NIOSSLContext(configuration: tlsConfig)
+            let sslHandler = NIOSSLServerHandler(context: sslContext)
 
-            // Add TLS handler, then wait for handshake completion
-            context.pipeline.addHandler(sslServerHandler, position: .first).whenSuccess {
+            context.pipeline.addHandler(sslHandler, position: .first).whenSuccess {
                 context.pipeline.addHandler(
-                    TLSHandshakeWaiter(host: host, port: port, filter: self.filter, onRequest: self.onRequest)
-                ).whenFailure { error in
-                    context.close(promise: nil)
-                }
+                    HandshakeWaiter(host: host, port: port, filter: self.filter, onRequest: self.onRequest)
+                ).whenFailure { _ in context.close(promise: nil) }
             }
         } catch {
             context.close(promise: nil)
@@ -155,10 +149,9 @@ private final class ConnectHandler: ChannelInboundHandler, RemovableChannelHandl
     }
 }
 
-// MARK: - TLS Handshake Waiter
+// MARK: - Handshake Waiter
 
-/// Waits for TLS handshake to complete before adding the inspection bridge.
-private final class TLSHandshakeWaiter: ChannelInboundHandler, RemovableChannelHandler {
+private final class HandshakeWaiter: ChannelInboundHandler, RemovableChannelHandler {
     typealias InboundIn = ByteBuffer
 
     private let host: String
@@ -175,45 +168,49 @@ private final class TLSHandshakeWaiter: ChannelInboundHandler, RemovableChannelH
 
     func userInboundEventTriggered(context: ChannelHandlerContext, event: Any) {
         if event is TLSUserEvent {
-            // TLS handshake completed — now add the inspection bridge
             context.pipeline.removeHandler(self, promise: nil)
 
-            context.pipeline.addHandler(
-                InspectionBridgeHandler(
-                    host: host,
-                    port: port,
-                    filter: filter,
-                    onRequest: onRequest,
-                    eventLoop: context.eventLoop
+            // Add HTTP decoder → inspection handler
+            // The inspection handler accumulates the full HTTP request,
+            // scans the body, rebuilds the request with adjusted Content-Length,
+            // and forwards raw bytes to upstream via a direct channel bridge.
+            context.pipeline.addHandler(ByteToMessageHandler(HTTPRequestDecoder(leftOverBytesStrategy: .forwardBytes))).flatMap {
+                context.pipeline.addHandler(
+                    HTTPInspectionHandler(
+                        host: self.host,
+                        port: self.port,
+                        filter: self.filter,
+                        onRequest: self.onRequest,
+                        eventLoop: context.eventLoop
+                    )
                 )
-            ).whenFailure { _ in
-                context.close(promise: nil)
-            }
+            }.whenFailure { _ in context.close(promise: nil) }
         }
         context.fireUserInboundEventTriggered(event)
     }
 
     func channelRead(context: ChannelHandlerContext, data: NIOAny) {
-        // Buffer data until handshake completes — shouldn't normally happen
         context.fireChannelRead(data)
     }
 }
 
-// MARK: - Inspection Bridge
+// MARK: - HTTP-Aware Inspection Handler
 
-/// Bridges client and upstream, scanning plaintext HTTP for injections.
-/// Operates on raw bytes (post-TLS) — scans content and forwards.
-private final class InspectionBridgeHandler: ChannelInboundHandler, RemovableChannelHandler {
-    typealias InboundIn = ByteBuffer
-    typealias InboundOut = ByteBuffer
+/// Parses HTTP requests, accumulates the body, scans for injections,
+/// adjusts Content-Length, and forwards the complete request to upstream.
+private final class HTTPInspectionHandler: ChannelInboundHandler, RemovableChannelHandler {
+    typealias InboundIn = HTTPServerRequestPart
 
     private let host: String
     private let port: Int
     private let filter: InjectionFilter
     private let onRequest: @Sendable (RequestLog) -> Void
     private let eventLoop: EventLoop
+
     private var upstreamChannel: Channel?
-    private var pendingWrites: [ByteBuffer] = []
+    private var requestHead: HTTPRequestHead?
+    private var bodyBuffer = ByteBuffer()
+    private var pendingRawWrites: [ByteBuffer] = []
 
     init(host: String, port: Int, filter: InjectionFilter, onRequest: @Sendable @escaping (RequestLog) -> Void, eventLoop: EventLoop) {
         self.host = host
@@ -224,15 +221,92 @@ private final class InspectionBridgeHandler: ChannelInboundHandler, RemovableCha
     }
 
     func handlerAdded(context: ChannelHandlerContext) {
-        do {
-            var clientTLSConfig = TLSConfiguration.makeClientConfiguration()
-            clientTLSConfig.certificateVerification = .fullVerification
-            let sslClientContext = try NIOSSLContext(configuration: clientTLSConfig)
+        connectToUpstream(context: context)
+    }
 
-            ClientBootstrap(group: eventLoop)
+    func channelRead(context: ChannelHandlerContext, data: NIOAny) {
+        let part = unwrapInboundIn(data)
+
+        switch part {
+        case .head(let head):
+            requestHead = head
+            bodyBuffer.clear()
+
+        case .body(var body):
+            bodyBuffer.writeBuffer(&body)
+
+        case .end:
+            processRequest(context: context)
+        }
+    }
+
+    /// Scan the accumulated body, rebuild the HTTP request, forward to upstream.
+    private func processRequest(context: ChannelHandlerContext) {
+        guard let head = requestHead else { return }
+
+        let bodySize = bodyBuffer.readableBytes
+        let bodyString = bodyBuffer.getString(at: bodyBuffer.readerIndex, length: bodySize) ?? ""
+
+        let scanResult = filter.scan(bodyString)
+
+        onRequest(RequestLog(
+            timestamp: Date(),
+            targetHost: host,
+            detected: scanResult.detected,
+            matchCount: scanResult.matchCount,
+            patternNames: scanResult.patternNames,
+            bodySize: bodySize
+        ))
+
+        // Rebuild the full HTTP request as raw bytes
+        var finalBody = bodyBuffer
+        var headers = head.headers
+
+        if scanResult.detected {
+            // Replace body with sanitized content
+            let sanitized = scanResult.sanitized
+            finalBody = context.channel.allocator.buffer(capacity: sanitized.utf8.count)
+            finalBody.writeString(sanitized)
+
+            // Update Content-Length to match new body size
+            headers.replaceOrAdd(name: "Content-Length", value: "\(finalBody.readableBytes)")
+        }
+
+        // Serialize the HTTP request as raw bytes for upstream
+        var raw = context.channel.allocator.buffer(capacity: 1024 + finalBody.readableBytes)
+        raw.writeString("\(head.method) \(head.uri) HTTP/1.1\r\n")
+        for (name, value) in headers {
+            raw.writeString("\(name): \(value)\r\n")
+        }
+        raw.writeString("\r\n")
+        raw.writeBuffer(&finalBody)
+
+        sendToUpstream(raw)
+
+        // Reset for next request (HTTP keep-alive)
+        requestHead = nil
+        bodyBuffer.clear()
+    }
+
+    private func sendToUpstream(_ buf: ByteBuffer) {
+        if let upstream = upstreamChannel {
+            upstream.writeAndFlush(buf, promise: nil)
+        } else {
+            pendingRawWrites.append(buf)
+        }
+    }
+
+    private func connectToUpstream(context: ChannelHandlerContext) {
+        do {
+            var tlsConfig = TLSConfiguration.makeClientConfiguration()
+            tlsConfig.certificateVerification = .fullVerification
+            let sslContext = try NIOSSLContext(configuration: tlsConfig)
+
+            // Check for upstream corporate proxy
+            let bootstrap = ClientBootstrap(group: eventLoop)
                 .channelInitializer { channel in
                     do {
-                        let sslHandler = try NIOSSLClientHandler(context: sslClientContext, serverHostname: self.host)
+                        let sslHandler = try NIOSSLClientHandler(context: sslContext, serverHostname: self.host)
                         return channel.pipeline.addHandlers([
                             sslHandler,
                             UpstreamRelayHandler(clientChannel: context.channel),
@@ -241,57 +315,33 @@ private final class InspectionBridgeHandler: ChannelInboundHandler, RemovableCha
                         return channel.eventLoop.makeFailedFuture(error)
                     }
                 }
-                .connect(host: host, port: port)
-                .whenComplete { result in
-                    switch result {
-                    case .success(let channel):
-                        self.upstreamChannel = channel
-                        for buf in self.pendingWrites {
-                            channel.writeAndFlush(buf, promise: nil)
-                        }
-                        self.pendingWrites.removeAll()
-                    case .failure:
-                        context.close(promise: nil)
+
+            // Use corporate proxy if configured
+            let connectHost: String
+            let connectPort: Int
+            if let proxyConfig = CorporateProxy.detect() {
+                connectHost = proxyConfig.host
+                connectPort = proxyConfig.port
+                // TODO: Send CONNECT through corporate proxy to reach AI endpoint
+            } else {
+                connectHost = host
+                connectPort = port
+            }
+
+            bootstrap.connect(host: connectHost, port: connectPort).whenComplete { result in
+                switch result {
+                case .success(let channel):
+                    self.upstreamChannel = channel
+                    for buf in self.pendingRawWrites {
+                        channel.writeAndFlush(buf, promise: nil)
                     }
+                    self.pendingRawWrites.removeAll()
+                case .failure:
+                    context.close(promise: nil)
                 }
+            }
         } catch {
             context.close(promise: nil)
-        }
-    }
-
-    func channelRead(context: ChannelHandlerContext, data: NIOAny) {
-        var buf = unwrapInboundIn(data)
-        let size = buf.readableBytes
-
-        // Scan plaintext for injections
-        if let str = buf.getString(at: buf.readerIndex, length: buf.readableBytes) {
-            let result = filter.scan(str)
-
-            onRequest(RequestLog(
-                timestamp: Date(),
-                targetHost: host,
-                detected: result.detected,
-                matchCount: result.matchCount,
-                patternNames: result.patternNames,
-                bodySize: size
-            ))
-
-            if result.detected {
-                var sanitizedBuf = context.channel.allocator.buffer(capacity: result.sanitized.utf8.count)
-                sanitizedBuf.writeString(result.sanitized)
-                forwardToUpstream(sanitizedBuf)
-                return
-            }
-        }
-
-        forwardToUpstream(buf)
-    }
-
-    private func forwardToUpstream(_ buf: ByteBuffer) {
-        if let upstream = upstreamChannel {
-            upstream.writeAndFlush(buf, promise: nil)
-        } else {
-            pendingWrites.append(buf)
         }
     }
 
@@ -330,6 +380,38 @@ private final class UpstreamRelayHandler: ChannelInboundHandler {
     func errorCaught(context: ChannelHandlerContext, error: Error) {
         clientChannel.close(promise: nil)
         context.close(promise: nil)
+    }
+}
+
+// MARK: - Corporate Proxy Detection
+
+enum CorporateProxy {
+    struct Config {
+        let host: String
+        let port: Int
+    }
+
+    /// Detect upstream corporate proxy from environment or system settings.
+    static func detect() -> Config? {
+        // Check HTTPS_PROXY env var (standard for corporate environments)
+        if let proxyURL = ProcessInfo.processInfo.environment["HTTPS_PROXY"] ?? ProcessInfo.processInfo.environment["https_proxy"],
+           let url = URL(string: proxyURL),
+           let host = url.host
+        {
+            let port = url.port ?? 8080
+            return Config(host: host, port: port)
+        }
+
+        // Check HTTP_PROXY as fallback
+        if let proxyURL = ProcessInfo.processInfo.environment["HTTP_PROXY"] ?? ProcessInfo.processInfo.environment["http_proxy"],
+           let url = URL(string: proxyURL),
+           let host = url.host
+        {
+            let port = url.port ?? 8080
+            return Config(host: host, port: port)
+        }
+
+        return nil
     }
 }
 

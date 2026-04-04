@@ -75,6 +75,12 @@ final class CertificateAuthority: @unchecked Sendable {
               let certPEM = try? String(contentsOfFile: certPath, encoding: .utf8)
         else { return false }
 
+        // Import key into Keychain for encrypted-at-rest storage
+        storeKeyInKeychain(keyPEM)
+
+        // Delete the plaintext key file — Keychain is the permanent store
+        try? FileManager.default.removeItem(atPath: keyPath)
+
         // Trust the CA cert
         guard let certDER = pemToDER(certPEM),
               let secCert = SecCertificateCreateWithData(nil, certDER as CFData)
@@ -108,7 +114,8 @@ final class CertificateAuthority: @unchecked Sendable {
             SecTrustSettingsRemoveTrustSettings(secCert, .user)
         }
 
-        try? FileManager.default.removeItem(at: Self.caKeyPath)
+        deleteKeyFromKeychain()
+        try? FileManager.default.removeItem(at: Self.caKeyPath) // cleanup any legacy file
         try? FileManager.default.removeItem(at: Self.caCertPath)
     }
 
@@ -211,12 +218,73 @@ final class CertificateAuthority: @unchecked Sendable {
     private func loadExisting() {
         lock.lock()
         defer { lock.unlock() }
-        if let key = try? String(contentsOf: Self.caKeyPath, encoding: .utf8),
-           let cert = try? String(contentsOf: Self.caCertPath, encoding: .utf8)
-        {
+
+        // Load key from Keychain first, fall back to file (migration path)
+        let key: String?
+        if let keychainKey = loadKeyFromKeychain() {
+            key = keychainKey
+        } else if let fileKey = try? String(contentsOf: Self.caKeyPath, encoding: .utf8) {
+            // Migrate: import file key to Keychain, then delete file
+            storeKeyInKeychain(fileKey)
+            try? FileManager.default.removeItem(at: Self.caKeyPath)
+            key = fileKey
+        } else {
+            key = nil
+        }
+
+        if let key, let cert = try? String(contentsOf: Self.caCertPath, encoding: .utf8) {
             _caKeyPEM = key
             _caCertPEM = cert
         }
+    }
+
+    // MARK: - Keychain Key Storage
+
+    private static let keychainTag = "dev.ilvarion.ca.key".data(using: .utf8)!
+
+    private func storeKeyInKeychain(_ keyPEM: String) {
+        guard let keyData = keyPEM.data(using: .utf8) else { return }
+
+        // Delete existing
+        let deleteQuery: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: "dev.ilvarion.Ilvarion",
+            kSecAttrAccount as String: "ca-private-key",
+        ]
+        SecItemDelete(deleteQuery as CFDictionary)
+
+        // Store
+        let addQuery: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: "dev.ilvarion.Ilvarion",
+            kSecAttrAccount as String: "ca-private-key",
+            kSecValueData as String: keyData,
+            kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
+        ]
+        SecItemAdd(addQuery as CFDictionary, nil)
+    }
+
+    private func loadKeyFromKeychain() -> String? {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: "dev.ilvarion.Ilvarion",
+            kSecAttrAccount as String: "ca-private-key",
+            kSecReturnData as String: true,
+        ]
+
+        var item: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary, &item)
+        guard status == errSecSuccess, let data = item as? Data else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
+
+    private func deleteKeyFromKeychain() {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: "dev.ilvarion.Ilvarion",
+            kSecAttrAccount as String: "ca-private-key",
+        ]
+        SecItemDelete(query as CFDictionary)
     }
 
     private func pemToDER(_ pem: String) -> Data? {

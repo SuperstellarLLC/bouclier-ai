@@ -78,7 +78,7 @@ struct ProtectionSettingsView: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 4) {
-                    ForEach(SystemProxy.interceptedDomains, id: \.self) { domain in
+                    ForEach(Array(SystemProxy.interceptedDomains).sorted(), id: \.self) { domain in
                         Text(domain)
                             .font(.system(.caption, design: .monospaced))
                             .foregroundStyle(.secondary)
@@ -104,6 +104,17 @@ struct ProtectionSettingsView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 4))
             }
 
+            if ManagedConfig.isManaged {
+                Divider()
+                HStack(spacing: 6) {
+                    Image(systemName: "building.2")
+                        .foregroundStyle(.blue)
+                    Text("Managed by your organization")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
             Spacer()
 
             HStack {
@@ -114,6 +125,8 @@ struct ProtectionSettingsView: View {
                     Button("Uninstall Everything", role: .destructive) {
                         proxyManager.uninstall()
                     }
+                    .disabled(ManagedConfig.preventUninstall)
+                    .help(ManagedConfig.preventUninstall ? "Uninstall is disabled by your organization" : "")
                 }
             }
         }

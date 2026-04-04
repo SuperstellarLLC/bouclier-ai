@@ -187,6 +187,15 @@ final class ProxyManager: ObservableObject {
                 blocked: true
             )
             sendBlockNotification(count: requestLog.matchCount, target: requestLog.targetHost)
+
+            // SIEM audit log (os_log + optional webhook)
+            AuditLogger.shared.logDetection(
+                host: requestLog.targetHost,
+                matchCount: requestLog.matchCount,
+                patterns: requestLog.patternNames,
+                severity: "high",
+                bodySize: requestLog.bodySize
+            )
         }
 
         storage?.recordScan(
