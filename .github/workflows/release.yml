@@ -23,7 +23,7 @@ jobs:
     name: Build, Sign & Notarize Desktop App
     runs-on: macos-14
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       # ── Build patterns ────────────────────
       - uses: pnpm/action-setup@v4
@@ -151,7 +151,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: [build-desktop]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Download artifacts
         uses: actions/download-artifact@v4
