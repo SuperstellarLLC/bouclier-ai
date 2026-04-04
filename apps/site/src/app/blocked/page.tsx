@@ -85,7 +85,7 @@ export default function BlockedPage() {
         items={[
           { label: "HOME", href: "/" },
           { label: "BLOCKED", href: "/blocked", active: true },
-          { label: "GITHUB", href: "https://github.com/Ilvarion/ilvarion", external: true },
+          { label: "PRIVACY", href: "/privacy" },
         ]}
       />
 
@@ -150,14 +150,10 @@ export default function BlockedPage() {
 
         <Box border="single" padding="md">
           <Text size="sm" color="secondary">
-            If you believe a pattern is incorrectly flagging legitimate content, please report it on
-            GitHub so we can refine the detection rules.
+            If you believe a pattern is incorrectly flagging legitimate content, please contact us
+            so we can refine the detection rules.
           </Text>
-          <Button
-            variant="secondary"
-            href="https://github.com/Ilvarion/ilvarion/issues/new"
-            external
-          >
+          <Button variant="secondary" href="mailto:support@ilvarion.com">
             Report false positive
           </Button>
         </Box>
@@ -168,8 +164,8 @@ export default function BlockedPage() {
       <Footer
         tagline="Local prompt injection firewall"
         links={[
-          { label: "GitHub", href: "https://github.com/Ilvarion/ilvarion", external: true },
           { label: "Home", href: "/" },
+          { label: "Privacy", href: "/privacy" },
         ]}
       />
     </Page>
