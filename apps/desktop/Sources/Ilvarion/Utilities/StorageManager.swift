@@ -45,7 +45,6 @@ final class StorageManager: Sendable {
                 t.column("matchCount", .integer).notNull().defaults(to: 0)
                 t.column("patternIds", .text)                  // JSON array
                 t.column("severity", .text)
-                t.column("contentPreview", .text)
                 t.column("requestSize", .integer)
             }
 
@@ -184,7 +183,6 @@ struct ScanLogRow: FetchableRecord, Codable, Sendable {
     let matchCount: Int
     let patternIds: String?
     let severity: String?
-    let contentPreview: String?
     let requestSize: Int?
 }
 

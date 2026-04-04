@@ -51,8 +51,8 @@ final class AuditLogger: Sendable {
             os_log(.default, log: osLog, "%{public}@", str)
         }
 
-        // 2. Webhook (if configured via MDM or settings)
-        if let urlString = ManagedConfig.webhookURL ?? UserDefaults.standard.string(forKey: "webhookURL"),
+        // 2. Webhook (only when configured by MDM — never user-configurable)
+        if let urlString = ManagedConfig.webhookURL,
            let url = URL(string: urlString),
            let json = try? encoder.encode(entry)
         {
