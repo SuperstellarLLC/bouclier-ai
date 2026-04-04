@@ -12,7 +12,7 @@ export default function PrivacyPage() {
         items={[
           { label: "HOME", href: "/" },
           { label: "PRIVACY", href: "/privacy", active: true },
-          { label: "GITHUB", href: "https://github.com/Ilvarion/ilvarion", external: true },
+          { label: "BLOCKED", href: "/blocked" },
         ]}
       />
 
@@ -133,10 +133,9 @@ export default function PrivacyPage() {
           also removes it from the macOS trust store.
         </Text>
 
-        <Heading level={2}>Open source</Heading>
+        <Heading level={2}>Auditing</Heading>
         <Text color="secondary">
-          Ilvarion is open source. You can audit every line of code, every detection pattern, and
-          every network call at github.com/Ilvarion/ilvarion.
+          Enterprise customers can request a full source code audit. Contact us for details.
         </Text>
 
         <Heading level={2}>Contact</Heading>
@@ -150,7 +149,7 @@ export default function PrivacyPage() {
         tagline="Local prompt injection firewall"
         links={[
           { label: "Home", href: "/" },
-          { label: "GitHub", href: "https://github.com/Ilvarion/ilvarion", external: true },
+          { label: "Blocked list", href: "/blocked" },
         ]}
       />
     </Page>
