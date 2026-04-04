@@ -24,9 +24,27 @@ final class HTTPProxy: @unchecked Sendable {
         "mistral": "https://api.mistral.ai",
     ]
 
+    private static let blockedHosts = [
+        "localhost", "127.0.0.1", "::1", "0.0.0.0",
+        "169.254.169.254", "metadata.google.internal",
+    ]
+
     init(port: UInt16, filter: InjectionFilter) {
         self.port = port
         self.filter = filter
+    }
+
+    static func isPrivateHost(_ host: String) -> Bool {
+        let lower = host.lowercased()
+        if blockedHosts.contains(lower) { return true }
+        if lower.hasSuffix(".local") || lower.hasSuffix(".internal") { return true }
+        // Block RFC 1918 ranges
+        if lower.hasPrefix("10.") || lower.hasPrefix("192.168.") { return true }
+        if lower.hasPrefix("172.") {
+            let parts = lower.split(separator: ".")
+            if parts.count >= 2, let second = Int(parts[1]), (16...31).contains(second) { return true }
+        }
+        return false
     }
 
     nonisolated func start(
@@ -36,6 +54,8 @@ final class HTTPProxy: @unchecked Sendable {
     ) {
         let params = NWParameters.tcp
         params.allowLocalEndpointReuse = true
+        // Restrict to loopback only — never expose to the network
+        params.requiredLocalEndpoint = NWEndpoint.hostPort(host: .ipv4(.loopback), port: NWEndpoint.Port(integerLiteral: port))
 
         do {
             let listener = try NWListener(using: params, on: NWEndpoint.Port(integerLiteral: port))
@@ -157,8 +177,10 @@ private final class ConnectionHandler: Sendable {
         }
 
         // Custom host: /custom/api.example.com/v1/chat
+        // Block private/internal IPs to prevent SSRF
         if providerKey == "custom", components.count > 1 {
             let host = String(components[1])
+            guard !HTTPProxy.isPrivateHost(host) else { return nil }
             let rest = components.count > 2 ? "/" + String(components[2]) : ""
             return URL(string: "https://\(host)\(rest)")
         }

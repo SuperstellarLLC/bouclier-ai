@@ -24,14 +24,30 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "pnpm"
+
+      - name: Build patterns (needed for Swift resources)
+        run: pnpm install --frozen-lockfile && pnpm --filter @ilvarion/patterns build
+
+      - name: Sync patterns to Swift resources
+        run: apps/desktop/scripts/sync-patterns.sh
+
       - name: Build release binary
         run: cd apps/desktop && swift build -c release
 
       - name: Create .app bundle
         run: |
           APP_DIR="Ilvarion.app/Contents/MacOS"
-          mkdir -p "$APP_DIR"
+          RES_DIR="Ilvarion.app/Contents/Resources"
+          mkdir -p "$APP_DIR" "$RES_DIR"
           cp apps/desktop/.build/release/Ilvarion "$APP_DIR/"
+          cp apps/desktop/.build/release/ilvarion-mcp-wrapper "$APP_DIR/"
+          # Copy the resource bundle with patterns.json
+          cp -r apps/desktop/.build/release/Ilvarion_Ilvarion.bundle "$RES_DIR/" 2>/dev/null || true
           cat > "Ilvarion.app/Contents/Info.plist" << PLIST
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">

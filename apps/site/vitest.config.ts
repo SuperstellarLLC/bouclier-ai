@@ -13,6 +13,12 @@ export default defineConfig({
     environment: "jsdom",
     globals: true,
     setupFiles: ["./src/__tests__/setup.ts"],
+    css: true,
+    server: {
+      deps: {
+        inline: [/@n3rd-ai\/ui/],
+      },
+    },
     include: ["src/**/*.{test,spec}.{ts,tsx}"],
     coverage: {
       provider: "v8",

@@ -3,19 +3,18 @@ import { describe, expect, it } from "vitest";
 import Home from "@/app/page";
 
 describe("Home page", () => {
-  it("renders the 404 heading", () => {
+  it("renders the hero heading", () => {
     render(<Home />);
-    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("404");
+    expect(screen.getByText(/prompt injection firewall for macos/i)).toBeInTheDocument();
   });
 
-  it("renders the sailor message", () => {
+  it("renders the download button", () => {
     render(<Home />);
-    expect(screen.getByText(/doesn't exist, sailor/i)).toBeInTheDocument();
+    expect(screen.getByText(/download for macos/i)).toBeInTheDocument();
   });
 
-  it("renders the background image", () => {
+  it("renders the privacy section", () => {
     render(<Home />);
-    const img = screen.getByAltText("Colossal octopus rising from a stormy ocean");
-    expect(img).toBeInTheDocument();
+    expect(screen.getByText(/privacy by design/i)).toBeInTheDocument();
   });
 });
