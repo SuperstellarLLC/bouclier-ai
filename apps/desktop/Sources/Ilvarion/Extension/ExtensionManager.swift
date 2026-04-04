@@ -1,6 +1,6 @@
 import Foundation
-import NetworkExtension
-import SystemExtensions
+@preconcurrency import NetworkExtension
+@preconcurrency import SystemExtensions
 
 /// Manages the Ilvarion System Extension lifecycle.
 ///
