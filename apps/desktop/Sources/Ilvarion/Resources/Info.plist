@@ -5,7 +5,7 @@
     <key>CFBundleName</key>
     <string>Ilvarion</string>
     <key>CFBundleIdentifier</key>
-    <string>dev.ilvarion.app</string>
+    <string>com.ilvarion.app</string>
     <key>CFBundleVersion</key>
     <string>1</string>
     <key>CFBundleShortVersionString</key>

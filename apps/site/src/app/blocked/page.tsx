@@ -109,7 +109,7 @@ export default function BlockedPage() {
             suspicious content was replaced with:
           </Text>
           <Code prompt="">
-            {`[Possible prompt injection redacted by Ilvarion. See https://ilvarion.dev/blocked for details]`}
+            {`[Possible prompt injection redacted by Ilvarion. See https://ilvarion.com/blocked for details]`}
           </Code>
           <Text size="sm" color="secondary">
             The rest of your content was passed through unchanged. Only the matched segments were

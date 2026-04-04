@@ -46,7 +46,7 @@ enum SystemProxy {
         let pacDir = FileManager.default.urls(
             for: .applicationSupportDirectory,
             in: .userDomainMask
-        ).first!.appendingPathComponent("dev.ilvarion.Ilvarion", isDirectory: true)
+        ).first!.appendingPathComponent("com.ilvarion.Ilvarion", isDirectory: true)
 
         try? FileManager.default.createDirectory(at: pacDir, withIntermediateDirectories: true)
         let pacPath = pacDir.appendingPathComponent("proxy.pac")

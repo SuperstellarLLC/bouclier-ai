@@ -9,7 +9,7 @@ import Foundation
 /// intercepting its stdout, scanning JSON-RPC responses for prompt injections
 /// in tool result content blocks, and forwarding sanitized output.
 
-let redactionMessage = "[Possible prompt injection redacted by Ilvarion. See https://ilvarion.dev/blocked for details]"
+let redactionMessage = "[Possible prompt injection redacted by Ilvarion. See https://ilvarion.com/blocked for details]"
 
 // MARK: - Injection Patterns (embedded subset for standalone binary)
 

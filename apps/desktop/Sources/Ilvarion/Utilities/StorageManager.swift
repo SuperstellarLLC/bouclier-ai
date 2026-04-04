@@ -19,7 +19,7 @@ final class StorageManager: Sendable {
         ).first else {
             throw StorageError.noAppSupportDirectory
         }
-        let supportDir = appSupportDir.appendingPathComponent("dev.ilvarion.Ilvarion", isDirectory: true)
+        let supportDir = appSupportDir.appendingPathComponent("com.ilvarion.Ilvarion", isDirectory: true)
 
         try FileManager.default.createDirectory(at: supportDir, withIntermediateDirectories: true)
 

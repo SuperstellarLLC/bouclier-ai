@@ -21,7 +21,7 @@ let port = UserDefaults.standard.object(forKey: "proxyPort") as? Int ?? 8484
 let appSupport = FileManager.default.urls(
     for: .applicationSupportDirectory,
     in: .userDomainMask
-).first!.appendingPathComponent("dev.ilvarion.Ilvarion", isDirectory: true)
+).first!.appendingPathComponent("com.ilvarion.Ilvarion", isDirectory: true)
 
 let caCertPath = appSupport.appendingPathComponent("ca.pem").path
 let caExists = FileManager.default.fileExists(atPath: caCertPath)
