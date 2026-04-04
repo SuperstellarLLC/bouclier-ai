@@ -1,32 +1,25 @@
 import type { Metadata, Viewport } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { N3rdProvider } from "@n3rd-ai/ui";
+import "@n3rd-ai/ui/theme/classic.css";
+import "@n3rd-ai/ui/theme/fonts.css";
 
-import { APP_DESCRIPTION, APP_NAME, APP_URL } from "@/lib/constants";
+import { APP_NAME, APP_URL } from "@/lib/constants";
 
 import "./globals.css";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-  display: "swap",
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-  display: "swap",
-});
+const DESCRIPTION =
+  "Local prompt injection firewall for macOS. Scans AI API traffic and MCP tool results. No data leaves your machine.";
 
 export const metadata: Metadata = {
   title: {
-    default: APP_NAME,
+    default: `${APP_NAME} — Prompt Injection Firewall`,
     template: `%s | ${APP_NAME}`,
   },
-  description: APP_DESCRIPTION,
+  description: DESCRIPTION,
   metadataBase: new URL(APP_URL),
   openGraph: {
-    title: APP_NAME,
-    description: APP_DESCRIPTION,
+    title: `${APP_NAME} — Prompt Injection Firewall`,
+    description: DESCRIPTION,
     siteName: APP_NAME,
     locale: "en_US",
     type: "website",
@@ -34,15 +27,11 @@ export const metadata: Metadata = {
   robots: {
     index: true,
     follow: true,
-    googleBot: {
-      index: true,
-      follow: true,
-    },
   },
 };
 
 export const viewport: Viewport = {
-  themeColor: "#000000",
+  themeColor: "#0a0a0a",
   width: "device-width",
   initialScale: 1,
 };
@@ -54,7 +43,9 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>{children}</body>
+      <body>
+        <N3rdProvider>{children}</N3rdProvider>
+      </body>
     </html>
   );
 }
