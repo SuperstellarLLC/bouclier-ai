@@ -6,11 +6,5 @@
     <true/>
     <key>com.apple.security.network.client</key>
     <true/>
-    <key>com.apple.developer.system-extension.install</key>
-    <true/>
-    <key>com.apple.developer.networking.networkextension</key>
-    <array>
-        <string>app-proxy-provider-systemextension</string>
-    </array>
 </dict>
 </plist>
