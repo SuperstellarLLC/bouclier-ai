@@ -19,11 +19,12 @@ import {
   Nav,
 } from "@n3rd-ai/ui";
 
+import { DOWNLOAD_URL } from "@/lib/constants";
+
 const NAV_ITEMS = [
   { label: "HOME", href: "/", active: true },
   { label: "BLOCKED", href: "/blocked" },
   { label: "PRIVACY", href: "/privacy" },
-  { label: "GITHUB", href: "https://github.com/Ilvarion/ilvarion", external: true },
 ];
 
 const CATEGORIES = [
@@ -62,7 +63,7 @@ export default function Home() {
           protect everything. No data ever leaves your machine.
         </Text>
         <Row gap="md">
-          <Button variant="primary" href="https://github.com/Ilvarion/ilvarion/releases" external>
+          <Button variant="primary" href={DOWNLOAD_URL} external>
             Download for macOS
           </Button>
           <Button variant="secondary" href="#how">
@@ -240,7 +241,7 @@ After Ilvarion:
       <Footer
         tagline="Local prompt injection firewall"
         links={[
-          { label: "GitHub", href: "https://github.com/Ilvarion/ilvarion", external: true },
+          { label: "Download", href: DOWNLOAD_URL, external: true },
           { label: "Blocked list", href: "/blocked" },
           { label: "Privacy", href: "/privacy" },
         ]}
