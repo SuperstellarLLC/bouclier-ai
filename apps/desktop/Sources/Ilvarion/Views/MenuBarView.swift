@@ -8,14 +8,28 @@ struct MenuBarView: View {
             // Header
             HStack {
                 Circle()
-                    .fill(proxyManager.isRunning ? Color.green : Color.secondary)
+                    .fill(proxyManager.errorMessage != nil ? Color.red : proxyManager.isRunning ? Color.green : Color.secondary)
                     .frame(width: 10, height: 10)
                 Text("Ilvarion")
                     .font(.headline)
                 Spacer()
-                Text(proxyManager.isRunning ? "Active" : "Stopped")
+                Text(proxyManager.errorMessage != nil ? "Error" : proxyManager.isRunning ? "Active" : "Stopped")
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(proxyManager.errorMessage != nil ? .red : .secondary)
+            }
+
+            if let error = proxyManager.errorMessage {
+                HStack(spacing: 6) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.red)
+                        .font(.caption)
+                    Text(error)
+                        .font(.caption2)
+                        .foregroundStyle(.red)
+                }
+                .padding(8)
+                .background(.red.opacity(0.1))
+                .clipShape(RoundedRectangle(cornerRadius: 6))
             }
 
             if proxyManager.isRunning {

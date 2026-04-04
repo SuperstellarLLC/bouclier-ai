@@ -1,10 +1,12 @@
 import Foundation
+import ServiceManagement
 import SwiftUI
+import UserNotifications
 
-/// Manages the proxy server lifecycle, stats, and log entries.
 @MainActor
 final class ProxyManager: ObservableObject {
     @Published var isRunning = false
+    @Published var errorMessage: String?
     @Published var stats = ProxyStats()
     @Published var logs: [LogEntry] = []
 
@@ -21,10 +23,16 @@ final class ProxyManager: ObservableObject {
     func initializeStorage() {
         guard storage == nil else { return }
         storage = try? StorageManager()
+
+        // Auto-start if the setting is enabled
+        if UserDefaults.standard.bool(forKey: "launchAtLogin") && !isRunning {
+            start()
+        }
     }
 
     func start() {
         guard !isRunning else { return }
+        errorMessage = nil
 
         let proxy = HTTPProxy(port: UInt16(port), filter: patternManager.filter)
         httpProxy = proxy
@@ -33,13 +41,16 @@ final class ProxyManager: ObservableObject {
             onReady: { [weak self] in
                 Task { @MainActor in
                     self?.isRunning = true
+                    self?.errorMessage = nil
                     self?.log("Proxy started on localhost:\(self?.port ?? 0)", blocked: false)
                 }
             },
             onFailed: { [weak self] error in
                 Task { @MainActor in
                     self?.isRunning = false
-                    self?.log("Proxy failed: \(error.localizedDescription)", blocked: true)
+                    let msg = Self.friendlyError(error)
+                    self?.errorMessage = msg
+                    self?.log("Proxy failed: \(msg)", blocked: true)
                 }
             },
             onRequest: { [weak self] requestLog in
@@ -54,12 +65,29 @@ final class ProxyManager: ObservableObject {
         httpProxy?.stop()
         httpProxy = nil
         isRunning = false
+        errorMessage = nil
         log("Proxy stopped", blocked: false)
     }
 
     func clearLogs() {
         logs.removeAll()
     }
+
+    // MARK: - Launch at Login
+
+    static func setLaunchAtLogin(_ enabled: Bool) {
+        do {
+            if enabled {
+                try SMAppService.mainApp.register()
+            } else {
+                try SMAppService.mainApp.unregister()
+            }
+        } catch {
+            print("[ilvarion] Launch at login error: \(error.localizedDescription)")
+        }
+    }
+
+    // MARK: - Private
 
     private func handleRequestLog(_ requestLog: RequestLog) {
         stats.requestsScanned += 1
@@ -70,6 +98,7 @@ final class ProxyManager: ObservableObject {
                 "Blocked \(requestLog.matchCount) injection(s) in \(requestLog.method) \(requestLog.path) → \(requestLog.targetHost): \(requestLog.patternNames.joined(separator: ", "))",
                 blocked: true
             )
+            sendBlockNotification(count: requestLog.matchCount, target: requestLog.targetHost)
         }
 
         storage?.recordScan(
@@ -89,6 +118,33 @@ final class ProxyManager: ObservableObject {
         if logs.count > 500 {
             logs.removeLast(logs.count - 500)
         }
+    }
+
+    private func sendBlockNotification(count: Int, target: String) {
+        guard UserDefaults.standard.object(forKey: "showNotifications") as? Bool ?? true else { return }
+
+        let content = UNMutableNotificationContent()
+        content.title = "Injection Blocked"
+        content.body = "Blocked \(count) injection\(count > 1 ? "s" : "") in request to \(target)"
+        content.sound = UserDefaults.standard.bool(forKey: "quietMode") ? nil : .default
+
+        let request = UNNotificationRequest(
+            identifier: UUID().uuidString,
+            content: content,
+            trigger: nil
+        )
+        UNUserNotificationCenter.current().add(request)
+    }
+
+    private static func friendlyError(_ error: Error) -> String {
+        let desc = error.localizedDescription
+        if desc.contains("Address already in use") || desc.contains("48") {
+            return "Port is already in use. Change the port in Settings or close the other app using it."
+        }
+        if desc.contains("Permission denied") || desc.contains("13") {
+            return "Permission denied. Ports below 1024 require admin privileges."
+        }
+        return desc
     }
 }
 
