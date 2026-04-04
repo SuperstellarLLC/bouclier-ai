@@ -80,25 +80,22 @@ export default function Home() {
           <Heading level={2}>How it works</Heading>
 
           <Code title="architecture" prompt="">
-            {`  ┌─────────────┐                                    ┌──────────────┐
-  │  Any app     │──── HTTPS (encrypted) ──────────▶│   AI API     │
-  │  on your Mac │                                   │  (OpenAI,    │
-  │              │◀── HTTPS (encrypted) ──────────── │   Anthropic) │
-  └──────┬───────┘                                   └──────▲───────┘
-         │                                                  │
-         │  Ilvarion intercepts transparently:              │
-         │                                                  │
-         ▼                                                  │
-  ┌─────────────────────────────────────────────────────────┤
-  │  Ilvarion TLS Proxy (localhost)                         │
-  │                                                         │
-  │  1. Intercept  ── HTTPS connection to AI domain         │
-  │  2. Decrypt    ── using local CA certificate            │
-  │  3. Scan       ── 35 patterns, 11 attack categories     │
-  │  4. Score      ── heuristic threat scoring              │
-  │  5. Redact     ── replace injections inline             │
-  │  6. Re-encrypt ── forward to real API                ───┘
-  └─────────────────────────────────────────────────────────┘`}
+            {`
+    ╭──────────╮       ╭──────────────────────────╮       ╭──────────╮
+    │ Your App │──TLS─▶│       I L V A R I O N    │──TLS─▶│  AI API  │
+    │          │       │                          │       │          │
+    │ Browser  │       │  ┌────────────────────┐  │       │ OpenAI   │
+    │ Python   │       │  │ Decrypt with       │  │       │ Anthropic│
+    │ Node.js  │◀─TLS──│  │ local CA cert      │  │◀─TLS──│ Mistral  │
+    │ curl     │       │  │                    │  │       │ Cohere   │
+    │ Any app  │       │  │ Scan 35 patterns   │  │       │ Groq     │
+    ╰──────────╯       │  │ Score threats      │  │       ╰──────────╯
+                       │  │ Redact injections  │  │
+                       │  └────────────────────┘  │
+                       │                          │
+                       │  localhost ── 0 data out  │
+                       ╰──────────────────────────╯
+`}
           </Code>
 
           <Grid columns={3} gap="lg">
