@@ -30,15 +30,6 @@ function isRateLimited(ip: string): boolean {
   return entry.count > RATE_LIMIT_MAX_REQUESTS;
 }
 
-/**
- * Generate a nonce for inline scripts (CSP).
- */
-function generateNonce(): string {
-  const array = new Uint8Array(16);
-  crypto.getRandomValues(array);
-  return btoa(String.fromCharCode(...array));
-}
-
 export function middleware(request: NextRequest) {
   const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
 
@@ -47,21 +38,20 @@ export function middleware(request: NextRequest) {
     return new NextResponse("Too Many Requests", { status: 429 });
   }
 
-  const nonce = generateNonce();
-  const isProd = process.env.NODE_ENV === "production";
-
   // Content Security Policy
+  // Next.js injects inline scripts for hydration that can't use nonces in RSC mode,
+  // so 'unsafe-inline' is required. @n3rd-ai/ui loads fonts from jsdelivr CDN.
   const cspDirectives = [
     `default-src 'self'`,
-    `script-src 'self' 'nonce-${nonce}' ${isProd ? "" : "'unsafe-eval'"}`.trim(),
-    `style-src 'self' 'unsafe-inline'`, // Tailwind requires inline styles
+    `script-src 'self' 'unsafe-inline' 'unsafe-eval'`,
+    `style-src 'self' 'unsafe-inline'`,
     `img-src 'self' data: blob:`,
-    `font-src 'self'`,
+    `font-src 'self' https://cdn.jsdelivr.net`,
     `connect-src 'self'`,
     `frame-ancestors 'none'`,
     `base-uri 'self'`,
     `form-action 'self'`,
-    `upgrade-insecure-requests`,
+    `object-src 'none'`,
   ];
 
   const response = NextResponse.next({
@@ -70,11 +60,7 @@ export function middleware(request: NextRequest) {
     },
   });
 
-  // Set CSP header
   response.headers.set("Content-Security-Policy", cspDirectives.join("; "));
-
-  // Pass nonce to server components via header
-  response.headers.set("x-nonce", nonce);
 
   return response;
 }
