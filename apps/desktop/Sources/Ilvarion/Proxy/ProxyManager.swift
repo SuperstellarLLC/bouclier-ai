@@ -13,7 +13,9 @@ final class ProxyManager: ObservableObject {
     }
 
     private var httpProxy: HTTPProxy?
-    private let filter = InjectionFilter()
+    private let patternManager = PatternManager(onChange: {
+        print("[ilvarion] Pattern update detected — new connections will use updated patterns")
+    })
     private var storage: StorageManager?
 
     func initializeStorage() {
@@ -24,7 +26,7 @@ final class ProxyManager: ObservableObject {
     func start() {
         guard !isRunning else { return }
 
-        let proxy = HTTPProxy(port: UInt16(port), filter: filter)
+        let proxy = HTTPProxy(port: UInt16(port), filter: patternManager.filter)
         httpProxy = proxy
 
         proxy.start(
