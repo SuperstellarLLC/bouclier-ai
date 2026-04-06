@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { MobileNav } from "./mobile-nav";
 import {
   APP_VERSION,
   BENCHMARK_ATTACKS,
@@ -38,13 +39,16 @@ export default function Home() {
   return (
     <main className="min-h-screen">
       {/* ── Nav ──────────────────────────────────── */}
-      <nav className="border-border sticky top-0 z-50 border-b bg-white/80 backdrop-blur-xl">
-        <div className="mx-auto flex max-w-5xl items-center justify-between px-6 py-4">
+      <nav
+        className="border-border sticky top-0 z-50 border-b bg-white/80 backdrop-blur-xl"
+        aria-label="Main"
+      >
+        <div className="relative mx-auto flex max-w-5xl items-center justify-between px-6 py-4">
           <Link href="/" className="flex items-center gap-2.5">
             <Shield className="h-6 w-6" />
             <span className="text-text text-[15px] font-semibold tracking-tight">Bouclier.ai</span>
           </Link>
-          <div className="flex items-center gap-6">
+          <div className="hidden items-center gap-6 sm:flex">
             <a
               href="#how"
               className="text-text-secondary hover:text-text text-sm transition-colors"
@@ -70,6 +74,7 @@ export default function Home() {
               Download
             </a>
           </div>
+          <MobileNav downloadUrl={DOWNLOAD_URL} />
         </div>
       </nav>
 
@@ -207,7 +212,22 @@ export default function Home() {
             red-team disclosures, and peer-reviewed research.
           </p>
 
-          <div className="mt-12 grid gap-2 sm:grid-cols-3">
+          <div className="text-text-secondary mt-8 flex flex-wrap gap-x-6 gap-y-1 text-xs">
+            <span className="flex items-center gap-1.5">
+              <span className="h-2.5 w-2.5 rounded-full bg-red-500" /> Critical
+            </span>
+            <span className="flex items-center gap-1.5">
+              <span className="h-2.5 w-2.5 rounded-full bg-orange-500" /> High
+            </span>
+            <span className="flex items-center gap-1.5">
+              <span className="h-2.5 w-2.5 rounded-full bg-amber-500" /> Medium-High
+            </span>
+            <span className="flex items-center gap-1.5">
+              <span className="h-2.5 w-2.5 rounded-full bg-yellow-500" /> Medium
+            </span>
+          </div>
+
+          <div className="mt-6 grid gap-2 sm:grid-cols-3">
             {CATEGORIES.map((cat) => (
               <div
                 key={cat.name}
@@ -307,13 +327,22 @@ export default function Home() {
               "CA key stored in your login Keychain with kSecAttrAccessibleWhenUnlockedThisDeviceOnly. Unique per install.",
               "Scan logs never contain request bodies, URIs, or user identifiers — only pattern IDs and match counts.",
               "SQLite storage with 30-day auto-rotation. You own your data.",
-              "Published STRIDE threat model covering every trust boundary and mitigation.",
             ].map((text) => (
               <div key={text} className="flex gap-3">
                 <div className="bg-accent-green mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full" />
                 <p className="text-text-secondary">{text}</p>
               </div>
             ))}
+            <div className="flex gap-3">
+              <div className="bg-accent-green mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full" />
+              <p className="text-text-secondary">
+                Published{" "}
+                <Link href="/privacy" className="text-bouclier underline underline-offset-2">
+                  STRIDE threat model
+                </Link>{" "}
+                covering every trust boundary and mitigation.
+              </p>
+            </div>
           </div>
         </div>
       </section>
@@ -324,7 +353,7 @@ export default function Home() {
           <h2 className="text-3xl font-bold tracking-tight text-white">
             Install once. Protect everything.
           </h2>
-          <p className="mx-auto mt-4 max-w-lg text-blue-200">
+          <p className="mx-auto mt-4 max-w-lg text-white/70">
             Download the DMG, drag to Applications, click Enable. All AI API traffic is scanned in
             under 5ms.
           </p>
@@ -335,7 +364,7 @@ export default function Home() {
             <DownloadIcon />
             Download for macOS
           </a>
-          <p className="mt-4 text-sm text-blue-300">
+          <p className="mt-4 text-sm text-white/50">
             macOS 15+ &middot; Apple Silicon &amp; Intel &middot; v{APP_VERSION}
           </p>
         </div>
@@ -419,7 +448,7 @@ function FlowArrow() {
         height="12"
         viewBox="0 0 24 12"
         fill="none"
-        className="text-text-secondary/40"
+        className="text-text-secondary/40 rotate-90 sm:rotate-0"
       >
         <path d="M0 6h20m0 0l-4-4m4 4l-4 4" stroke="currentColor" strokeWidth="1.5" />
       </svg>
@@ -507,6 +536,8 @@ function Shield({ className }: { className?: string }) {
       className={className}
       stroke="currentColor"
       strokeWidth="1.5"
+      role="img"
+      aria-label="Bouclier.ai shield"
     >
       <path
         d="M12 3l7.5 3.5v5c0 4.5-3 8.5-7.5 10-4.5-1.5-7.5-5.5-7.5-10v-5L12 3z"
