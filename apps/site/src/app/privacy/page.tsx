@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 
 export const metadata: Metadata = {
   title: "Privacy Policy",
@@ -9,16 +10,16 @@ export default function PrivacyPage() {
     <main className="min-h-screen bg-white">
       <nav className="border-border border-b">
         <div className="mx-auto flex max-w-3xl items-center justify-between px-6 py-4">
-          <a href="/" className="text-text text-sm font-semibold">
+          <Link href="/" className="text-text text-sm font-semibold">
             Bouclier.ai
-          </a>
+          </Link>
           <div className="text-text-secondary flex gap-6 text-sm">
-            <a href="/" className="hover:text-text transition-colors">
+            <Link href="/" className="hover:text-text transition-colors">
               Home
-            </a>
-            <a href="/blocked" className="hover:text-text transition-colors">
+            </Link>
+            <Link href="/blocked" className="hover:text-text transition-colors">
               Blocked
-            </a>
+            </Link>
           </div>
         </div>
       </nav>
@@ -154,12 +155,12 @@ export default function PrivacyPage() {
         <div className="text-text-secondary mx-auto flex max-w-3xl items-center justify-between px-6 text-sm">
           <span>Bouclier.ai</span>
           <div className="flex gap-6">
-            <a href="/" className="hover:text-text transition-colors">
+            <Link href="/" className="hover:text-text transition-colors">
               Home
-            </a>
-            <a href="/blocked" className="hover:text-text transition-colors">
+            </Link>
+            <Link href="/blocked" className="hover:text-text transition-colors">
               Blocked
-            </a>
+            </Link>
           </div>
         </div>
       </footer>

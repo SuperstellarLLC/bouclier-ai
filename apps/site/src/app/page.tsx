@@ -1,3 +1,4 @@
+import Link from "next/link";
 import {
   APP_VERSION,
   BENCHMARK_ATTACKS,
@@ -39,10 +40,10 @@ export default function Home() {
       {/* ── Nav ──────────────────────────────────── */}
       <nav className="border-border sticky top-0 z-50 border-b bg-white/80 backdrop-blur-xl">
         <div className="mx-auto flex max-w-5xl items-center justify-between px-6 py-4">
-          <a href="/" className="flex items-center gap-2.5">
+          <Link href="/" className="flex items-center gap-2.5">
             <Shield className="h-6 w-6" />
             <span className="text-text text-[15px] font-semibold tracking-tight">Bouclier.ai</span>
-          </a>
+          </Link>
           <div className="flex items-center gap-6">
             <a
               href="#how"
@@ -56,12 +57,12 @@ export default function Home() {
             >
               Coverage
             </a>
-            <a
+            <Link
               href="/privacy"
               className="text-text-secondary hover:text-text text-sm transition-colors"
             >
               Privacy
-            </a>
+            </Link>
             <a
               href={DOWNLOAD_URL}
               className="bg-bouclier hover:bg-bouclier-dark rounded-lg px-4 py-2 text-sm font-medium text-white shadow-sm transition-all hover:shadow-md"
@@ -348,12 +349,12 @@ export default function Home() {
             <span className="text-text text-sm font-semibold">Bouclier.ai</span>
           </div>
           <div className="text-text-secondary flex gap-6 text-sm">
-            <a href="/blocked" className="hover:text-text transition-colors">
+            <Link href="/blocked" className="hover:text-text transition-colors">
               Blocked
-            </a>
-            <a href="/privacy" className="hover:text-text transition-colors">
+            </Link>
+            <Link href="/privacy" className="hover:text-text transition-colors">
               Privacy
-            </a>
+            </Link>
           </div>
         </div>
       </footer>
