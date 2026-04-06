@@ -15,7 +15,7 @@ struct SettingsView: View {
             LogsView(proxyManager: proxyManager)
                 .tabItem { Label("Logs", systemImage: "doc.text") }
 
-            AboutView(updater: updater)
+            AboutView(updater: updater, patternCount: proxyManager.patternsLoadedCount)
                 .tabItem { Label("About", systemImage: "info.circle") }
         }
         .frame(width: 520, height: 400)
@@ -52,6 +52,7 @@ struct GeneralSettingsView: View {
 
 struct ProtectionSettingsView: View {
     @ObservedObject var proxyManager: ProxyManager
+    @State private var showUninstallConfirm = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -72,7 +73,7 @@ struct ProtectionSettingsView: View {
 
             Text("Intercepted Domains")
                 .font(.headline)
-            Text("Bouclier only inspects traffic to these AI API domains. All other traffic is unaffected.")
+            Text("Bouclier.ai only inspects traffic to these AI API domains. All other traffic is unaffected.")
                 .foregroundStyle(.secondary)
                 .font(.callout)
 
@@ -96,12 +97,23 @@ struct ProtectionSettingsView: View {
                 Text("Add to ~/.zshrc for Python/Node.js coverage:")
                     .foregroundStyle(.secondary)
                     .font(.callout)
-                Text("eval $(bouclier-env)")
-                    .font(.system(.caption, design: .monospaced))
-                    .textSelection(.enabled)
-                    .padding(6)
-                    .background(.quaternary)
-                    .clipShape(RoundedRectangle(cornerRadius: 4))
+                HStack(spacing: 8) {
+                    Text("eval $(bouclier-env)")
+                        .font(.system(.caption, design: .monospaced))
+                        .textSelection(.enabled)
+                        .padding(6)
+                        .background(.quaternary)
+                        .clipShape(RoundedRectangle(cornerRadius: 4))
+                    Button(action: {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString("eval $(bouclier-env)", forType: .string)
+                    }) {
+                        Image(systemName: "doc.on.doc")
+                            .font(.caption)
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Copy to clipboard")
+                }
             }
 
             if ManagedConfig.isManaged {
@@ -123,10 +135,18 @@ struct ProtectionSettingsView: View {
                         .buttonStyle(.borderedProminent)
                 } else {
                     Button("Uninstall Everything", role: .destructive) {
-                        proxyManager.uninstall()
+                        showUninstallConfirm = true
                     }
                     .disabled(ManagedConfig.preventUninstall)
                     .help(ManagedConfig.preventUninstall ? "Uninstall is disabled by your organization" : "")
+                    .alert("Uninstall Bouclier.ai?", isPresented: $showUninstallConfirm) {
+                        Button("Cancel", role: .cancel) {}
+                        Button("Uninstall", role: .destructive) {
+                            proxyManager.uninstall()
+                        }
+                    } message: {
+                        Text("This will remove the CA certificate, disable the System Extension, and stop the proxy. You can reinstall anytime.")
+                    }
                 }
             }
         }
@@ -146,6 +166,8 @@ private struct StatusRow: View {
             Text(detail)
                 .foregroundStyle(.secondary)
         }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(label): \(detail)")
     }
 }
 
@@ -178,6 +200,7 @@ struct LogsView: View {
                             .foregroundStyle(entry.blocked ? .red : .green)
                             .font(.caption)
                             .frame(width: 16)
+                            .accessibilityLabel(entry.blocked ? "Blocked" : "Passed")
                         VStack(alignment: .leading, spacing: 2) {
                             Text(entry.message)
                                 .font(.callout)
@@ -197,21 +220,27 @@ struct LogsView: View {
 
 struct AboutView: View {
     @ObservedObject var updater: AutoUpdater
+    let patternCount: Int
 
     var body: some View {
         VStack(spacing: 12) {
             Image(systemName: "shield.checkered")
                 .font(.system(size: 48))
                 .foregroundStyle(.tint)
+                .accessibilityHidden(true)
 
-            Text("Bouclier")
+            Text("Bouclier.ai")
                 .font(.title.bold())
 
             Text("Prompt Injection Firewall")
                 .font(.callout)
                 .foregroundStyle(.secondary)
 
-            Text("Version \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.1.0")")
+            Text("Version \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.2.0")")
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+
+            Text("\(patternCount) detection patterns active")
                 .font(.caption)
                 .foregroundStyle(.tertiary)
 
