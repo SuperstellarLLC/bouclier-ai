@@ -17,7 +17,8 @@ import {
 
 export const metadata: Metadata = {
   title: "Content Blocked",
-  description: "Information about content that was redacted by Ilvarion prompt injection firewall.",
+  description:
+    "Information about content that was redacted by Bouclier.ai prompt injection firewall.",
 };
 
 const CATEGORIES = [
@@ -90,7 +91,7 @@ export default function BlockedPage() {
       />
 
       <Stack gap="xl" style={{ paddingTop: "3rem", paddingBottom: "2rem" }}>
-        <Heading level={1}>Content was redacted by Ilvarion</Heading>
+        <Heading level={1}>Content was redacted by Bouclier.ai</Heading>
 
         <Text size="lg" color="secondary" style={{ maxWidth: 640 }}>
           If you&apos;re seeing this page, content in your AI interaction was flagged as a potential
@@ -105,11 +106,11 @@ export default function BlockedPage() {
 
         <Box border="rounded" padding="lg" accent="warning">
           <Text>
-            Ilvarion detected patterns in content that match known prompt injection techniques. The
-            suspicious content was replaced with:
+            Bouclier.ai detected patterns in content that match known prompt injection techniques.
+            The suspicious content was replaced with:
           </Text>
           <Code prompt="">
-            {`[Possible prompt injection redacted by Ilvarion. See https://ilvarion.com/blocked for details]`}
+            {`[Possible prompt injection redacted by Bouclier.ai. See https://bouclier.ai/blocked for details]`}
           </Code>
           <Text size="sm" color="secondary">
             The rest of your content was passed through unchanged. Only the matched segments were
@@ -123,7 +124,7 @@ export default function BlockedPage() {
       <Stack gap="lg" style={{ paddingTop: "2rem", paddingBottom: "2rem" }}>
         <Heading level={2}>Detection categories</Heading>
 
-        <Text color="secondary">Ilvarion scans for 35 patterns across these 11 categories:</Text>
+        <Text color="secondary">Bouclier.ai scans for 35 patterns across these 11 categories:</Text>
 
         <Accordion items={CATEGORIES} />
       </Stack>
@@ -136,13 +137,13 @@ export default function BlockedPage() {
         <Grid columns={2} gap="lg">
           <Card title="Check your logs" accent="info">
             <Text size="sm" color="secondary">
-              Open the Ilvarion menubar app and check the Logs tab in Settings. Each blocked event
-              shows the matched pattern ID and the content that triggered it.
+              Open the Bouclier.ai menubar app and check the Logs tab in Settings. Each blocked
+              event shows the matched pattern ID and the content that triggered it.
             </Text>
           </Card>
           <Card title="Adjust sensitivity" accent="success">
             <Text size="sm" color="secondary">
-              You can disable specific pattern categories in the Ilvarion settings if they cause
+              You can disable specific pattern categories in the Bouclier.ai settings if they cause
               repeated false positives for your use case.
             </Text>
           </Card>
@@ -153,7 +154,7 @@ export default function BlockedPage() {
             If you believe a pattern is incorrectly flagging legitimate content, please contact us
             so we can refine the detection rules.
           </Text>
-          <Button variant="secondary" href="mailto:support@ilvarion.com">
+          <Button variant="secondary" href="mailto:support@bouclier.ai">
             Report false positive
           </Button>
         </Box>

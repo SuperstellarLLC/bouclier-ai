@@ -2,14 +2,14 @@
 import PackageDescription
 
 let package = Package(
-    name: "Ilvarion",
+    name: "Bouclier",
     platforms: [
         .macOS(.v15),
     ],
     products: [
-        .executable(name: "Ilvarion", targets: ["Ilvarion"]),
-        .executable(name: "ilvarion-mcp-wrapper", targets: ["MCPWrapper"]),
-        .executable(name: "ilvarion-env", targets: ["EnvHelper"]),
+        .executable(name: "Bouclier", targets: ["Bouclier"]),
+        .executable(name: "bouclier-mcp-wrapper", targets: ["MCPWrapper"]),
+        .executable(name: "bouclier-env", targets: ["EnvHelper"]),
     ],
     dependencies: [
         .package(url: "https://github.com/groue/GRDB.swift.git", from: "7.0.0"),
@@ -20,7 +20,7 @@ let package = Package(
     ],
     targets: [
         .executableTarget(
-            name: "Ilvarion",
+            name: "Bouclier",
             dependencies: [
                 .product(name: "GRDB", package: "GRDB.swift"),
                 .product(name: "NIO", package: "swift-nio"),
@@ -56,9 +56,9 @@ let package = Package(
             ]
         ),
         .executableTarget(
-            name: "IlvarionExtension",
+            name: "BouclierExtension",
             dependencies: [],
-            path: "Sources/IlvarionExtension",
+            path: "Sources/BouclierExtension",
             swiftSettings: [
                 .swiftLanguageMode(.v6),
                 .unsafeFlags(["-Xfrontend", "-enable-upcoming-feature", "-Xfrontend", "InternalImportsByDefault"], .when(platforms: [])),
@@ -68,8 +68,13 @@ let package = Package(
             ]
         ),
         .testTarget(
-            name: "IlvarionTests",
-            dependencies: ["Ilvarion"]
+            name: "BouclierTests",
+            dependencies: [
+                "Bouclier",
+                .product(name: "NIOCore", package: "swift-nio"),
+                .product(name: "NIOHTTP1", package: "swift-nio"),
+                .product(name: "NIOEmbedded", package: "swift-nio"),
+            ]
         ),
     ]
 )

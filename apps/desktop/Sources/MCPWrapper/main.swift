@@ -1,15 +1,15 @@
 import Foundation
 
-/// ilvarion-mcp-wrapper — a stdio pipe filter for MCP servers.
+/// bouclier-mcp-wrapper — a stdio pipe filter for MCP servers.
 ///
 /// Usage:
-///   ilvarion-mcp-wrapper <command> [args...]
+///   bouclier-mcp-wrapper <command> [args...]
 ///
 /// Wraps an MCP server by spawning it as a child process, piping stdin to it,
 /// intercepting its stdout, scanning JSON-RPC responses for prompt injections
 /// in tool result content blocks, and forwarding sanitized output.
 
-let redactionMessage = "[Possible prompt injection redacted by Ilvarion. See https://ilvarion.com/blocked for details]"
+let redactionMessage = "[Possible prompt injection redacted by Bouclier. See https://bouclier.ai/blocked for details]"
 
 // MARK: - Injection Patterns (embedded subset for standalone binary)
 
@@ -137,7 +137,7 @@ func processJSONRPCResponse(_ data: Data) -> Data {
 
     if totalBlocked > 0 {
         FileHandle.standardError.write(
-            "[ilvarion] Blocked \(totalBlocked) injection(s) in MCP tool result\n".data(using: .utf8)!
+            "[bouclier] Blocked \(totalBlocked) injection(s) in MCP tool result\n".data(using: .utf8)!
         )
     }
 
@@ -176,7 +176,7 @@ final class LineBuffer: @unchecked Sendable {
 
 guard CommandLine.arguments.count > 1 else {
     FileHandle.standardError.write(
-        "Usage: ilvarion-mcp-wrapper <command> [args...]\n".data(using: .utf8)!
+        "Usage: bouclier-mcp-wrapper <command> [args...]\n".data(using: .utf8)!
     )
     exit(1)
 }
@@ -248,7 +248,7 @@ do {
     try process.run()
 } catch {
     FileHandle.standardError.write(
-        "[ilvarion] Failed to start MCP server: \(error.localizedDescription)\n".data(using: .utf8)!
+        "[bouclier] Failed to start MCP server: \(error.localizedDescription)\n".data(using: .utf8)!
     )
     exit(1)
 }
