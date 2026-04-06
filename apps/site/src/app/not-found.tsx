@@ -1,3 +1,4 @@
+import Link from "next/link";
 export default function NotFound() {
   return (
     <main className="flex min-h-screen flex-col items-center justify-center bg-white px-6 text-center">
@@ -5,12 +6,12 @@ export default function NotFound() {
       <p className="text-text-secondary mt-4 text-lg">
         What you&apos;re looking for doesn&apos;t exist.
       </p>
-      <a
+      <Link
         href="/"
         className="bg-bouclier hover:bg-bouclier-dark mt-8 rounded-xl px-6 py-3 text-sm font-semibold text-white shadow-sm transition-all hover:shadow-md"
       >
         Back to Bouclier.ai
-      </a>
+      </Link>
     </main>
   );
 }
