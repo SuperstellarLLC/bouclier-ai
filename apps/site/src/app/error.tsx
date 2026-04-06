@@ -15,12 +15,14 @@ export default function Error({
   }, [error]);
 
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center bg-black px-6 text-center text-white">
+    <main className="text-text flex min-h-screen flex-col items-center justify-center bg-white px-6 text-center">
       <h1 className="text-6xl font-bold">Something went wrong</h1>
-      <p className="mt-4 text-lg text-white/70">An unexpected error occurred. Please try again.</p>
+      <p className="text-text-secondary mt-4 text-lg">
+        An unexpected error occurred. Please try again.
+      </p>
       <button
         onClick={reset}
-        className="mt-8 rounded-lg bg-white/10 px-6 py-3 text-sm font-medium text-white backdrop-blur-sm transition-colors hover:bg-white/20"
+        className="bg-bouclier hover:bg-bouclier-dark mt-8 rounded-xl px-6 py-3 text-sm font-semibold text-white shadow-sm transition-all hover:shadow-md"
       >
         Try again
       </button>

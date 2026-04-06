@@ -40,13 +40,13 @@ export function middleware(request: NextRequest) {
 
   // Content Security Policy
   // Next.js injects inline scripts for hydration that can't use nonces in RSC mode,
-  // so 'unsafe-inline' is required. @n3rd-ai/ui loads fonts from jsdelivr CDN.
+  // so 'unsafe-inline' is required. Fonts loaded from Google Fonts (gstatic).
   const cspDirectives = [
     `default-src 'self'`,
     `script-src 'self' 'unsafe-inline' 'unsafe-eval'`,
     `style-src 'self' 'unsafe-inline'`,
     `img-src 'self' data: blob:`,
-    `font-src 'self' https://cdn.jsdelivr.net`,
+    `font-src 'self' https://fonts.gstatic.com`,
     `connect-src 'self'`,
     `frame-ancestors 'none'`,
     `base-uri 'self'`,
