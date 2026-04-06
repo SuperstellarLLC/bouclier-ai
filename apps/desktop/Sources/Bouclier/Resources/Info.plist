@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleName</key>
+    <string>Bouclier</string>
+    <key>CFBundleDisplayName</key>
+    <string>Bouclier</string>
+    <key>CFBundleIdentifier</key>
+    <string>com.bouclier.app</string>
+    <key>CFBundleVersion</key>
+    <string>2</string>
+    <key>CFBundleShortVersionString</key>
+    <string>0.2.0</string>
+    <key>CFBundleExecutable</key>
+    <string>Bouclier</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleIconFile</key>
+    <string>Bouclier</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>15.0</string>
+    <key>LSUIElement</key>
+    <true/>
+    <key>NSHumanReadableCopyright</key>
+    <string>Copyright 2026 Bouclier</string>
+    <key>NSSystemExtensionUsageDescription</key>
+    <string>Bouclier needs a system extension to intercept AI API traffic for prompt injection scanning.</string>
+    <key>SUPublicEDKey</key>
+    <string>QNMtWO7H9Z9Hv1J9bAsunleicPvJVP2bMJQezjV3vmM=</string>
+    <key>SUFeedURL</key>
+    <string>https://bouclier.ai/appcast.xml</string>
+    <key>SUEnableAutomaticChecks</key>
+    <true/>
+</dict>
+</plist>

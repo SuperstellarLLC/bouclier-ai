@@ -84,7 +84,7 @@ func savePNG(_ image: NSImage, to path: String, size: Int) {
 }
 
 // Generate all sizes
-let iconsetDir = "Ilvarion.iconset"
+let iconsetDir = "Bouclier.iconset"
 try? FileManager.default.createDirectory(atPath: iconsetDir, withIntermediateDirectories: true)
 
 let sizes: [(name: String, px: Int)] = [
@@ -108,4 +108,4 @@ for (name, px) in sizes {
     print("Generated \(name).png (\(px)x\(px))")
 }
 
-print("Done. Run: iconutil -c icns Ilvarion.iconset -o Ilvarion.icns")
+print("Done. Run: iconutil -c icns Bouclier.iconset -o Bouclier.icns")

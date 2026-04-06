@@ -1,6 +1,6 @@
-name: Ilvarion
+name: Bouclier
 options:
-  bundleIdPrefix: com.ilvarion
+  bundleIdPrefix: com.bouclier
   deploymentTarget:
     macOS: "15.0"
   createIntermediateGroups: true
@@ -29,14 +29,14 @@ packages:
     from: "2.6.0"
 
 targets:
-  Ilvarion:
+  Bouclier:
     type: application
     platform: macOS
     sources:
-      - path: Sources/Ilvarion
+      - path: Sources/Bouclier
     resources:
-      - path: Sources/Ilvarion/Resources
-      - path: icon/Ilvarion.icns
+      - path: Sources/Bouclier/Resources
+      - path: icon/Bouclier.icns
     dependencies:
       - package: GRDB
       - package: swift-nio
@@ -54,7 +54,7 @@ targets:
       - package: swift-nio-transport-services
         product: NIOTransportServices
       - package: Sparkle
-      - target: IlvarionExtension
+      - target: BouclierExtension
         embed: true
         codeSign: true
         buildPhase:
@@ -62,9 +62,9 @@ targets:
             destination: systemExtension
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.ilvarion.app
-        PROVISIONING_PROFILE_SPECIFIER: "Ilvarion"
-        CODE_SIGN_ENTITLEMENTS: Ilvarion.entitlements
+        PRODUCT_BUNDLE_IDENTIFIER: com.bouclier.app
+        PROVISIONING_PROFILE_SPECIFIER: "Bouclier"
+        CODE_SIGN_ENTITLEMENTS: Bouclier.entitlements
         ENABLE_HARDENED_RUNTIME: YES
         SWIFT_VERSION: "6.0"
         LD_RUNPATH_SEARCH_PATHS:
@@ -73,44 +73,44 @@ targets:
         Release:
           SWIFT_OPTIMIZATION_LEVEL: -O
     info:
-      path: Sources/Ilvarion/Resources/GeneratedInfo.plist
+      path: Sources/Bouclier/Resources/GeneratedInfo.plist
       properties:
-        CFBundleName: Ilvarion
-        CFBundleDisplayName: Ilvarion
-        CFBundleIconFile: Ilvarion
+        CFBundleName: Bouclier
+        CFBundleDisplayName: Bouclier
+        CFBundleIconFile: Bouclier
         LSUIElement: true
-        NSSystemExtensionUsageDescription: "Ilvarion needs a system extension to intercept AI API traffic for prompt injection scanning."
+        NSSystemExtensionUsageDescription: "Bouclier needs a system extension to intercept AI API traffic for prompt injection scanning."
         SUPublicEDKey: "QNMtWO7H9Z9Hv1J9bAsunleicPvJVP2bMJQezjV3vmM="
-        SUFeedURL: "https://ilvarion.com/appcast.xml"
+        SUFeedURL: "https://bouclier.ai/appcast.xml"
         SUEnableAutomaticChecks: true
 
-  IlvarionExtension:
+  BouclierExtension:
     type: tool
     platform: macOS
     sources:
-      - path: Sources/IlvarionExtension
+      - path: Sources/BouclierExtension
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.ilvarion.app.extension
-        PROVISIONING_PROFILE_SPECIFIER: "Ilvarion Network Extension"
-        CODE_SIGN_ENTITLEMENTS: IlvarionExtension.entitlements
+        PRODUCT_BUNDLE_IDENTIFIER: com.bouclier.app.extension
+        PROVISIONING_PROFILE_SPECIFIER: "Bouclier Network Extension"
+        CODE_SIGN_ENTITLEMENTS: BouclierExtension.entitlements
         ENABLE_HARDENED_RUNTIME: YES
         SWIFT_VERSION: "6.0"
       configs:
         Release:
           SWIFT_OPTIMIZATION_LEVEL: -O
     info:
-      path: Sources/IlvarionExtension/GeneratedInfo.plist
+      path: Sources/BouclierExtension/GeneratedInfo.plist
       properties:
-        CFBundleName: IlvarionExtension
-        CFBundleDisplayName: "Ilvarion Network Extension"
+        CFBundleName: BouclierExtension
+        CFBundleDisplayName: "Bouclier Network Extension"
         CFBundlePackageType: SYSX
-        NSSystemExtensionUsageDescription: "Ilvarion intercepts AI API traffic to scan for prompt injections."
+        NSSystemExtensionUsageDescription: "Bouclier intercepts AI API traffic to scan for prompt injections."
         NetworkExtension:
           NEProviderClasses:
             com.apple.networkextension.transparent-proxy: "$(PRODUCT_MODULE_NAME).TransparentProxyProvider"
 
-  ilvarion-mcp-wrapper:
+  bouclier-mcp-wrapper:
     type: tool
     platform: macOS
     sources:
@@ -119,7 +119,7 @@ targets:
       base:
         SWIFT_VERSION: "6.0"
 
-  ilvarion-env:
+  bouclier-env:
     type: tool
     platform: macOS
     sources:

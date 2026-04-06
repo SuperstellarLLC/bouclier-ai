@@ -1,10 +1,11 @@
+import { dampeners as defaultDampeners } from "./dampeners.js";
 import { deobfuscateLeet, normalize } from "./normalize.js";
 import { patterns as defaultPatterns } from "./patterns.js";
-import { computeScore } from "./scorer.js";
-import type { Pattern, ScanMatch, ScanResult } from "./types.js";
+import { computeScore, findDampenerRanges } from "./scorer.js";
+import type { Dampener, Pattern, ScanMatch, ScanResult } from "./types.js";
 
 const REDACTION_MESSAGE =
-  "[Possible prompt injection redacted by Ilvarion. See https://ilvarion.com/blocked for details]";
+  "[Possible prompt injection redacted by Bouclier.ai. See https://bouclier.ai/blocked for details]";
 
 /**
  * Compile a Pattern into a RegExp.
@@ -24,9 +25,11 @@ function compilePattern(pattern: Pattern): RegExp {
 export interface ScanOptions {
   /** Custom pattern set (defaults to built-in patterns) */
   patterns?: Pattern[];
-  /** Threat score threshold for blocking (default: 0.7) */
+  /** Custom dampener set (defaults to built-in dampeners). Pass [] to disable. */
+  dampeners?: Dampener[];
+  /** Threat score threshold for blocking (default: 0.6) */
   blockThreshold?: number;
-  /** Threat score threshold for warning (default: 0.3) */
+  /** Threat score threshold for warning (default: 0.25) */
   warnThreshold?: number;
   /** Enable leetspeak deobfuscation pass (default: true) */
   deobfuscateLeetspeak?: boolean;
@@ -46,6 +49,7 @@ export interface ScanOptions {
 export function scan(content: string, options?: ScanOptions): ScanResult {
   const {
     patterns: customPatterns,
+    dampeners: customDampeners,
     blockThreshold,
     warnThreshold,
     deobfuscateLeetspeak: deobfuscate = true,
@@ -120,8 +124,19 @@ export function scan(content: string, options?: ScanOptions): ScanResult {
   });
   uniqueMatches.sort((a, b) => a.offset - b.offset);
 
-  // Step 4: Compute threat score from all unique matches
-  const score = computeScore(uniqueMatches, content.length, blockThreshold, warnThreshold);
+  // Step 4: Compute threat score from all unique matches, dampened by context.
+  const activeDampeners = customDampeners ?? defaultDampeners;
+  const dampenerRanges =
+    activeDampeners.length > 0 && uniqueMatches.length > 0
+      ? findDampenerRanges(content, activeDampeners)
+      : [];
+  const score = computeScore(
+    uniqueMatches,
+    content.length,
+    blockThreshold,
+    warnThreshold,
+    dampenerRanges,
+  );
 
   // Step 5: Build sanitized content using only original-content matches (safe offsets)
   let sanitized = content;

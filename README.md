@@ -1,4 +1,4 @@
-# Ilvarion
+# Bouclier.ai
 
 Network middleware that strips prompt injections from content before it reaches LLMs.
 
@@ -34,15 +34,15 @@ pnpm check
 ```bash
 cd apps/desktop
 swift build
-swift run Ilvarion
+swift run Bouclier.ai
 ```
 
 ## How It Works
 
-Ilvarion runs as a lightweight macOS menubar app that acts as a local proxy. It intercepts content flowing to AI APIs and MCP servers, scans for prompt injection patterns, and redacts malicious content before it reaches the model.
+Bouclier.ai runs as a lightweight macOS menubar app that acts as a local proxy. It intercepts content flowing to AI APIs and MCP servers, scans for prompt injection patterns, and redacts malicious content before it reaches the model.
 
 Detected injections are replaced with:
 
 ```
-[Possible prompt injection redacted by Ilvarion. See https://ilvarion.com/blocked for details]
+[Possible prompt injection redacted by Bouclier.ai. See https://bouclier.ai/blocked for details]
 ```

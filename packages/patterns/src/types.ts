@@ -13,7 +13,27 @@ export type Category =
   | "data-exfiltration"
   | "obfuscation"
   | "prompt-leaking"
-  | "recursive-injection";
+  | "recursive-injection"
+  | "tool-poisoning"
+  | "credential-leak"
+  | "memory-manipulation"
+  | "function-hijack"
+  | "model-specific"
+  | "multilingual"
+  | "code-injection"
+  | "sandbox-escape"
+  | "chain-of-thought-manipulation"
+  | "alignment-bypass";
+
+/** Dampener that reduces severity for benign contexts (academic, tutorials, etc.) */
+export interface Dampener {
+  id: string;
+  label: string;
+  regex: string;
+  flags: string;
+  /** Multiplier applied to matched pattern severity when dampener is present. 0-1 range. */
+  dampen: number;
+}
 
 /** Severity weights for threat scoring */
 export const SEVERITY_WEIGHTS: Record<Severity, number> = {

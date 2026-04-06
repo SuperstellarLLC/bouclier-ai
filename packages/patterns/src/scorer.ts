@@ -1,9 +1,62 @@
-import type { Category, ScanMatch, Severity, ThreatScore } from "./types.js";
+import { DAMPENER_PROXIMITY } from "./dampeners.js";
+import type { Category, Dampener, ScanMatch, Severity, ThreatScore } from "./types.js";
 import { SEVERITY_WEIGHTS } from "./types.js";
 
-/** Default thresholds */
-const BLOCK_THRESHOLD = 0.7;
-const WARN_THRESHOLD = 0.3;
+/**
+ * Default thresholds — tuned on the built-in benchmark (442 attacks,
+ * 240 benign). At these values a single critical-severity hit on a
+ * short input blocks, while typical academic / code / support text
+ * stays below the warn line. See src/__tests__/benchmark.test.ts.
+ */
+const BLOCK_THRESHOLD = 0.6;
+const WARN_THRESHOLD = 0.25;
+
+/**
+ * Compute a per-match severity multiplier from dampener hits. A match gets
+ * the lowest (most aggressive) dampener multiplier among all dampener
+ * ranges that contain — or are within DAMPENER_PROXIMITY of — the match.
+ */
+function computeDampening(
+  match: ScanMatch,
+  dampenerRanges: Array<{ start: number; end: number; dampen: number }>,
+): number {
+  let multiplier = 1;
+  const matchStart = match.offset;
+  const matchEnd = match.offset + match.length;
+  for (const r of dampenerRanges) {
+    const gap = Math.max(0, Math.max(r.start - matchEnd, matchStart - r.end));
+    if (gap <= DAMPENER_PROXIMITY && r.dampen < multiplier) {
+      multiplier = r.dampen;
+    }
+  }
+  return multiplier;
+}
+
+/**
+ * Scan content for dampener hits and return their ranges.
+ */
+const dampenerRegexCache = new Map<string, RegExp>();
+
+export function findDampenerRanges(
+  content: string,
+  dampeners: Dampener[],
+): Array<{ start: number; end: number; dampen: number }> {
+  const ranges: Array<{ start: number; end: number; dampen: number }> = [];
+  for (const d of dampeners) {
+    let regex = dampenerRegexCache.get(d.id);
+    if (!regex) {
+      regex = new RegExp(d.regex, `g${d.flags}`);
+      dampenerRegexCache.set(d.id, regex);
+    }
+    regex.lastIndex = 0;
+    let m: RegExpExecArray | null;
+    while ((m = regex.exec(content)) !== null) {
+      ranges.push({ start: m.index, end: m.index + m[0].length, dampen: d.dampen });
+      if (m.index === regex.lastIndex) regex.lastIndex++;
+    }
+  }
+  return ranges;
+}
 
 /**
  * Compute a heuristic threat score from scan matches.
@@ -19,6 +72,7 @@ export function computeScore(
   contentLength: number,
   blockThreshold = BLOCK_THRESHOLD,
   warnThreshold = WARN_THRESHOLD,
+  dampenerRanges: Array<{ start: number; end: number; dampen: number }> = [],
 ): ThreatScore {
   if (matches.length === 0) {
     return {
@@ -30,10 +84,13 @@ export function computeScore(
     };
   }
 
-  // Factor 1: Severity-weighted sum (capped at 1.0)
+  // Factor 1: Severity-weighted sum (capped at 1.0) with dampening
   const severityScore = Math.min(
     1.0,
-    matches.reduce((sum, m) => sum + SEVERITY_WEIGHTS[m.severity], 0),
+    matches.reduce((sum, m) => {
+      const multiplier = dampenerRanges.length > 0 ? computeDampening(m, dampenerRanges) : 1;
+      return sum + SEVERITY_WEIGHTS[m.severity] * multiplier;
+    }, 0),
   );
 
   // Factor 2: Category diversity (unique categories / total possible)
@@ -48,10 +105,14 @@ export function computeScore(
   // Factor 4: Position clustering
   const clusterScore = computeClusterScore(matches, contentLength);
 
-  // Weighted combination
+  // Weighted combination. Severity is the dominant signal — a single
+  // critical match on a short input should be enough to warrant blocking.
+  // Category diversity and density provide secondary evidence; clustering
+  // is the weakest signal because short inputs have too few matches for
+  // it to be meaningful.
   const total = Math.min(
     1.0,
-    severityScore * 0.45 + categoryScore * 0.25 + densityScore * 0.15 + clusterScore * 0.15,
+    severityScore * 0.6 + categoryScore * 0.2 + densityScore * 0.15 + clusterScore * 0.05,
   );
 
   // Determine highest severity

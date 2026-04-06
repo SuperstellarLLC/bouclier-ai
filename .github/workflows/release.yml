@@ -15,8 +15,8 @@ permissions:
 env:
   NODE_VERSION: "22"
   SKIP_ENV_VALIDATION: "true"
-  APP_NAME: "Ilvarion"
-  BUNDLE_ID: "com.ilvarion.app"
+  APP_NAME: "Bouclier"
+  BUNDLE_ID: "com.bouclier.app"
 
 jobs:
   build-desktop:
@@ -31,7 +31,7 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: "pnpm"
-      - run: pnpm install --frozen-lockfile && pnpm --filter @ilvarion/patterns build
+      - run: pnpm install --frozen-lockfile && pnpm --filter @bouclier/patterns build
       - run: apps/desktop/scripts/sync-patterns.sh
 
       # ── Build Swift ───────────────────────
@@ -46,11 +46,11 @@ jobs:
           mkdir -p "${CONTENTS}/MacOS" "${CONTENTS}/Resources"
 
           # Binaries
-          cp apps/desktop/.build/release/Ilvarion "${CONTENTS}/MacOS/"
-          cp apps/desktop/.build/release/ilvarion-mcp-wrapper "${CONTENTS}/MacOS/"
+          cp apps/desktop/.build/release/Bouclier "${CONTENTS}/MacOS/"
+          cp apps/desktop/.build/release/bouclier-mcp-wrapper "${CONTENTS}/MacOS/"
 
           # Resources (patterns.json bundle)
-          cp -r apps/desktop/.build/release/Ilvarion_Ilvarion.bundle "${CONTENTS}/Resources/" 2>/dev/null || true
+          cp -r apps/desktop/.build/release/Bouclier_Bouclier.bundle "${CONTENTS}/Resources/" 2>/dev/null || true
 
           # Info.plist
           cat > "${CONTENTS}/Info.plist" << EOF
@@ -67,7 +67,7 @@ jobs:
             <key>CFBundlePackageType</key><string>APPL</string>
             <key>LSUIElement</key><true/>
             <key>LSMinimumSystemVersion</key><string>14.0</string>
-            <key>NSHumanReadableCopyright</key><string>Copyright 2026 Ilvarion</string>
+            <key>NSHumanReadableCopyright</key><string>Copyright 2026 Bouclier</string>
           </dict>
           </plist>
           EOF
@@ -101,7 +101,7 @@ jobs:
         run: |
           codesign --force --deep --options runtime \
             --sign "$SIGNING_IDENTITY" \
-            --entitlements apps/desktop/Ilvarion.entitlements \
+            --entitlements apps/desktop/Bouclier.entitlements \
             "${APP_NAME}.app"
 
       # ── Create DMG ────────────────────────
