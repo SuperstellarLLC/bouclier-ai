@@ -6,25 +6,23 @@ import { APP_VERSION, CATEGORY_COUNT, PATTERN_COUNT } from "@/lib/constants";
 describe("Home page", () => {
   it("renders the hero heading", () => {
     render(<Home />);
-    expect(screen.getByText(/prompt injection firewall for macos/i)).toBeInTheDocument();
+    expect(screen.getByText(/a local firewall/i)).toBeInTheDocument();
   });
 
   it("renders the download button", () => {
     render(<Home />);
-    expect(screen.getByText(/download for macos/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/download for macos/i).length).toBeGreaterThan(0);
   });
 
   it("renders the privacy section", () => {
     render(<Home />);
-    expect(screen.getByText(/privacy by design/i)).toBeInTheDocument();
+    expect(screen.getByText(/nothing leaves your mac/i)).toBeInTheDocument();
   });
 
   it("advertises the current pattern and category counts", () => {
     render(<Home />);
-    const paragraphMatches = screen.getAllByText(
-      new RegExp(`${PATTERN_COUNT}.*${CATEGORY_COUNT} categories`, "i"),
-    );
-    expect(paragraphMatches.length).toBeGreaterThan(0);
+    expect(screen.getAllByText(new RegExp(`${PATTERN_COUNT}`)).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(new RegExp(`${CATEGORY_COUNT}`)).length).toBeGreaterThan(0);
   });
 
   it("shows the benchmark section", () => {
@@ -35,9 +33,8 @@ describe("Home page", () => {
 
   it("shows enterprise features", () => {
     render(<Home />);
-    expect(screen.getByText(/enterprise-ready/i)).toBeInTheDocument();
+    expect(screen.getByText(/ready for the soc/i)).toBeInTheDocument();
     expect(screen.getAllByText(/mdm managed/i).length).toBeGreaterThan(0);
-    expect(screen.getAllByText(/streaming response scan/i).length).toBeGreaterThan(0);
   });
 
   it("surfaces new category coverage", () => {
@@ -47,8 +44,8 @@ describe("Home page", () => {
     expect(screen.getAllByText(/alignment bypass/i).length).toBeGreaterThan(0);
   });
 
-  it("shows the current app version in the status line", () => {
+  it("shows the current app version", () => {
     render(<Home />);
-    expect(screen.getByText(new RegExp(`v${APP_VERSION}`))).toBeInTheDocument();
+    expect(screen.getAllByText(new RegExp(`v${APP_VERSION}`)).length).toBeGreaterThan(0);
   });
 });

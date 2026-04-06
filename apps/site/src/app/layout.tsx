@@ -1,14 +1,11 @@
 import type { Metadata, Viewport } from "next";
-import { N3rdProvider } from "@n3rd-ai/ui";
-import "@n3rd-ai/ui/theme/classic.css";
-import "@n3rd-ai/ui/theme/fonts.css";
 
 import { APP_NAME, APP_URL } from "@/lib/constants";
 
 import "./globals.css";
 
 const DESCRIPTION =
-  "Local prompt injection firewall for macOS. Scans AI API traffic and MCP tool results. No data leaves your machine.";
+  "Local prompt injection firewall for macOS. Scans AI API traffic, MCP tool results, and streaming responses. No data leaves your machine.";
 
 export const metadata: Metadata = {
   title: {
@@ -31,7 +28,7 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#0a0a0a",
+  themeColor: "#ffffff",
   width: "device-width",
   initialScale: 1,
 };
@@ -43,9 +40,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body>
-        <N3rdProvider>{children}</N3rdProvider>
-      </body>
+      <body className="text-text bg-white antialiased">{children}</body>
     </html>
   );
 }
