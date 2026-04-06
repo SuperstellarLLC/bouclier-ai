@@ -11,7 +11,8 @@ struct MenuBarView: View {
                 Circle()
                     .fill(statusColor)
                     .frame(width: 10, height: 10)
-                Text("Bouclier")
+                    .accessibilityLabel(statusAccessibilityLabel)
+                Text("Bouclier.ai")
                     .font(.headline)
                 Spacer()
                 Text(statusText)
@@ -31,6 +32,7 @@ struct MenuBarView: View {
                 .padding(8)
                 .background(.red.opacity(0.1))
                 .clipShape(RoundedRectangle(cornerRadius: 6))
+                .accessibilityElement(children: .combine)
             }
 
             if proxyManager.isRunning {
@@ -47,7 +49,19 @@ struct MenuBarView: View {
                     )
                 }
 
-                if let lastBlocked = proxyManager.logs.first(where: { $0.blocked && $0.message.contains("Blocked") }) {
+                if proxyManager.stats.injectionsBlocked == 0 && proxyManager.stats.requestsScanned > 0 {
+                    HStack(spacing: 6) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundStyle(.green)
+                            .font(.caption)
+                        Text("No threats detected")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(8)
+                    .background(.green.opacity(0.06))
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                } else if let lastBlocked = proxyManager.logs.first(where: { $0.blocked }) {
                     Button(action: { openLogFile() }) {
                         HStack(spacing: 6) {
                             Image(systemName: "exclamationmark.triangle.fill")
@@ -112,7 +126,7 @@ struct MenuBarView: View {
             }
             .keyboardShortcut(",")
 
-            Button("Quit Bouclier") {
+            Button("Quit Bouclier.ai") {
                 proxyManager.stop()
                 NSApplication.shared.terminate(nil)
             }
@@ -186,14 +200,19 @@ struct MenuBarView: View {
     private var statusColor: Color {
         if proxyManager.errorMessage != nil { return .red }
         if proxyManager.isRunning { return .green }
+        if !proxyManager.caInstalled { return .orange }
         return .secondary
     }
 
     private var statusText: String {
         if proxyManager.errorMessage != nil { return "Error" }
         if proxyManager.isRunning { return "Active" }
-        if !proxyManager.caInstalled { return "Not Configured" }
+        if !proxyManager.caInstalled { return "Setup Required" }
         return "Stopped"
+    }
+
+    private var statusAccessibilityLabel: String {
+        "Protection status: \(statusText)"
     }
 }
 
@@ -216,5 +235,7 @@ struct StatBadge: View {
                     .foregroundStyle(.secondary)
             }
         }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(value) \(label)")
     }
 }

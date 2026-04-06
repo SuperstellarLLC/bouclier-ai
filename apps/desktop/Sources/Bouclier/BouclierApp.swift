@@ -5,6 +5,8 @@ import UserNotifications
 struct BouclierApp: App {
     @StateObject private var proxyManager = ProxyManager()
     @StateObject private var updater = AutoUpdater()
+    @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
+    @Environment(\.openWindow) private var openWindow
 
     init() {
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
@@ -15,10 +17,14 @@ struct BouclierApp: App {
             MenuBarView(proxyManager: proxyManager, updater: updater)
                 .onAppear {
                     proxyManager.initializeStorage()
+                    if !hasCompletedOnboarding {
+                        openWindow(id: "onboarding")
+                    }
                 }
         } label: {
             Image(systemName: proxyManager.isRunning ? "shield.checkered" : "shield.slash")
                 .symbolRenderingMode(.hierarchical)
+                .accessibilityLabel(proxyManager.isRunning ? "Bouclier.ai — protection active" : "Bouclier.ai — protection inactive")
         }
         .menuBarExtraStyle(.window)
 
@@ -26,7 +32,7 @@ struct BouclierApp: App {
             SettingsView(proxyManager: proxyManager, updater: updater)
         }
 
-        Window("Welcome to Bouclier", id: "onboarding") {
+        Window("Welcome to Bouclier.ai", id: "onboarding") {
             OnboardingView(proxyManager: proxyManager)
         }
         .windowResizability(.contentSize)
