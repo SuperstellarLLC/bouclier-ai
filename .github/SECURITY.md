@@ -11,7 +11,7 @@
 If you discover a security vulnerability, please report it responsibly:
 
 1. **Do not** open a public issue.
-2. Email **security@ilvarion.com** with:
+2. Email **security@bouclier.ai** with:
    - Description of the vulnerability
    - Steps to reproduce
    - Potential impact

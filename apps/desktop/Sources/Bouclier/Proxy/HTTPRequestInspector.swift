@@ -1,0 +1,189 @@
+import Foundation
+import NIOCore
+import NIOHTTP1
+
+/// Pure, testable helpers for inspecting an intercepted HTTP request.
+///
+/// `HTTPInspectionHandler` in `TLSProxy.swift` composes these with NIO
+/// plumbing; unit tests exercise this type directly with no network or
+/// channel setup needed.
+enum HTTPRequestInspector {
+    /// Maximum buffered request body, in bytes. A single request larger
+    /// than this is rejected at the proxy to protect the event loop from
+    /// OOM / slow-loris uploads. AI chat payloads are well under 1 MB in
+    /// practice; we keep generous headroom for long document-grounded
+    /// prompts while still bounding the blast radius.
+    static let maxBodyBytes = 10 * 1024 * 1024
+
+    /// Maximum number of bytes buffered while waiting for the end of a
+    /// CONNECT request line + headers. 8 KiB is well above any legitimate
+    /// CONNECT header block and prevents slow-loris style buffer growth.
+    static let maxConnectHeaderBytes = 8 * 1024
+
+    /// Content-Type media types whose bodies we actually scan. Scanning
+    /// binary uploads (images, audio, multipart form boundaries) wastes
+    /// CPU and can trip false positives on byte sequences that happen
+    /// to look like regex matches.
+    static let scannableMediaPrefixes: [String] = [
+        "application/json",
+        "application/x-ndjson",
+        "application/ld+json",
+        "text/",
+    ]
+
+    /// Result of a full-request scan.
+    struct InspectionResult: Sendable {
+        /// True if the filter found at least one match anywhere (URI or body).
+        let detected: Bool
+        /// Count of distinct matches (URI + body combined).
+        let matchCount: Int
+        /// Names of patterns that matched. Deduplicated.
+        let patternNames: [String]
+        /// Categories that matched. Deduplicated.
+        let categories: [String]
+        /// Severities that matched. Deduplicated.
+        let severities: [String]
+        /// Body bytes after redaction. Equal to the input body when nothing
+        /// was detected or when the body is non-scannable.
+        let sanitizedBody: ByteBuffer
+        /// True if the body was skipped because its content type is not
+        /// scannable (binary upload, multipart form, etc.).
+        let bodyScanSkipped: Bool
+        /// True if the request was rejected for exceeding `maxBodyBytes`.
+        let rejectedOversize: Bool
+    }
+
+    /// Inspect a complete HTTP request. Returns nil only if the request
+    /// must be dropped entirely (oversized body).
+    static func inspect(
+        head: HTTPRequestHead,
+        body: ByteBuffer,
+        filter: InjectionFilter,
+        allocator: ByteBufferAllocator
+    ) -> InspectionResult {
+        let bodySize = body.readableBytes
+
+        if bodySize > maxBodyBytes {
+            return InspectionResult(
+                detected: false,
+                matchCount: 0,
+                patternNames: [],
+                categories: [],
+                severities: [],
+                sanitizedBody: body,
+                bodyScanSkipped: true,
+                rejectedOversize: true
+            )
+        }
+
+        // Scan the request URI — injection vectors hide in query
+        // parameters (e.g. ?q=ignore+previous+instructions). Decode URL
+        // encoding first so `+` and `%20` become real spaces that the
+        // regex patterns can match against. Can be disabled via the
+        // `uriScanning` feature flag for legacy deployments.
+        let uriScan: FilterResult
+        if FeatureFlags.uriScanning {
+            uriScan = filter.scan(decodeURI(head.uri))
+        } else {
+            uriScan = FilterResult(matchCount: 0, patternNames: [], sanitized: "")
+        }
+
+        let contentType = head.headers.first(name: "Content-Type") ?? ""
+        let scannable = shouldScanBody(contentType: contentType, method: head.method)
+
+        guard scannable, bodySize > 0,
+              let bodyString = body.getString(at: body.readerIndex, length: bodySize)
+        else {
+            return InspectionResult(
+                detected: uriScan.detected,
+                matchCount: uriScan.matchCount,
+                patternNames: uriScan.patternNames,
+                categories: uriScan.categories,
+                severities: uriScan.severities,
+                sanitizedBody: body,
+                bodyScanSkipped: !scannable,
+                rejectedOversize: false
+            )
+        }
+
+        let bodyScan = filter.scan(bodyString)
+
+        let detected = uriScan.detected || bodyScan.detected
+        let matchCount = uriScan.matchCount + bodyScan.matchCount
+        let names = Array(Set(uriScan.patternNames + bodyScan.patternNames))
+        let categories = Array(Set(uriScan.categories + bodyScan.categories))
+        let severities = Array(Set(uriScan.severities + bodyScan.severities))
+
+        let sanitized: ByteBuffer
+        if bodyScan.detected {
+            var buf = allocator.buffer(capacity: bodyScan.sanitized.utf8.count)
+            buf.writeString(bodyScan.sanitized)
+            sanitized = buf
+        } else {
+            sanitized = body
+        }
+
+        return InspectionResult(
+            detected: detected,
+            matchCount: matchCount,
+            patternNames: names,
+            categories: categories,
+            severities: severities,
+            sanitizedBody: sanitized,
+            bodyScanSkipped: false,
+            rejectedOversize: false
+        )
+    }
+
+    /// Decide whether to scan the body based on method + Content-Type.
+    /// GET/HEAD/DELETE requests rarely carry scan-worthy bodies.
+    static func shouldScanBody(contentType: String, method: HTTPMethod) -> Bool {
+        switch method {
+        case .GET, .HEAD, .DELETE, .OPTIONS, .CONNECT, .TRACE:
+            return false
+        default:
+            break
+        }
+        if contentType.isEmpty { return true } // be conservative
+        let lower = contentType.lowercased()
+        return scannableMediaPrefixes.contains(where: { lower.hasPrefix($0) })
+    }
+
+    /// Decode `+` → space and percent-escapes so query parameters can be
+    /// scanned in their decoded form. Falls back to the raw string when
+    /// percent-decoding fails so we still scan something.
+    static func decodeURI(_ uri: String) -> String {
+        let plus = uri.replacingOccurrences(of: "+", with: " ")
+        return plus.removingPercentEncoding ?? plus
+    }
+
+    /// Parse and validate a CONNECT target of the form `host:port`.
+    ///
+    /// Rejects:
+    /// - empty or missing host
+    /// - embedded CR/LF (header-injection attempts)
+    /// - whitespace, control, or null characters
+    /// - ports outside 1…65535
+    ///
+    /// Returns the parsed host and port on success, nil on failure.
+    static func parseConnectTarget(_ target: String) -> (host: String, port: Int)? {
+        guard !target.isEmpty, target.count <= 253 + 6 else { return nil }
+
+        // Reject control characters (CR/LF injection, null bytes).
+        for scalar in target.unicodeScalars {
+            if scalar.value < 0x21 || scalar.value == 0x7F { return nil }
+        }
+
+        let parts = target.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false)
+        guard parts.count == 2 else { return nil }
+
+        // Delegate full RFC 1123 validation (label length, leading/trailing
+        // hyphen, lowercasing) to the shared validator.
+        guard let host = ManagedConfigValidator.validatedHostname(String(parts[0])) else {
+            return nil
+        }
+
+        guard let port = Int(parts[1]), (1...65535).contains(port) else { return nil }
+        return (host, port)
+    }
+}

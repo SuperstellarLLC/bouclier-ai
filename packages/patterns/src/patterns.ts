@@ -1,3 +1,14 @@
+import { alignmentBypassPatterns } from "./patterns/alignment-bypass.js";
+import { chainOfThoughtPatterns } from "./patterns/chain-of-thought.js";
+import { codeInjectionPatterns } from "./patterns/code-injection.js";
+import { credentialLeakPatterns } from "./patterns/credential-leak.js";
+import { evolutionPatterns } from "./patterns/evolution.js";
+import { functionHijackPatterns } from "./patterns/function-hijack.js";
+import { memoryManipulationPatterns } from "./patterns/memory-manipulation.js";
+import { modelSpecificPatterns } from "./patterns/model-specific.js";
+import { multilingualPatterns } from "./patterns/multilingual.js";
+import { sandboxEscapePatterns } from "./patterns/sandbox-escape.js";
+import { toolPoisoningPatterns } from "./patterns/tool-poisoning.js";
 import type { Pattern } from "./types.js";
 
 /**
@@ -7,7 +18,7 @@ import type { Pattern } from "./types.js";
  * Swift's NSRegularExpression (ICU syntax). Avoid JS-only features
  * like lookbehind assertions.
  */
-export const patterns: Pattern[] = [
+const corePatterns: Pattern[] = [
   // ═══════════════════════════════════════════════
   // ── Role Hijacking ────────────────────────────
   // ═══════════════════════════════════════════════
@@ -604,4 +615,23 @@ export const patterns: Pattern[] = [
     ],
     enabled: true,
   },
+];
+
+/**
+ * Aggregated pattern set: 35 core + 126 extended (10 new categories + 18 evolution patterns).
+ * Total: 161 patterns across 21 categories.
+ */
+export const patterns: Pattern[] = [
+  ...corePatterns,
+  ...evolutionPatterns,
+  ...toolPoisoningPatterns,
+  ...credentialLeakPatterns,
+  ...memoryManipulationPatterns,
+  ...functionHijackPatterns,
+  ...modelSpecificPatterns,
+  ...multilingualPatterns,
+  ...codeInjectionPatterns,
+  ...sandboxEscapePatterns,
+  ...chainOfThoughtPatterns,
+  ...alignmentBypassPatterns,
 ];
