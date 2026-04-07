@@ -64,7 +64,7 @@ if [ -n "$SPARKLE_PATH" ]; then
 fi
 
 # Fix rpath so the binary can find Sparkle.framework at runtime
-install_name_tool -add_rpath @executable_path/../Frameworks "$CONTENTS/MacOS/Bouclier.ai" 2>/dev/null || true
+install_name_tool -add_rpath @executable_path/../Frameworks "$CONTENTS/MacOS/Bouclier" 2>/dev/null || true
 
 # Info.plist
 cat > "$CONTENTS/Info.plist" << EOF
