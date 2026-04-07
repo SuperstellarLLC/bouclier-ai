@@ -11,21 +11,13 @@ export default function PrivacyPage() {
       <nav className="border-border border-b">
         <div className="mx-auto flex max-w-3xl items-center justify-between px-6 py-4">
           <Link href="/" className="text-text flex items-center gap-2 text-sm font-semibold">
-            <svg
-              viewBox="0 0 24 24"
-              fill="none"
-              className="h-5 w-5"
-              stroke="currentColor"
-              strokeWidth="1.5"
-            >
-              <path
-                d="M12 3l7.5 3.5v5c0 4.5-3 8.5-7.5 10-4.5-1.5-7.5-5.5-7.5-10v-5L12 3z"
-                fill="currentColor"
-                fillOpacity="0.08"
-                stroke="currentColor"
-              />
-              <path d="M9 12l2 2 4-4" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
+            <img
+              src="/images/logo-64.png"
+              alt="Bouclier.ai"
+              width={20}
+              height={20}
+              className="rounded-[4px]"
+            />
             Bouclier.ai
           </Link>
           <div className="text-text-secondary flex gap-6 text-sm">

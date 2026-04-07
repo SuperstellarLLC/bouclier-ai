@@ -1,3 +1,4 @@
+import Image from "next/image";
 import Link from "next/link";
 import { MobileNav } from "./mobile-nav";
 import {
@@ -45,7 +46,13 @@ export default function Home() {
       >
         <div className="relative mx-auto flex max-w-5xl items-center justify-between px-6 py-4">
           <Link href="/" className="flex items-center gap-2.5">
-            <Shield className="h-6 w-6" />
+            <Image
+              src="/images/logo-64.png"
+              alt="Bouclier.ai"
+              width={24}
+              height={24}
+              className="rounded-[5px]"
+            />
             <span className="text-text text-[15px] font-semibold tracking-tight">Bouclier.ai</span>
           </Link>
           <div className="hidden items-center gap-6 sm:flex">
@@ -82,7 +89,7 @@ export default function Home() {
       <section className="relative overflow-hidden">
         <div className="from-bouclier-light/50 absolute inset-0 bg-gradient-to-b to-white" />
         <div className="relative mx-auto max-w-5xl px-6 pb-24 pt-20 text-center">
-          {/* Animated shield rings */}
+          {/* Brand icon with animated rings */}
           <div className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2">
             <div className="shield-ring border-bouclier/10 h-[500px] w-[500px] rounded-full border" />
           </div>
@@ -91,6 +98,16 @@ export default function Home() {
           </div>
 
           <div className="relative">
+            <div className="mb-8">
+              <Image
+                src="/images/logo-256.png"
+                alt="Bouclier.ai"
+                width={80}
+                height={80}
+                className="mx-auto rounded-2xl shadow-lg"
+                priority
+              />
+            </div>
             <div className="border-bouclier/20 text-bouclier mb-6 inline-flex items-center gap-2 rounded-full border bg-white px-4 py-1.5 text-sm font-medium shadow-sm">
               <span className="bg-accent-green h-1.5 w-1.5 rounded-full" />v{APP_VERSION} —{" "}
               {PATTERN_COUNT} patterns across {CATEGORY_COUNT} categories
@@ -374,7 +391,13 @@ export default function Home() {
       <footer className="border-border border-t py-12">
         <div className="mx-auto flex max-w-5xl items-center justify-between px-6">
           <div className="flex items-center gap-2.5">
-            <Shield className="h-5 w-5" />
+            <Image
+              src="/images/logo-64.png"
+              alt="Bouclier.ai"
+              width={20}
+              height={20}
+              className="rounded-[4px]"
+            />
             <span className="text-text text-sm font-semibold">Bouclier.ai</span>
           </div>
           <div className="text-text-secondary flex gap-6 text-sm">
@@ -527,28 +550,6 @@ function FeatureCard({ title, description }: { title: string; description: strin
 }
 
 /* ── Icons ───────────────────────────────────────── */
-
-function Shield({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      className={className}
-      stroke="currentColor"
-      strokeWidth="1.5"
-      role="img"
-      aria-label="Bouclier.ai shield"
-    >
-      <path
-        d="M12 3l7.5 3.5v5c0 4.5-3 8.5-7.5 10-4.5-1.5-7.5-5.5-7.5-10v-5L12 3z"
-        fill="currentColor"
-        fillOpacity="0.08"
-        stroke="currentColor"
-      />
-      <path d="M9 12l2 2 4-4" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
 
 function DownloadIcon() {
   return (
