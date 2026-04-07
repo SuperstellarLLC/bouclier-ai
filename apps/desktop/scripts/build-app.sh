@@ -72,8 +72,8 @@ cat > "$CONTENTS/Info.plist" << EOF
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <key>CFBundleName</key><string>Bouclier.ai</string>
-    <key>CFBundleDisplayName</key><string>Bouclier.ai</string>
+    <key>CFBundleName</key><string>Bouclier-ai</string>
+    <key>CFBundleDisplayName</key><string>Bouclier-ai</string>
     <key>CFBundleIdentifier</key><string>ai.bouclier.app</string>
     <key>CFBundleVersion</key><string>$VERSION</string>
     <key>CFBundleShortVersionString</key><string>$VERSION</string>
@@ -108,7 +108,7 @@ cat > "$SYSEXT_CONTENTS/Info.plist" << EOF
 <plist version="1.0">
 <dict>
     <key>CFBundleName</key><string>BouclierExtension</string>
-    <key>CFBundleDisplayName</key><string>Bouclier.ai Network Extension</string>
+    <key>CFBundleDisplayName</key><string>Bouclier-ai Network Extension</string>
     <key>CFBundleIdentifier</key><string>ai.bouclier.app.extension</string>
     <key>CFBundleVersion</key><string>$VERSION</string>
     <key>CFBundleShortVersionString</key><string>$VERSION</string>
