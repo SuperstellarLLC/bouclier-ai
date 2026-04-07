@@ -136,11 +136,19 @@ EXT_PROFILE="$PROJECT_DIR/profiles/Bouclierai_Network_Extension.provisionprofile
 if [ -f "$APP_PROFILE" ]; then
   cp "$APP_PROFILE" "$CONTENTS/embedded.provisionprofile"
   echo "Embedded app provisioning profile"
+else
+  echo "ERROR: App provisioning profile not found at $APP_PROFILE"
+  echo "Download from: https://developer.apple.com/account/resources/profiles/list"
+  exit 1
 fi
 
 if [ -f "$EXT_PROFILE" ]; then
   cp "$EXT_PROFILE" "$SYSEXT_CONTENTS/embedded.provisionprofile"
   echo "Embedded extension provisioning profile"
+else
+  echo "ERROR: Extension provisioning profile not found at $EXT_PROFILE"
+  echo "Download from: https://developer.apple.com/account/resources/profiles/list"
+  exit 1
 fi
 
 # ── Hide .app extension in Finder ──────────────────
