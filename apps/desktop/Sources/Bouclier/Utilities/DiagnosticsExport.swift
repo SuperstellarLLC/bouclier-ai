@@ -133,6 +133,6 @@ enum DiagnosticsExport {
 
 private extension DiagnosticsExport.Bundle {
     static func bundleIdentifier() -> String {
-        Foundation.Bundle.main.bundleIdentifier ?? "com.bouclier.Bouclier"
+        Foundation.Bundle.main.bundleIdentifier ?? "ai.bouclier.app"
     }
 }

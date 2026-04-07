@@ -95,7 +95,7 @@ export default function PrivacyPage() {
         </Section>
 
         <Section title="Data stored locally">
-          <p>Stored at ~/Library/Application Support/com.bouclier.Bouclier/:</p>
+          <p>Stored at ~/Library/Application Support/ai.bouclier.app/:</p>
           <ul className="mt-3 space-y-2">
             <li className="flex gap-2">
               <span className="bg-text-secondary mt-2 h-1 w-1 shrink-0 rounded-full" />

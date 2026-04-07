@@ -85,7 +85,7 @@ The **System Extension** (NETransparentProxyProvider) redirects the allowlisted 
 
 | T1 | **Tampering with `patterns.json` on disk.** A co-resident process with the same user could rewrite the bundle resource. | Patterns are loaded from the signed app bundle (`Bundle.main.url`). The bundle is code-signed; Gatekeeper quarantines modifications. Runtime SHA-256 of the loaded file is logged (`InjectionFilter.loadAndVerifyPatterns`) so tampering is observable in diagnostics/webhooks. |
 | T2 | **Tampering with in-memory regexes via FS.** | Not prevented; requires root + SIP disabled. Out of scope. |
-| T3 | **Tampering with the SQLite scan log.** | GRDB WAL file under `~/Library/Application Support/com.bouclier.Bouclier.ai/`. Tamper-evident via audit webhook mirror (AuditLogger sends structured JSON to the MDM-configured SIEM endpoint in real time). |
+| T3 | **Tampering with the SQLite scan log.** | GRDB WAL file under `~/Library/Application Support/ai.bouclier.app.ai/`. Tamper-evident via audit webhook mirror (AuditLogger sends structured JSON to the MDM-configured SIEM endpoint in real time). |
 | T4 | **Tampering with the request body after redaction.** Malicious client sees redaction, resubmits bypassing Bouclier.ai. | Not in threat model — Bouclier.ai is a defense-in-depth layer. Bypass requires the user to manually route traffic around the proxy, which is detectable by the System Extension. |
 
 ### 2.3 Repudiation

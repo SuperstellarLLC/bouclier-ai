@@ -1,6 +1,6 @@
 name: Bouclier
 options:
-  bundleIdPrefix: com.bouclier
+  bundleIdPrefix: ai.bouclier
   deploymentTarget:
     macOS: "15.0"
   createIntermediateGroups: true
@@ -62,7 +62,7 @@ targets:
             destination: systemExtension
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.bouclier.app
+        PRODUCT_BUNDLE_IDENTIFIER: ai.bouclier.app
         PROVISIONING_PROFILE_SPECIFIER: "Bouclier"
         CODE_SIGN_ENTITLEMENTS: Bouclier.entitlements
         ENABLE_HARDENED_RUNTIME: YES
@@ -91,7 +91,7 @@ targets:
       - path: Sources/BouclierExtension
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.bouclier.app.extension
+        PRODUCT_BUNDLE_IDENTIFIER: ai.bouclier.app.extension
         PROVISIONING_PROFILE_SPECIFIER: "Bouclier Network Extension"
         CODE_SIGN_ENTITLEMENTS: BouclierExtension.entitlements
         ENABLE_HARDENED_RUNTIME: YES

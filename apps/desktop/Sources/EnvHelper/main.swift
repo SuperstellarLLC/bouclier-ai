@@ -21,7 +21,7 @@ let port = UserDefaults.standard.object(forKey: "proxyPort") as? Int ?? 8484
 let appSupport = FileManager.default.urls(
     for: .applicationSupportDirectory,
     in: .userDomainMask
-).first!.appendingPathComponent("com.bouclier.Bouclier", isDirectory: true)
+).first!.appendingPathComponent("ai.bouclier.app", isDirectory: true)
 
 let caCertPath = appSupport.appendingPathComponent("ca.pem").path
 let caExists = FileManager.default.fileExists(atPath: caCertPath)

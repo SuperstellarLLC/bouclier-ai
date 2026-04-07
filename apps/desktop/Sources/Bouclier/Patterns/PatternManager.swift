@@ -4,7 +4,7 @@ import Foundation
 /// Manages pattern loading with hot-reload support.
 ///
 /// Load priority:
-/// 1. User override: ~/Library/Application Support/com.bouclier.Bouclier/patterns.json
+/// 1. User override: ~/Library/Application Support/ai.bouclier.app/patterns.json
 /// 2. Bundled resource: patterns.json in app bundle
 /// 3. Compiled fallback: hardcoded critical patterns
 ///
@@ -20,7 +20,7 @@ final class PatternManager: @unchecked Sendable {
         let dir = FileManager.default.urls(
             for: .applicationSupportDirectory,
             in: .userDomainMask
-        ).first!.appendingPathComponent("com.bouclier.Bouclier", isDirectory: true)
+        ).first!.appendingPathComponent("ai.bouclier.app", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir
     }()
