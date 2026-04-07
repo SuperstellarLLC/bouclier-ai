@@ -81,7 +81,7 @@ targets:
         LSUIElement: true
         NSSystemExtensionUsageDescription: "Bouclier needs a system extension to intercept AI API traffic for prompt injection scanning."
         SUPublicEDKey: "QNMtWO7H9Z9Hv1J9bAsunleicPvJVP2bMJQezjV3vmM="
-        SUFeedURL: "https://bouclier.ai/appcast.xml"
+        SUFeedURL: "https://www.bouclier.ai/appcast.xml"
         SUEnableAutomaticChecks: true
 
   BouclierExtension:

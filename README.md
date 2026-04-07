@@ -44,5 +44,5 @@ Bouclier.ai runs as a lightweight macOS menubar app that acts as a local proxy. 
 Detected injections are replaced with:
 
 ```
-[Possible prompt injection redacted by Bouclier.ai. See https://bouclier.ai/blocked for details]
+[Possible prompt injection redacted by Bouclier.ai. See https://www.bouclier.ai/blocked for details]
 ```
