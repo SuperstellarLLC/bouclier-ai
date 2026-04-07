@@ -58,35 +58,42 @@ VERSION="$VERSION" "$SCRIPT_DIR/build-app.sh" --release --sign
 echo "  ✓ App built and signed at $APP"
 echo ""
 
-# ── Step 2: Create DMG with Applications shortcut ──
-echo "▸ Step 2/6: Creating DMG..."
-rm -f "$DMG"
+# ── Step 2: Notarize the .app ───────────────────
+# We notarize the app as a zip first, then staple the ticket onto the
+# .app before packaging the DMG. This way the app inside the DMG has
+# the notarization ticket embedded and Gatekeeper won't block it.
+echo "▸ Step 2/6: Notarizing app..."
+APP_ZIP="$PROJECT_DIR/build/Bouclier-ai-notarize.zip"
+ditto -c -k --keepParent "$APP" "$APP_ZIP"
 
-# Stage a temp folder with the app + Applications symlink
-DMG_STAGE="$PROJECT_DIR/build/dmg-stage"
-rm -rf "$DMG_STAGE"
-mkdir -p "$DMG_STAGE"
-cp -R "$APP" "$DMG_STAGE/"
-ln -s /Applications "$DMG_STAGE/Applications"
-
-hdiutil create -volname "Bouclier.ai" -srcfolder "$DMG_STAGE" \
-  -ov -format UDZO "$DMG" -quiet
-
-rm -rf "$DMG_STAGE"
-echo "  ✓ DMG created at $DMG (with Applications shortcut)"
-echo ""
-
-# ── Step 3: Notarize ────────────────────────────
-echo "▸ Step 3/6: Submitting for notarization..."
-xcrun notarytool submit "$DMG" \
+xcrun notarytool submit "$APP_ZIP" \
   --apple-id "$APPLE_ID" \
   --team-id "$TEAM_ID" \
   --password "$APP_PASSWORD" \
   --wait
 echo ""
 
-echo "  Stapling..."
-xcrun stapler staple "$DMG"
+echo "  Stapling app..."
+xcrun stapler staple "$APP"
+rm -f "$APP_ZIP"
+echo "  ✓ App notarized and stapled"
+echo ""
+
+# ── Step 3: Create DMG with Applications shortcut ──
+echo "▸ Step 3/6: Creating DMG..."
+rm -f "$DMG"
+
+DMG_STAGE="$PROJECT_DIR/build/dmg-stage"
+rm -rf "$DMG_STAGE"
+mkdir -p "$DMG_STAGE"
+cp -R "$APP" "$DMG_STAGE/"
+ln -s /Applications "$DMG_STAGE/Applications"
+
+hdiutil create -volname "Bouclier-ai" -srcfolder "$DMG_STAGE" \
+  -ov -format UDZO "$DMG" -quiet
+
+rm -rf "$DMG_STAGE"
+echo "  ✓ DMG created at $DMG (with stapled app + Applications shortcut)"
 echo "  ✓ Notarized and stapled"
 echo ""
 
