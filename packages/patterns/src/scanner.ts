@@ -5,7 +5,7 @@ import { computeScore, findDampenerRanges } from "./scorer.js";
 import type { Dampener, Pattern, ScanMatch, ScanResult } from "./types.js";
 
 const REDACTION_MESSAGE =
-  "[Possible prompt injection redacted by Bouclier.ai. See https://bouclier.ai/blocked for details]";
+  "[Possible prompt injection redacted by Bouclier.ai. See https://www.bouclier.ai/blocked for details]";
 
 /**
  * Compile a Pattern into a RegExp.

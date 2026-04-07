@@ -10,7 +10,7 @@ final class InjectionFilter: Sendable {
     private let patterns: [FilterPattern]
 
     static let redactionMessage =
-        "[Possible prompt injection redacted by Bouclier.ai. See https://bouclier.ai/blocked for details]"
+        "[Possible prompt injection redacted by Bouclier.ai. See https://www.bouclier.ai/blocked for details]"
 
     private static let homoglyphMap: [Character: Character] = [
         "\u{0430}": "a", "\u{0435}": "e", "\u{043E}": "o",

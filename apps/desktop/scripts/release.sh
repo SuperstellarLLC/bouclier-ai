@@ -4,31 +4,39 @@ set -euo pipefail
 # Full release pipeline: build → sign → DMG → notarize → Sparkle → upload → deploy.
 #
 # Usage:
-#   VERSION=0.2.0 \
 #   APPLE_ID=you@example.com \
-#   TEAM_ID=U86PR842AK \
 #   DOWNLOAD_BASE_URL=https://xyz.public.blob.vercel-storage.com \
 #     ./scripts/release.sh
+#
+# Prompts for version and app-specific password at runtime.
 #
 # Prerequisites:
 #   - Developer ID identity in Keychain
 #   - Sparkle EdDSA key in Keychain
 #   - Provisioning profiles in profiles/
-#   - notarytool credentials (--apple-id + --team-id, or keychain profile)
+#   - App-specific password (appleid.apple.com → App-Specific Passwords)
 #   - vercel CLI authenticated
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 SITE_DIR="$(dirname "$(dirname "$PROJECT_DIR")")/apps/site"
 
-VERSION="${VERSION:?VERSION env var required (e.g. 0.2.0)}"
-APPLE_ID="${APPLE_ID:?APPLE_ID env var required (Apple Developer email)}"
+APPLE_ID="${APPLE_ID:?APPLE_ID env var required}"
 TEAM_ID="${TEAM_ID:-U86PR842AK}"
 DOWNLOAD_BASE_URL="${DOWNLOAD_BASE_URL:?DOWNLOAD_BASE_URL env var required}"
+
+read -rp "Version (e.g. 0.2.0): " VERSION
+if [ -z "$VERSION" ]; then echo "Version is required."; exit 1; fi
+
+echo -n "App-specific password: "
+read -rs APP_PASSWORD
+echo ""
+if [ -z "$APP_PASSWORD" ]; then echo "Password is required."; exit 1; fi
 
 DMG="$PROJECT_DIR/build/Bouclier-ai-v${VERSION}-macOS.dmg"
 APP="$PROJECT_DIR/build/Bouclier.ai.app"
 
+echo ""
 echo "═══════════════════════════════════════════════"
 echo "  Bouclier.ai v${VERSION} — Release Pipeline"
 echo "═══════════════════════════════════════════════"
@@ -53,6 +61,7 @@ echo "▸ Step 3/6: Submitting for notarization..."
 xcrun notarytool submit "$DMG" \
   --apple-id "$APPLE_ID" \
   --team-id "$TEAM_ID" \
+  --password "$APP_PASSWORD" \
   --wait
 echo ""
 
@@ -99,5 +108,5 @@ echo "════════════════════════�
 echo ""
 echo "  DMG:     $DMG"
 echo "  Appcast: $SITE_DIR/public/appcast.xml"
-echo "  Site:    https://bouclier.ai"
+echo "  Site:    https://www.bouclier.ai"
 echo ""

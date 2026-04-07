@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" xmlns:dc="http://purl.org/dc/elements/1.1/">
+  <channel>
+    <title>Bouclier.ai Updates</title>
+    <link>https://bouclier.ai/appcast.xml</link>
+    <description>Updates for Bouclier.ai — prompt injection firewall for macOS</description>
+    <language>en</language>
+    <item>
+      <title>Version 0.2.1</title>
+      <pubDate>Tue, 07 Apr 2026 13:57:16 +0200</pubDate>
+      <sparkle:version>0.2.1</sparkle:version>
+      <sparkle:shortVersionString>0.2.1</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+      <description><![CDATA[
+        <h2>Bouclier.ai v0.2.1</h2>
+        <ul>
+          <li>161 detection patterns across 21 attack categories (was 35 / 11)</li>
+          <li>Streaming SSE response scanning (OpenAI, Anthropic, Gemini, Mistral)</li>
+          <li>8 false-positive dampeners for academic, tutorial, and translation contexts</li>
+          <li>HTTP pipeline hardening: body-size cap, CRLF rejection, Content-Type gating</li>
+          <li>Structured metrics with latency histograms and per-category hit counts</li>
+          <li>Export Diagnostics bundle for enterprise support handoff</li>
+          <li>MDM feature flags (sseInspection, uriScanning, telemetryEnabled)</li>
+          <li>Input validation on all MDM config: ports, hostnames, webhook URLs</li>
+          <li>STRIDE threat model published</li>
+        </ul>
+      ]]></description>
+      <enclosure
+        url="https://0tdi95zyjwsefpzx.public.blob.vercel-storage.com/download/Bouclier-ai-v0.2.1-macOS.dmg"
+        sparkle:edSignature="YDdN3LxoPK0ohfUF8G2CTjjx7tqIjzvfrbxxPdZwvSNBNfq3R2nQdLGozqf4D/wlR5na4CGRHqJjwWRntTPiDA=="
+        length="7120071"
+        type="application/octet-stream"
+      />
+    </item>
+  </channel>
+</rss>

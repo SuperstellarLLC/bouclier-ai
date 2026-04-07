@@ -88,7 +88,7 @@ cat > "$CONTENTS/Info.plist" << EOF
     <key>SUPublicEDKey</key>
     <string>QNMtWO7H9Z9Hv1J9bAsunleicPvJVP2bMJQezjV3vmM=</string>
     <key>SUFeedURL</key>
-    <string>https://bouclier.ai/appcast.xml</string>
+    <string>https://www.bouclier.ai/appcast.xml</string>
     <key>SUEnableAutomaticChecks</key>
     <true/>
 </dict>
@@ -130,8 +130,8 @@ cat > "$SYSEXT_CONTENTS/Info.plist" << EOF
 EOF
 
 # ── Embed Provisioning Profiles ─────────────────
-APP_PROFILE="$PROJECT_DIR/profiles/Bouclier-ai.provisionprofile"
-EXT_PROFILE="$PROJECT_DIR/profiles/Bouclier.ai_Network_Extension.provisionprofile"
+APP_PROFILE="$PROJECT_DIR/profiles/Bouclierai.provisionprofile"
+EXT_PROFILE="$PROJECT_DIR/profiles/Bouclierai_Network_Extension.provisionprofile"
 
 if [ -f "$APP_PROFILE" ]; then
   cp "$APP_PROFILE" "$CONTENTS/embedded.provisionprofile"
@@ -144,31 +144,58 @@ if [ -f "$EXT_PROFILE" ]; then
 fi
 
 # ── Code Signing ────────────────────────────────
+# Sign inside-out: deepest nested binaries first, main app last.
+# Every binary needs --options runtime (hardened runtime) and --timestamp
+# for notarization to pass.
 if [ "$SIGN" = true ]; then
   IDENTITY="${SIGNING_IDENTITY:-Developer ID Application}"
+  CODESIGN="codesign --force --options runtime --timestamp --sign"
 
-  # Sign Sparkle framework first (innermost)
-  if [ -d "$CONTENTS/Frameworks/Sparkle.framework" ]; then
-    echo "Signing Sparkle framework..."
-    codesign --force --options runtime \
-      --sign "$IDENTITY" \
-      "$CONTENTS/Frameworks/Sparkle.framework"
+  # 1. Sparkle nested binaries (innermost first)
+  SPARKLE="$CONTENTS/Frameworks/Sparkle.framework/Versions/B"
+  if [ -d "$SPARKLE" ]; then
+    echo "Signing Sparkle XPC services..."
+    $CODESIGN "$IDENTITY" "$SPARKLE/XPCServices/Downloader.xpc"
+    $CODESIGN "$IDENTITY" "$SPARKLE/XPCServices/Installer.xpc"
+
+    echo "Signing Sparkle Updater.app..."
+    $CODESIGN "$IDENTITY" "$SPARKLE/Updater.app"
+
+    echo "Signing Sparkle Autoupdate..."
+    $CODESIGN "$IDENTITY" "$SPARKLE/Autoupdate"
+
+    echo "Signing Sparkle.framework..."
+    $CODESIGN "$IDENTITY" "$CONTENTS/Frameworks/Sparkle.framework"
   fi
 
+  # 2. Helper executables
+  echo "Signing helper binaries..."
+  $CODESIGN "$IDENTITY" "$CONTENTS/MacOS/bouclier-ai-mcp-wrapper"
+  $CODESIGN "$IDENTITY" "$CONTENTS/MacOS/bouclier-ai-env"
+
+  # 3. System Extension
   echo "Signing System Extension..."
-  codesign --force --options runtime \
-    --sign "$IDENTITY" \
+  $CODESIGN "$IDENTITY" \
     --entitlements "$PROJECT_DIR/BouclierExtension.entitlements" \
     "$SYSEXT"
 
+  # 4. Main app (outermost — must be last)
   echo "Signing main app..."
-  codesign --force --options runtime \
-    --sign "$IDENTITY" \
+  $CODESIGN "$IDENTITY" \
     --entitlements "$PROJECT_DIR/Bouclier.entitlements" \
     "$APP"
 
   echo "Verifying signatures..."
   codesign --verify --deep --strict "$APP"
+fi
+
+# ── Refresh Icon Cache ─────────────────────────────
+# macOS aggressively caches app icons. Without this, a previously-seen
+# app will keep showing the generic icon even after the .icns is fixed.
+touch "$APP"
+LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/LaunchServices.framework/Versions/A/Support/lsregister"
+if [ -x "$LSREGISTER" ]; then
+  "$LSREGISTER" -f "$APP" 2>/dev/null || true
 fi
 
 echo ""
