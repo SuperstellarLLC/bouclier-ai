@@ -28,12 +28,12 @@ describe("Home page", () => {
   it("shows the benchmark section", () => {
     render(<Home />);
     expect(screen.getByText(/measured, not marketed/i)).toBeInTheDocument();
-    expect(screen.getAllByText(/true-positive rate/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/attacks caught/i).length).toBeGreaterThan(0);
   });
 
   it("shows enterprise features", () => {
     render(<Home />);
-    expect(screen.getByText(/ready for the soc/i)).toBeInTheDocument();
+    expect(screen.getByText(/ready for your security team/i)).toBeInTheDocument();
     expect(screen.getAllByText(/mdm managed/i).length).toBeGreaterThan(0);
   });
 
