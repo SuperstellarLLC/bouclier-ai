@@ -38,8 +38,9 @@ SIGNATURE=$("$SIGN_UPDATE" "$DMG")
 echo "$SIGNATURE"
 
 # Parse the sparkle:edSignature and length from sign_update output
-ED_SIG=$(echo "$SIGNATURE" | grep -oP 'sparkle:edSignature="\K[^"]+')
-LENGTH=$(echo "$SIGNATURE" | grep -oP 'length="\K[^"]+')
+# (BSD grep on macOS — no -P flag)
+ED_SIG=$(echo "$SIGNATURE" | sed -n 's/.*sparkle:edSignature="\([^"]*\)".*/\1/p')
+LENGTH=$(echo "$SIGNATURE" | sed -n 's/.*length="\([^"]*\)".*/\1/p')
 DMG_SIZE=$(stat -f%z "$DMG" 2>/dev/null || stat --format=%s "$DMG")
 
 # Use LENGTH from sign_update if available, fall back to file size
@@ -57,7 +58,7 @@ cat > "$APPCAST_OUT" << EOF
 <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" xmlns:dc="http://purl.org/dc/elements/1.1/">
   <channel>
     <title>Bouclier.ai Updates</title>
-    <link>https://bouclier.ai/appcast.xml</link>
+    <link>https://www.bouclier.ai/appcast.xml</link>
     <description>Updates for Bouclier.ai — prompt injection firewall for macOS</description>
     <language>en</language>
     <item>

@@ -9,7 +9,7 @@ import Foundation
 /// intercepting its stdout, scanning JSON-RPC responses for prompt injections
 /// in tool result content blocks, and forwarding sanitized output.
 
-let redactionMessage = "[Possible prompt injection redacted by Bouclier. See https://bouclier.ai/blocked for details]"
+let redactionMessage = "[Possible prompt injection redacted by Bouclier. See https://www.bouclier.ai/blocked for details]"
 
 // MARK: - Injection Patterns (embedded subset for standalone binary)
 

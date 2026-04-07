@@ -29,7 +29,7 @@
     <key>SUPublicEDKey</key>
     <string>QNMtWO7H9Z9Hv1J9bAsunleicPvJVP2bMJQezjV3vmM=</string>
     <key>SUFeedURL</key>
-    <string>https://bouclier.ai/appcast.xml</string>
+    <string>https://www.bouclier.ai/appcast.xml</string>
     <key>SUEnableAutomaticChecks</key>
     <true/>
 </dict>

@@ -166,7 +166,7 @@ export default function BlockedPage() {
           <code className="text-text mt-3 block rounded-lg bg-white p-4 font-mono text-sm">
             [Possible prompt injection redacted by Bouclier.ai.
             <br />
-            See https://bouclier.ai/blocked for details]
+            See https://www.bouclier.ai/blocked for details]
           </code>
           <p className="mt-3 text-sm text-amber-700">
             Only the matched segments were redacted. The rest of your content was passed through
