@@ -19,7 +19,7 @@ final class StorageManager: Sendable {
         ).first else {
             throw StorageError.noAppSupportDirectory
         }
-        let supportDir = appSupportDir.appendingPathComponent("com.bouclier.Bouclier", isDirectory: true)
+        let supportDir = appSupportDir.appendingPathComponent("ai.bouclier.app", isDirectory: true)
 
         try FileManager.default.createDirectory(at: supportDir, withIntermediateDirectories: true)
 

@@ -74,7 +74,7 @@ cat > "$CONTENTS/Info.plist" << EOF
 <dict>
     <key>CFBundleName</key><string>Bouclier.ai</string>
     <key>CFBundleDisplayName</key><string>Bouclier.ai</string>
-    <key>CFBundleIdentifier</key><string>com.bouclier.app</string>
+    <key>CFBundleIdentifier</key><string>ai.bouclier.app</string>
     <key>CFBundleVersion</key><string>$VERSION</string>
     <key>CFBundleShortVersionString</key><string>$VERSION</string>
     <key>CFBundleExecutable</key><string>Bouclier</string>
@@ -96,7 +96,7 @@ cat > "$CONTENTS/Info.plist" << EOF
 EOF
 
 # ── System Extension Bundle ─────────────────────
-SYSEXT="$CONTENTS/Library/SystemExtensions/com.bouclier.app.extension.systemextension"
+SYSEXT="$CONTENTS/Library/SystemExtensions/ai.bouclier.app.extension.systemextension"
 SYSEXT_CONTENTS="$SYSEXT/Contents"
 mkdir -p "$SYSEXT_CONTENTS/MacOS"
 
@@ -109,7 +109,7 @@ cat > "$SYSEXT_CONTENTS/Info.plist" << EOF
 <dict>
     <key>CFBundleName</key><string>BouclierExtension</string>
     <key>CFBundleDisplayName</key><string>Bouclier.ai Network Extension</string>
-    <key>CFBundleIdentifier</key><string>com.bouclier.app.extension</string>
+    <key>CFBundleIdentifier</key><string>ai.bouclier.app.extension</string>
     <key>CFBundleVersion</key><string>$VERSION</string>
     <key>CFBundleShortVersionString</key><string>$VERSION</string>
     <key>CFBundleExecutable</key><string>BouclierExtension</string>
