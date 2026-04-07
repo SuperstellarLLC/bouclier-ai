@@ -1,11 +1,16 @@
 import { ImageResponse } from "next/og";
+import { readFileSync } from "fs";
+import { join } from "path";
 
-export const runtime = "edge";
+export const runtime = "nodejs";
 export const alt = "Bouclier.ai — Prompt Injection Firewall for macOS";
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
 
 export default function OGImage() {
+  const logoData = readFileSync(join(process.cwd(), "public/images/logo-256.png"));
+  const logoBase64 = `data:image/png;base64,${logoData.toString("base64")}`;
+
   return new ImageResponse(
     <div
       style={{
@@ -19,23 +24,8 @@ export default function OGImage() {
         fontFamily: "system-ui, sans-serif",
       }}
     >
-      {/* Shield icon */}
-      <svg
-        width="80"
-        height="80"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="#1a56db"
-        strokeWidth="1.5"
-      >
-        <path
-          d="M12 3l7.5 3.5v5c0 4.5-3 8.5-7.5 10-4.5-1.5-7.5-5.5-7.5-10v-5L12 3z"
-          fill="#1a56db"
-          fillOpacity="0.08"
-          stroke="#1a56db"
-        />
-        <path d="M9 12l2 2 4-4" strokeLinecap="round" strokeLinejoin="round" />
-      </svg>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src={logoBase64} width={96} height={96} style={{ borderRadius: 20 }} alt="" />
 
       <div
         style={{
