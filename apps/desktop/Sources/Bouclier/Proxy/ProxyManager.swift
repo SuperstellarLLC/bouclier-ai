@@ -88,7 +88,7 @@ final class ProxyManager: ObservableObject {
                     self.log("System proxy PAC configured as fallback", blocked: false)
                 }
 
-                if let certPath = self.ca.caCertFilePath {
+                if self.ca.caCertFilePath != nil {
                     self.log("CLI: eval $(bouclier-ai-env)", blocked: false)
                 }
             }

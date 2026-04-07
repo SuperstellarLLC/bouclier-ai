@@ -90,7 +90,7 @@ struct ProtectionSettingsView: View {
 
             Spacer()
 
-            if let certPath = proxyManager.ca.caCertFilePath {
+            if proxyManager.ca.caCertFilePath != nil {
                 Divider()
                 Text("CLI Tools")
                     .font(.headline)
