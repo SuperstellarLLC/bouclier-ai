@@ -59,6 +59,7 @@ let package = Package(
             name: "BouclierExtension",
             dependencies: [],
             path: "Sources/BouclierExtension",
+            exclude: ["GeneratedInfo.plist"],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
                 .unsafeFlags(["-Xfrontend", "-enable-upcoming-feature", "-Xfrontend", "InternalImportsByDefault"], .when(platforms: [])),
