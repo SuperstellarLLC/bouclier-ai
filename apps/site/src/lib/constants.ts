@@ -1,5 +1,5 @@
 export const APP_NAME = "Bouclier.ai";
-export const APP_VERSION = "0.2.2";
+export const APP_VERSION = "0.2.3";
 export const APP_DESCRIPTION =
   "Local prompt injection firewall for macOS. Scans AI API traffic, MCP tool results, and streaming responses. No data leaves your machine.";
 export const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? "https://www.bouclier.ai";
