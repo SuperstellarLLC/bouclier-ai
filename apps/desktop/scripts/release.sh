@@ -35,11 +35,21 @@ if [ -z "$APP_PASSWORD" ]; then echo "Password is required."; exit 1; fi
 
 DMG="$PROJECT_DIR/build/Bouclier-ai-v${VERSION}-macOS.dmg"
 APP="$PROJECT_DIR/build/Bouclier.ai.app"
+REPO_ROOT="$(dirname "$(dirname "$PROJECT_DIR")")"
 
 echo ""
 echo "═══════════════════════════════════════════════"
 echo "  Bouclier.ai v${VERSION} — Release Pipeline"
 echo "═══════════════════════════════════════════════"
+echo ""
+
+# ── Step 0: Bump version in source files ────────
+echo "▸ Bumping version to ${VERSION}..."
+sed -i '' "s/APP_VERSION = \".*\"/APP_VERSION = \"${VERSION}\"/" "$REPO_ROOT/apps/site/src/lib/constants.ts"
+sed -i '' "s/<key>CFBundleShortVersionString<\/key>.*/<key>CFBundleShortVersionString<\/key>/" "$PROJECT_DIR/Sources/Bouclier/Resources/Info.plist"
+sed -i '' "/<key>CFBundleShortVersionString<\/key>/{n;s|<string>.*</string>|<string>${VERSION}</string>|;}" "$PROJECT_DIR/Sources/Bouclier/Resources/Info.plist"
+sed -i '' "/<key>CFBundleShortVersionString<\/key>/{n;s|<string>.*</string>|<string>${VERSION}</string>|;}" "$PROJECT_DIR/Sources/BouclierExtension/GeneratedInfo.plist"
+echo "  ✓ Version bumped in constants.ts + plists"
 echo ""
 
 # ── Step 1: Build + Sign ────────────────────────
