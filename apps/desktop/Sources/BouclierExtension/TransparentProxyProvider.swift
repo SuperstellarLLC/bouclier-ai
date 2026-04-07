@@ -23,12 +23,12 @@ final class TransparentProxyProvider: NETransparentProxyProvider {
     ]
 
     override func startProxy(options: [String: Any]?, completionHandler: @escaping @Sendable (Error?) -> Void) {
-        NSLog("[bouclier-ext] Proxy provider started")
+        NSLog("[bouclier.ai-ext] Proxy provider started")
         completionHandler(nil)
     }
 
     override func stopProxy(with reason: NEProviderStopReason, completionHandler: @escaping @Sendable () -> Void) {
-        NSLog("[bouclier-ext] Proxy provider stopped")
+        NSLog("[bouclier.ai-ext] Proxy provider stopped")
         completionHandler()
     }
 
@@ -42,12 +42,12 @@ final class TransparentProxyProvider: NETransparentProxyProvider {
             return false
         }
 
-        NSLog("[bouclier-ext] Intercepting: \(host)")
+        NSLog("[bouclier.ai-ext] Intercepting: \(host)")
 
         nonisolated(unsafe) let unsafeSelf = self
         tcpFlow.open(withLocalFlowEndpoint: nil) { error in
             if let error {
-                NSLog("[bouclier-ext] Open failed: \(error)")
+                NSLog("[bouclier.ai-ext] Open failed: \(error)")
                 return
             }
             unsafeSelf.routeThroughProxy(flow: tcpFlow, host: host)
@@ -85,7 +85,7 @@ final class TransparentProxyProvider: NETransparentProxyProvider {
             case .ready:
                 unsafeSelf.sendConnect(connection: connection, flow: unsafeFlow, host: host)
             case .failed(let error):
-                NSLog("[bouclier-ext] Proxy connection failed: \(error)")
+                NSLog("[bouclier.ai-ext] Proxy connection failed: \(error)")
                 connection.cancel()
             default:
                 break
@@ -109,7 +109,7 @@ final class TransparentProxyProvider: NETransparentProxyProvider {
                 guard let data, let resp = String(data: data, encoding: .utf8),
                       resp.hasPrefix("HTTP/1.1 200") || resp.hasPrefix("HTTP/1.0 200")
                 else {
-                    NSLog("[bouclier-ext] CONNECT rejected for \(host)")
+                    NSLog("[bouclier.ai-ext] CONNECT rejected for \(host)")
                     connection.cancel()
                     return
                 }

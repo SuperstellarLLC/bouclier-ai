@@ -98,7 +98,7 @@ struct ProtectionSettingsView: View {
                     .foregroundStyle(.secondary)
                     .font(.callout)
                 HStack(spacing: 8) {
-                    Text("eval $(bouclier-env)")
+                    Text("eval $(bouclier-ai-env)")
                         .font(.system(.caption, design: .monospaced))
                         .textSelection(.enabled)
                         .padding(6)
@@ -106,7 +106,7 @@ struct ProtectionSettingsView: View {
                         .clipShape(RoundedRectangle(cornerRadius: 4))
                     Button(action: {
                         NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString("eval $(bouclier-env)", forType: .string)
+                        NSPasteboard.general.setString("eval $(bouclier-ai-env)", forType: .string)
                     }) {
                         Image(systemName: "doc.on.doc")
                             .font(.caption)

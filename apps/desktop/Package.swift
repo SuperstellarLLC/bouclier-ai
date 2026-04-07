@@ -8,8 +8,8 @@ let package = Package(
     ],
     products: [
         .executable(name: "Bouclier", targets: ["Bouclier"]),
-        .executable(name: "bouclier-mcp-wrapper", targets: ["MCPWrapper"]),
-        .executable(name: "bouclier-env", targets: ["EnvHelper"]),
+        .executable(name: "bouclier-ai-mcp-wrapper", targets: ["MCPWrapper"]),
+        .executable(name: "bouclier-ai-env", targets: ["EnvHelper"]),
     ],
     dependencies: [
         .package(url: "https://github.com/groue/GRDB.swift.git", from: "7.0.0"),

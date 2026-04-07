@@ -36,7 +36,7 @@ final class ProxyManager: ObservableObject {
     let ca = CertificateAuthority()
     let extensionManager = ExtensionManager()
     private let patternManager = PatternManager(onChange: {
-        print("[bouclier] Patterns updated")
+        print("[bouclier.ai] Patterns updated")
     })
     private var storage: StorageManager?
 
@@ -89,7 +89,7 @@ final class ProxyManager: ObservableObject {
                 }
 
                 if let certPath = self.ca.caCertFilePath {
-                    self.log("CLI: eval $(bouclier-env)", blocked: false)
+                    self.log("CLI: eval $(bouclier-ai-env)", blocked: false)
                 }
             }
         }

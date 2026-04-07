@@ -110,7 +110,7 @@ targets:
           NEProviderClasses:
             com.apple.networkextension.transparent-proxy: "$(PRODUCT_MODULE_NAME).TransparentProxyProvider"
 
-  bouclier-mcp-wrapper:
+  bouclier-ai-mcp-wrapper:
     type: tool
     platform: macOS
     sources:
@@ -119,7 +119,7 @@ targets:
       base:
         SWIFT_VERSION: "6.0"
 
-  bouclier-env:
+  bouclier-ai-env:
     type: tool
     platform: macOS
     sources:

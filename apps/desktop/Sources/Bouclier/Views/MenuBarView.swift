@@ -154,7 +154,7 @@ struct MenuBarView: View {
             let panel = NSSavePanel()
             panel.allowedContentTypes = [.json]
             let stamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
-            panel.nameFieldStringValue = "bouclier-diagnostics-\(stamp).json"
+            panel.nameFieldStringValue = "bouclier-ai-diagnostics-\(stamp).json"
             panel.title = "Save Diagnostics Bundle"
             panel.message = "Contains scan metrics, pattern hit counts, and 30 days of aggregated stats. No request bodies or URLs."
 
@@ -179,7 +179,7 @@ struct MenuBarView: View {
         ).first!.appendingPathComponent("com.bouclier.Bouclier", isDirectory: true)
         try? FileManager.default.createDirectory(at: logDir, withIntermediateDirectories: true)
 
-        let logFile = logDir.appendingPathComponent("bouclier.log")
+        let logFile = logDir.appendingPathComponent("bouclier-ai.log")
         let dateFormatter = DateFormatter()
         dateFormatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
 

@@ -4,7 +4,7 @@ export const APP_DESCRIPTION =
   "Local prompt injection firewall for macOS. Scans AI API traffic, MCP tool results, and streaming responses. No data leaves your machine.";
 export const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? "https://bouclier.ai";
 export const DOWNLOAD_URL =
-  (process.env.NEXT_PUBLIC_DOWNLOAD_URL ?? "") + `/Bouclier.ai-v${APP_VERSION}-macOS.dmg`;
+  (process.env.NEXT_PUBLIC_DOWNLOAD_URL ?? "") + `/Bouclier-ai-v${APP_VERSION}-macOS.dmg`;
 
 // Detection coverage numbers shown on the landing page. Kept in sync
 // with packages/patterns benchmark (src/__tests__/benchmark.test.ts).

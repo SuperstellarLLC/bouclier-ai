@@ -4,7 +4,7 @@ set -euo pipefail
 # Publishes a Sparkle update for Bouclier.ai.
 #
 # Prerequisites:
-#   1. build/Bouclier.ai-v$VERSION-macOS.dmg exists (signed + notarized + stapled)
+#   1. build/Bouclier-ai-v$VERSION-macOS.dmg exists (signed + notarized + stapled)
 #   2. Sparkle EdDSA key is in login Keychain
 #   3. DOWNLOAD_BASE_URL env var is set (e.g. the Vercel Blob public URL)
 #
@@ -18,7 +18,7 @@ SITE_DIR="$(dirname "$(dirname "$PROJECT_DIR")")/apps/site"
 VERSION="${VERSION:?VERSION env var required (e.g. 0.2.0)}"
 DOWNLOAD_BASE_URL="${DOWNLOAD_BASE_URL:?DOWNLOAD_BASE_URL env var required}"
 
-DMG="$PROJECT_DIR/build/Bouclier.ai-v${VERSION}-macOS.dmg"
+DMG="$PROJECT_DIR/build/Bouclier-ai-v${VERSION}-macOS.dmg"
 SIGN_UPDATE="$PROJECT_DIR/.build/artifacts/sparkle/Sparkle/bin/sign_update"
 APPCAST_OUT="$SITE_DIR/public/appcast.xml"
 
@@ -47,7 +47,7 @@ LENGTH="${LENGTH:-$DMG_SIZE}"
 
 DATE=$(date -R 2>/dev/null || date -u +"%a, %d %b %Y %H:%M:%S %z")
 
-DMG_URL="${DOWNLOAD_BASE_URL}/Bouclier.ai-v${VERSION}-macOS.dmg"
+DMG_URL="${DOWNLOAD_BASE_URL}/Bouclier-ai-v${VERSION}-macOS.dmg"
 
 echo ""
 echo "Generating appcast.xml..."
@@ -94,6 +94,6 @@ EOF
 echo "Wrote: $APPCAST_OUT"
 echo ""
 echo "Next steps:"
-echo "  1. Upload the DMG:  vercel blob upload build/Bouclier.ai-v${VERSION}-macOS.dmg"
+echo "  1. Upload the DMG:  vercel blob upload build/Bouclier-ai-v${VERSION}-macOS.dmg"
 echo "  2. Deploy the site: cd $SITE_DIR && vercel --prod"
 echo "  3. Existing users will get the update automatically via Sparkle."

@@ -121,7 +121,7 @@ extension ExtensionManager: OSSystemExtensionRequestDelegate {
     }
 
     nonisolated func requestNeedsUserApproval(_ request: OSSystemExtensionRequest) {
-        NSLog("[bouclier-ext] Extension needs user approval in System Settings")
+        NSLog("[bouclier.ai-ext] Extension needs user approval in System Settings")
         Task { @MainActor in
             errorMessage = "Please approve Bouclier in System Settings > General > Login Items & Extensions"
         }
@@ -129,7 +129,7 @@ extension ExtensionManager: OSSystemExtensionRequestDelegate {
 
     nonisolated func request(_ request: OSSystemExtensionRequest, didFinishWithResult result: OSSystemExtensionRequest.Result) {
         let success = result == .completed
-        NSLog("[bouclier-ext] Extension activation result: \(result)")
+        NSLog("[bouclier.ai-ext] Extension activation result: \(result)")
         Task { @MainActor in
             extensionInstalled = success
             if !success {
@@ -141,7 +141,7 @@ extension ExtensionManager: OSSystemExtensionRequestDelegate {
     }
 
     nonisolated func request(_ request: OSSystemExtensionRequest, didFailWithError error: Error) {
-        NSLog("[bouclier-ext] Extension error: \(error)")
+        NSLog("[bouclier.ai-ext] Extension error: \(error)")
         Task { @MainActor in
             extensionInstalled = false
             errorMessage = error.localizedDescription

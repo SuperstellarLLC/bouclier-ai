@@ -113,7 +113,7 @@ enum DiagnosticsExport {
     static func write(_ bundle: Bundle, to directory: URL) throws -> URL {
         let stamp = ISO8601DateFormatter().string(from: bundle.meta.generatedAt)
             .replacingOccurrences(of: ":", with: "-")
-        let url = directory.appendingPathComponent("bouclier-diagnostics-\(stamp).json")
+        let url = directory.appendingPathComponent("bouclier-ai-diagnostics-\(stamp).json")
         let data = try encode(bundle)
         try data.write(to: url, options: .atomic)
         return url

@@ -154,13 +154,13 @@ struct DiagnosticsExportTests {
             patternsSHA256Prefix: nil,
             allowedHosts: []
         )
-        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("bouclier-diag-tests-\(UUID().uuidString)", isDirectory: true)
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("bouclier-ai-diag-tests-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: tmp) }
 
         let url = try DiagnosticsExport.write(bundle, to: tmp)
         #expect(FileManager.default.fileExists(atPath: url.path))
-        #expect(url.lastPathComponent.hasPrefix("bouclier-diagnostics-"))
+        #expect(url.lastPathComponent.hasPrefix("bouclier-ai-diagnostics-"))
         #expect(url.pathExtension == "json")
     }
 }

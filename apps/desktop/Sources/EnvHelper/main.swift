@@ -1,10 +1,10 @@
 import Foundation
 
-/// bouclier-env — outputs environment variables for shell eval.
+/// bouclier-ai-env — outputs environment variables for shell eval.
 ///
 /// Usage:
-///   eval $(bouclier-env)           # Configure current shell
-///   eval $(bouclier-env --unset)   # Remove configuration
+///   eval $(bouclier-ai-env)           # Configure current shell
+///   eval $(bouclier-ai-env --unset)   # Remove configuration
 ///
 /// Outputs:
 ///   export HTTPS_PROXY=http://127.0.0.1:8484
@@ -14,7 +14,7 @@ import Foundation
 ///   export REQUESTS_CA_BUNDLE=/path/to/ca.pem
 ///
 /// Add to ~/.zshrc:
-///   eval $(bouclier-env 2>/dev/null)
+///   eval $(bouclier-ai-env 2>/dev/null)
 
 let port = UserDefaults.standard.object(forKey: "proxyPort") as? Int ?? 8484
 
@@ -31,16 +31,16 @@ let isHelp = CommandLine.arguments.contains("--help") || CommandLine.arguments.c
 
 if isHelp {
     fputs("""
-    bouclier-env — Configure shell to route AI traffic through Bouclier
+    bouclier-ai-env — Configure shell to route AI traffic through Bouclier
 
     Usage:
-      eval $(bouclier-env)           Configure current shell
-      eval $(bouclier-env --unset)   Remove configuration
-      bouclier-env --check           Check if Bouclier proxy is running
-      bouclier-env --help            Show this help
+      eval $(bouclier-ai-env)           Configure current shell
+      eval $(bouclier-ai-env --unset)   Remove configuration
+      bouclier-ai-env --check           Check if Bouclier proxy is running
+      bouclier-ai-env --help            Show this help
 
     Add to ~/.zshrc for automatic configuration:
-      eval $(bouclier-env 2>/dev/null)
+      eval $(bouclier-ai-env 2>/dev/null)
 
     """, stderr)
     exit(0)
@@ -62,10 +62,10 @@ if CommandLine.arguments.contains("--check") {
     _ = semaphore.wait(timeout: .now() + 1)
 
     if proxyRunning {
-        fputs("[bouclier] Proxy is running on port \(port)\n", stderr)
+        fputs("[bouclier.ai] Proxy is running on port \(port)\n", stderr)
         exit(0)
     } else {
-        fputs("[bouclier] Proxy is not running\n", stderr)
+        fputs("[bouclier.ai] Proxy is not running\n", stderr)
         exit(1)
     }
 }
@@ -86,6 +86,6 @@ if isUnset {
         print("export SSL_CERT_FILE=\"\(caCertPath)\";")
         print("export REQUESTS_CA_BUNDLE=\"\(caCertPath)\";")
     } else {
-        fputs("[bouclier] Warning: CA certificate not found. Run Bouclier.app and enable protection first.\n", stderr)
+        fputs("[bouclier.ai] Warning: CA certificate not found. Run Bouclier.app and enable protection first.\n", stderr)
     }
 }
