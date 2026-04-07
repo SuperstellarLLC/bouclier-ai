@@ -34,7 +34,7 @@ echo ""
 if [ -z "$APP_PASSWORD" ]; then echo "Password is required."; exit 1; fi
 
 DMG="$PROJECT_DIR/build/Bouclier-ai-v${VERSION}-macOS.dmg"
-APP="$PROJECT_DIR/build/Bouclier.ai.app"
+APP="$PROJECT_DIR/build/Bouclier-ai.app"
 REPO_ROOT="$(dirname "$(dirname "$PROJECT_DIR")")"
 
 echo ""

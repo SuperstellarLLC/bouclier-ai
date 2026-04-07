@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-# Builds the Bouclier.ai.app bundle with all binaries and the embedded System Extension.
+# Builds the Bouclier-ai.app bundle with all binaries and the embedded System Extension.
 #
 # Usage:
 #   ./scripts/build-app.sh                    # Debug build
@@ -30,7 +30,7 @@ swift build -c "$CONFIG"
 
 BUILD_DIR=".build/$CONFIG"
 OUTPUT_DIR="$PROJECT_DIR/build"
-APP="$OUTPUT_DIR/Bouclier.ai.app"
+APP="$OUTPUT_DIR/Bouclier-ai.app"
 
 rm -rf "$APP"
 
@@ -190,9 +190,8 @@ if [ "$SIGN" = true ]; then
 fi
 
 # ── Hide .app extension in Finder ──────────────────
-# "Bouclier.ai.app" confuses Finder because ".ai" looks like an extension.
-# SetFile -a E marks the bundle's extension as hidden so Finder shows
-# "Bouclier.ai" instead of "Bouclier.ai.app".
+# SetFile -a E marks the extension as hidden so Finder shows
+# "Bouclier-ai" instead of "Bouclier-ai.app".
 if command -v SetFile &>/dev/null; then
   SetFile -a E "$APP"
 fi
