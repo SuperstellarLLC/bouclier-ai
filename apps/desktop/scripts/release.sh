@@ -58,12 +58,22 @@ VERSION="$VERSION" "$SCRIPT_DIR/build-app.sh" --release --sign
 echo "  ✓ App built and signed at $APP"
 echo ""
 
-# ── Step 2: Create DMG ──────────────────────────
+# ── Step 2: Create DMG with Applications shortcut ──
 echo "▸ Step 2/6: Creating DMG..."
 rm -f "$DMG"
-hdiutil create -volname "Bouclier.ai" -srcfolder "$APP" \
+
+# Stage a temp folder with the app + Applications symlink
+DMG_STAGE="$PROJECT_DIR/build/dmg-stage"
+rm -rf "$DMG_STAGE"
+mkdir -p "$DMG_STAGE"
+cp -R "$APP" "$DMG_STAGE/"
+ln -s /Applications "$DMG_STAGE/Applications"
+
+hdiutil create -volname "Bouclier.ai" -srcfolder "$DMG_STAGE" \
   -ov -format UDZO "$DMG" -quiet
-echo "  ✓ DMG created at $DMG"
+
+rm -rf "$DMG_STAGE"
+echo "  ✓ DMG created at $DMG (with Applications shortcut)"
 echo ""
 
 # ── Step 3: Notarize ────────────────────────────
