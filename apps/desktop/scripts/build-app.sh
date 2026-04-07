@@ -189,6 +189,14 @@ if [ "$SIGN" = true ]; then
   codesign --verify --deep --strict "$APP"
 fi
 
+# ── Hide .app extension in Finder ──────────────────
+# "Bouclier.ai.app" confuses Finder because ".ai" looks like an extension.
+# SetFile -a E marks the bundle's extension as hidden so Finder shows
+# "Bouclier.ai" instead of "Bouclier.ai.app".
+if command -v SetFile &>/dev/null; then
+  SetFile -a E "$APP"
+fi
+
 # ── Refresh Icon Cache ─────────────────────────────
 # macOS aggressively caches app icons. Without this, a previously-seen
 # app will keep showing the generic icon even after the .icns is fixed.
