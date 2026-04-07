@@ -125,21 +125,21 @@ final class InjectionFilter: Sendable {
         guard let url = Bundle.main.url(forResource: "patterns", withExtension: "json"),
               let data = try? Data(contentsOf: url)
         else {
-            print("[bouclier] patterns.json not found, using fallback patterns")
+            print("[bouclier.ai] patterns.json not found, using fallback patterns")
             return fallbackPatterns()
         }
 
         let hash = SHA256.hash(data: data)
         let hashString = hash.map { String(format: "%02x", $0) }.joined()
-        print("[bouclier] Loaded patterns.json (SHA-256: \(hashString.prefix(16))...)")
+        print("[bouclier.ai] Loaded patterns.json (SHA-256: \(hashString.prefix(16))...)")
 
         guard let patternSet = try? JSONDecoder().decode(PatternSetJSON.self, from: data) else {
-            print("[bouclier] Failed to decode patterns.json, using fallback patterns")
+            print("[bouclier.ai] Failed to decode patterns.json, using fallback patterns")
             return fallbackPatterns()
         }
 
         let compiled = patternSet.patterns.compactMap { FilterPattern(from: $0) }
-        print("[bouclier] Compiled \(compiled.count)/\(patternSet.patterns.count) patterns")
+        print("[bouclier.ai] Compiled \(compiled.count)/\(patternSet.patterns.count) patterns")
         return compiled
     }
 

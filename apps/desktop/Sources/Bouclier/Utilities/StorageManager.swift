@@ -23,7 +23,7 @@ final class StorageManager: Sendable {
 
         try FileManager.default.createDirectory(at: supportDir, withIntermediateDirectories: true)
 
-        let dbPath = supportDir.appendingPathComponent("bouclier.sqlite").path
+        let dbPath = supportDir.appendingPathComponent("bouclier-ai.sqlite").path
         dbPool = try DatabasePool(path: dbPath)
 
         try migrate()
@@ -112,7 +112,7 @@ final class StorageManager: Sendable {
             }
         } catch {
             // Log but don't crash the proxy
-            print("[bouclier-storage] Write error: \(error.localizedDescription)")
+            print("[bouclier.ai-storage] Write error: \(error.localizedDescription)")
         }
     }
 

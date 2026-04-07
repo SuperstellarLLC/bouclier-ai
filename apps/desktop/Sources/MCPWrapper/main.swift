@@ -1,9 +1,9 @@
 import Foundation
 
-/// bouclier-mcp-wrapper — a stdio pipe filter for MCP servers.
+/// bouclier-ai-mcp-wrapper — a stdio pipe filter for MCP servers.
 ///
 /// Usage:
-///   bouclier-mcp-wrapper <command> [args...]
+///   bouclier-ai-mcp-wrapper <command> [args...]
 ///
 /// Wraps an MCP server by spawning it as a child process, piping stdin to it,
 /// intercepting its stdout, scanning JSON-RPC responses for prompt injections
@@ -137,7 +137,7 @@ func processJSONRPCResponse(_ data: Data) -> Data {
 
     if totalBlocked > 0 {
         FileHandle.standardError.write(
-            "[bouclier] Blocked \(totalBlocked) injection(s) in MCP tool result\n".data(using: .utf8)!
+            "[bouclier.ai] Blocked \(totalBlocked) injection(s) in MCP tool result\n".data(using: .utf8)!
         )
     }
 
@@ -176,7 +176,7 @@ final class LineBuffer: @unchecked Sendable {
 
 guard CommandLine.arguments.count > 1 else {
     FileHandle.standardError.write(
-        "Usage: bouclier-mcp-wrapper <command> [args...]\n".data(using: .utf8)!
+        "Usage: bouclier-ai-mcp-wrapper <command> [args...]\n".data(using: .utf8)!
     )
     exit(1)
 }
@@ -248,7 +248,7 @@ do {
     try process.run()
 } catch {
     FileHandle.standardError.write(
-        "[bouclier] Failed to start MCP server: \(error.localizedDescription)\n".data(using: .utf8)!
+        "[bouclier.ai] Failed to start MCP server: \(error.localizedDescription)\n".data(using: .utf8)!
     )
     exit(1)
 }

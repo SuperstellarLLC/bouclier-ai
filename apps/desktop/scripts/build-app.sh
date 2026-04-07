@@ -41,18 +41,18 @@ mkdir -p "$CONTENTS/Resources"
 mkdir -p "$CONTENTS/Library/SystemExtensions"
 
 # Binaries
-cp "$BUILD_DIR/Bouclier.ai" "$CONTENTS/MacOS/"
-cp "$BUILD_DIR/bouclier-mcp-wrapper" "$CONTENTS/MacOS/"
-cp "$BUILD_DIR/bouclier-env" "$CONTENTS/MacOS/"
+cp "$BUILD_DIR/Bouclier" "$CONTENTS/MacOS/"
+cp "$BUILD_DIR/bouclier-ai-mcp-wrapper" "$CONTENTS/MacOS/"
+cp "$BUILD_DIR/bouclier-ai-env" "$CONTENTS/MacOS/"
 
 # Resources (patterns.json bundle)
-if [ -d "$BUILD_DIR/Bouclier.ai_Bouclier.ai.bundle" ]; then
-  cp -r "$BUILD_DIR/Bouclier.ai_Bouclier.ai.bundle" "$CONTENTS/Resources/"
+if [ -d "$BUILD_DIR/Bouclier_Bouclier.bundle" ]; then
+  cp -r "$BUILD_DIR/Bouclier_Bouclier.bundle" "$CONTENTS/Resources/"
 fi
 
 # App icon
-if [ -f "$PROJECT_DIR/icon/Bouclier.ai.icns" ]; then
-  cp "$PROJECT_DIR/icon/Bouclier.ai.icns" "$CONTENTS/Resources/AppIcon.icns"
+if [ -f "$PROJECT_DIR/icon/Bouclier.icns" ]; then
+  cp "$PROJECT_DIR/icon/Bouclier.icns" "$CONTENTS/Resources/AppIcon.icns"
 fi
 
 # Sparkle framework
@@ -77,7 +77,7 @@ cat > "$CONTENTS/Info.plist" << EOF
     <key>CFBundleIdentifier</key><string>com.bouclier.app</string>
     <key>CFBundleVersion</key><string>$VERSION</string>
     <key>CFBundleShortVersionString</key><string>$VERSION</string>
-    <key>CFBundleExecutable</key><string>Bouclier.ai</string>
+    <key>CFBundleExecutable</key><string>Bouclier</string>
     <key>CFBundlePackageType</key><string>APPL</string>
     <key>LSUIElement</key><true/>
     <key>LSMinimumSystemVersion</key><string>14.0</string>
@@ -100,19 +100,19 @@ SYSEXT="$CONTENTS/Library/SystemExtensions/com.bouclier.app.extension.systemexte
 SYSEXT_CONTENTS="$SYSEXT/Contents"
 mkdir -p "$SYSEXT_CONTENTS/MacOS"
 
-cp "$BUILD_DIR/Bouclier.aiExtension" "$SYSEXT_CONTENTS/MacOS/"
+cp "$BUILD_DIR/BouclierExtension" "$SYSEXT_CONTENTS/MacOS/"
 
 cat > "$SYSEXT_CONTENTS/Info.plist" << EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <key>CFBundleName</key><string>Bouclier.aiExtension</string>
+    <key>CFBundleName</key><string>BouclierExtension</string>
     <key>CFBundleDisplayName</key><string>Bouclier.ai Network Extension</string>
     <key>CFBundleIdentifier</key><string>com.bouclier.app.extension</string>
     <key>CFBundleVersion</key><string>$VERSION</string>
     <key>CFBundleShortVersionString</key><string>$VERSION</string>
-    <key>CFBundleExecutable</key><string>Bouclier.aiExtension</string>
+    <key>CFBundleExecutable</key><string>BouclierExtension</string>
     <key>CFBundlePackageType</key><string>SYSX</string>
     <key>LSMinimumSystemVersion</key><string>14.0</string>
     <key>NetworkExtension</key>
@@ -120,7 +120,7 @@ cat > "$SYSEXT_CONTENTS/Info.plist" << EOF
         <key>NEProviderClasses</key>
         <dict>
             <key>com.apple.networkextension.transparent-proxy</key>
-            <string>Bouclier.aiExtension.TransparentProxyProvider</string>
+            <string>BouclierExtension.TransparentProxyProvider</string>
         </dict>
     </dict>
     <key>NSSystemExtensionUsageDescription</key>
@@ -130,7 +130,7 @@ cat > "$SYSEXT_CONTENTS/Info.plist" << EOF
 EOF
 
 # ── Embed Provisioning Profiles ─────────────────
-APP_PROFILE="$PROJECT_DIR/profiles/Bouclier.ai.provisionprofile"
+APP_PROFILE="$PROJECT_DIR/profiles/Bouclier-ai.provisionprofile"
 EXT_PROFILE="$PROJECT_DIR/profiles/Bouclier.ai_Network_Extension.provisionprofile"
 
 if [ -f "$APP_PROFILE" ]; then
@@ -158,13 +158,13 @@ if [ "$SIGN" = true ]; then
   echo "Signing System Extension..."
   codesign --force --options runtime \
     --sign "$IDENTITY" \
-    --entitlements "$PROJECT_DIR/Bouclier.aiExtension.entitlements" \
+    --entitlements "$PROJECT_DIR/BouclierExtension.entitlements" \
     "$SYSEXT"
 
   echo "Signing main app..."
   codesign --force --options runtime \
     --sign "$IDENTITY" \
-    --entitlements "$PROJECT_DIR/Bouclier.ai.entitlements" \
+    --entitlements "$PROJECT_DIR/Bouclier.entitlements" \
     "$APP"
 
   echo "Verifying signatures..."
