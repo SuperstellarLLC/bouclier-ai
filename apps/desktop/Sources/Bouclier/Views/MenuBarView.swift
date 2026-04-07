@@ -176,7 +176,7 @@ struct MenuBarView: View {
     private func openLogFile() {
         let logDir = FileManager.default.urls(
             for: .applicationSupportDirectory, in: .userDomainMask
-        ).first!.appendingPathComponent("com.bouclier.Bouclier", isDirectory: true)
+        ).first!.appendingPathComponent("ai.bouclier.app", isDirectory: true)
         try? FileManager.default.createDirectory(at: logDir, withIntermediateDirectories: true)
 
         let logFile = logDir.appendingPathComponent("bouclier-ai.log")

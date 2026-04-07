@@ -15,7 +15,7 @@ final class ExtensionManager: NSObject, ObservableObject {
     @Published var proxyEnabled = false
     @Published var errorMessage: String?
 
-    static let extensionBundleID = "com.bouclier.app.extension"
+    static let extensionBundleID = "ai.bouclier.app.extension"
 
     private var activationCompletion: ((Bool) -> Void)?
 

@@ -17,7 +17,7 @@ final class CertificateAuthority: @unchecked Sendable {
         let dir = FileManager.default.urls(
             for: .applicationSupportDirectory,
             in: .userDomainMask
-        ).first!.appendingPathComponent("com.bouclier.Bouclier", isDirectory: true)
+        ).first!.appendingPathComponent("ai.bouclier.app", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir
     }()
@@ -240,7 +240,7 @@ final class CertificateAuthority: @unchecked Sendable {
 
     // MARK: - Keychain Key Storage
 
-    private static let keychainTag = "com.bouclier.ca.key".data(using: .utf8)!
+    private static let keychainTag = "ai.bouclier.ca.key".data(using: .utf8)!
 
     private func storeKeyInKeychain(_ keyPEM: String) {
         guard let keyData = keyPEM.data(using: .utf8) else { return }
@@ -248,7 +248,7 @@ final class CertificateAuthority: @unchecked Sendable {
         // Delete existing
         let deleteQuery: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: "com.bouclier.Bouclier",
+            kSecAttrService as String: "ai.bouclier.app",
             kSecAttrAccount as String: "ca-private-key",
         ]
         SecItemDelete(deleteQuery as CFDictionary)
@@ -256,7 +256,7 @@ final class CertificateAuthority: @unchecked Sendable {
         // Store
         let addQuery: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: "com.bouclier.Bouclier",
+            kSecAttrService as String: "ai.bouclier.app",
             kSecAttrAccount as String: "ca-private-key",
             kSecValueData as String: keyData,
             kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
@@ -267,7 +267,7 @@ final class CertificateAuthority: @unchecked Sendable {
     private func loadKeyFromKeychain() -> String? {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: "com.bouclier.Bouclier",
+            kSecAttrService as String: "ai.bouclier.app",
             kSecAttrAccount as String: "ca-private-key",
             kSecReturnData as String: true,
         ]
@@ -281,7 +281,7 @@ final class CertificateAuthority: @unchecked Sendable {
     private func deleteKeyFromKeychain() {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: "com.bouclier.Bouclier",
+            kSecAttrService as String: "ai.bouclier.app",
             kSecAttrAccount as String: "ca-private-key",
         ]
         SecItemDelete(query as CFDictionary)
