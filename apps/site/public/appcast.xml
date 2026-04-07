@@ -2,12 +2,12 @@
 <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" xmlns:dc="http://purl.org/dc/elements/1.1/">
   <channel>
     <title>Bouclier.ai Updates</title>
-    <link>https://bouclier.ai/appcast.xml</link>
+    <link>https://www.bouclier.ai/appcast.xml</link>
     <description>Updates for Bouclier.ai — prompt injection firewall for macOS</description>
     <language>en</language>
     <item>
       <title>Version 0.2.1</title>
-      <pubDate>Tue, 07 Apr 2026 13:57:16 +0200</pubDate>
+      <pubDate>Tue, 07 Apr 2026 14:49:30 +0200</pubDate>
       <sparkle:version>0.2.1</sparkle:version>
       <sparkle:shortVersionString>0.2.1</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
@@ -27,8 +27,8 @@
       ]]></description>
       <enclosure
         url="https://0tdi95zyjwsefpzx.public.blob.vercel-storage.com/download/Bouclier-ai-v0.2.1-macOS.dmg"
-        sparkle:edSignature="YDdN3LxoPK0ohfUF8G2CTjjx7tqIjzvfrbxxPdZwvSNBNfq3R2nQdLGozqf4D/wlR5na4CGRHqJjwWRntTPiDA=="
-        length="7120071"
+        sparkle:edSignature="w+exHnCXuXY/hSUciKvtseYer2vPa/1tNSE6LXoT7zfKi6YjAN2vtaG2lkHzk/wzdKvYd5xXj1318WOx/S1lDA=="
+        length="7789598"
         type="application/octet-stream"
       />
     </item>
