@@ -6,13 +6,13 @@
     <description>Updates for Bouclier.ai — prompt injection firewall for macOS</description>
     <language>en</language>
     <item>
-      <title>Version 0.2.5</title>
-      <pubDate>Tue, 07 Apr 2026 16:17:44 +0200</pubDate>
-      <sparkle:version>0.2.5</sparkle:version>
-      <sparkle:shortVersionString>0.2.5</sparkle:shortVersionString>
+      <title>Version 0.2.6</title>
+      <pubDate>Tue, 07 Apr 2026 18:54:36 +0200</pubDate>
+      <sparkle:version>0.2.6</sparkle:version>
+      <sparkle:shortVersionString>0.2.6</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
       <description><![CDATA[
-        <h2>Bouclier.ai v0.2.5</h2>
+        <h2>Bouclier.ai v0.2.6</h2>
         <ul>
           <li>161 detection patterns across 21 attack categories (was 35 / 11)</li>
           <li>Streaming SSE response scanning (OpenAI, Anthropic, Gemini, Mistral)</li>
@@ -26,9 +26,9 @@
         </ul>
       ]]></description>
       <enclosure
-        url="https://0tdi95zyjwsefpzx.public.blob.vercel-storage.com/download/Bouclier-ai-v0.2.5-macOS.dmg"
-        sparkle:edSignature="ekGIzUSr0RQYrnJ/Z8w+6/fb5clfe2N0LHCodJRjPOS6xxbewbTKp8TB+t/lbkUIf2V3XUlolxpcOBnctshRBw=="
-        length="7800740"
+        url="https://0tdi95zyjwsefpzx.public.blob.vercel-storage.com/download/Bouclier-ai-v0.2.6-macOS.dmg"
+        sparkle:edSignature="dYHeABAMFrRu0xuR9630dHrOBfeIcgAgTwLKs6USaaXA1hyHwraR8Co2Yy3+xCzG/GX5RnQD8ZnxOSJTr6jRDQ=="
+        length="7802242"
         type="application/octet-stream"
       />
     </item>
