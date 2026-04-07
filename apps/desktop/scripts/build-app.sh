@@ -143,6 +143,15 @@ if [ -f "$EXT_PROFILE" ]; then
   echo "Embedded extension provisioning profile"
 fi
 
+# ── Hide .app extension in Finder ──────────────────
+# Must happen BEFORE signing — SetFile adds resource fork metadata
+# that would break the signature if applied after.
+if command -v SetFile &>/dev/null; then
+  SetFile -a E "$APP"
+fi
+# Clean any extended attributes that interfere with codesign
+xattr -cr "$APP"
+
 # ── Code Signing ────────────────────────────────
 # Sign inside-out: deepest nested binaries first, main app last.
 # Every binary needs --options runtime (hardened runtime) and --timestamp
@@ -187,13 +196,6 @@ if [ "$SIGN" = true ]; then
 
   echo "Verifying signatures..."
   codesign --verify --deep --strict "$APP"
-fi
-
-# ── Hide .app extension in Finder ──────────────────
-# SetFile -a E marks the extension as hidden so Finder shows
-# "Bouclier-ai" instead of "Bouclier-ai.app".
-if command -v SetFile &>/dev/null; then
-  SetFile -a E "$APP"
 fi
 
 # ── Refresh Icon Cache ─────────────────────────────
