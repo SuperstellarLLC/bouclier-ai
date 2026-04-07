@@ -98,16 +98,6 @@ export default function Home() {
           </div>
 
           <div className="relative">
-            <div className="mb-8">
-              <Image
-                src="/images/logo-256.png"
-                alt="Bouclier.ai"
-                width={80}
-                height={80}
-                className="mx-auto rounded-2xl shadow-lg"
-                priority
-              />
-            </div>
             <div className="border-bouclier/20 text-bouclier mb-6 inline-flex items-center gap-2 rounded-full border bg-white px-4 py-1.5 text-sm font-medium shadow-sm">
               <span className="bg-accent-green h-1.5 w-1.5 rounded-full" />v{APP_VERSION} —{" "}
               {PATTERN_COUNT} patterns across {CATEGORY_COUNT} categories
