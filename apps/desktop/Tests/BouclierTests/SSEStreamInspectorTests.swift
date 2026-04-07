@@ -64,7 +64,7 @@ struct SSEStreamInspectorTests {
         }
         #expect(inspector.detected)
         #expect(inspector.closed)
-        #expect(out.contains("bouclier.redacted"))
+        #expect(out.contains("bouclier-ai.redacted"))
         #expect(out.contains("[DONE]"))
     }
 

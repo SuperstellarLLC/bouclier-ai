@@ -32,7 +32,7 @@ final class SSEStreamInspector {
     /// SSE frame returned to the caller after a final safety event is
     /// emitted. `[DONE]` mirrors OpenAI's termination sentinel.
     static let redactionFrame =
-        "event: bouclier.redacted\ndata: {\"error\":\"response_blocked\",\"reason\":\"\(InjectionFilter.redactionMessage)\"}\n\ndata: [DONE]\n\n"
+        "event: bouclier-ai.redacted\ndata: {\"error\":\"response_blocked\",\"reason\":\"\(InjectionFilter.redactionMessage)\"}\n\ndata: [DONE]\n\n"
 
     init(filter: InjectionFilter) {
         self.filter = filter

@@ -54,13 +54,13 @@ enum SystemProxy {
         do {
             try pacFileContent(port: port).write(to: pacPath, atomically: true, encoding: .utf8)
         } catch {
-            print("[bouclier-proxy] Failed to write PAC file: \(error)")
+            print("[bouclier.ai-proxy] Failed to write PAC file: \(error)")
             return false
         }
 
         // Get active network interface
         guard let interface = activeNetworkInterface() else {
-            print("[bouclier-proxy] No active network interface found")
+            print("[bouclier.ai-proxy] No active network interface found")
             return false
         }
 

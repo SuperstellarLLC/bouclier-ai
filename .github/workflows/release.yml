@@ -15,7 +15,7 @@ permissions:
 env:
   NODE_VERSION: "22"
   SKIP_ENV_VALIDATION: "true"
-  APP_NAME: "Bouclier"
+  APP_NAME: "Bouclier-ai"
   BUNDLE_ID: "com.bouclier.app"
 
 jobs:
@@ -31,7 +31,7 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: "pnpm"
-      - run: pnpm install --frozen-lockfile && pnpm --filter @bouclier/patterns build
+      - run: pnpm install --frozen-lockfile && pnpm --filter @bouclier-ai/patterns build
       - run: apps/desktop/scripts/sync-patterns.sh
 
       # ── Build Swift ───────────────────────
@@ -47,7 +47,7 @@ jobs:
 
           # Binaries
           cp apps/desktop/.build/release/Bouclier "${CONTENTS}/MacOS/"
-          cp apps/desktop/.build/release/bouclier-mcp-wrapper "${CONTENTS}/MacOS/"
+          cp apps/desktop/.build/release/bouclier-ai-mcp-wrapper "${CONTENTS}/MacOS/"
 
           # Resources (patterns.json bundle)
           cp -r apps/desktop/.build/release/Bouclier_Bouclier.bundle "${CONTENTS}/Resources/" 2>/dev/null || true
@@ -67,7 +67,7 @@ jobs:
             <key>CFBundlePackageType</key><string>APPL</string>
             <key>LSUIElement</key><true/>
             <key>LSMinimumSystemVersion</key><string>14.0</string>
-            <key>NSHumanReadableCopyright</key><string>Copyright 2026 Bouclier</string>
+            <key>NSHumanReadableCopyright</key><string>Copyright 2026 Bouclier.ai</string>
           </dict>
           </plist>
           EOF

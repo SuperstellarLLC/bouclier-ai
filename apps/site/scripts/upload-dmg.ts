@@ -10,7 +10,7 @@ if (!dmgPath) {
 const file = readFileSync(dmgPath);
 
 // Always upload as "latest" so the download URL never changes
-const filename = "Bouclier-latest-macOS.dmg";
+const filename = "Bouclier-ai-latest-macOS.dmg";
 
 console.log(`Uploading ${dmgPath} as ${filename}...`);
 

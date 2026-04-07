@@ -41,8 +41,8 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: "pnpm"
       - run: pnpm install --frozen-lockfile
-      - run: pnpm --filter @bouclier/patterns build
-      - run: pnpm --filter @bouclier/patterns test
+      - run: pnpm --filter @bouclier-ai/patterns build
+      - run: pnpm --filter @bouclier-ai/patterns test
 
   test-site:
     name: Test Site
@@ -56,7 +56,7 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: "pnpm"
       - run: pnpm install --frozen-lockfile
-      - run: pnpm --filter @bouclier/patterns build
+      - run: pnpm --filter @bouclier-ai/patterns build
       - run: pnpm --filter site test:coverage
       - name: Upload coverage
         if: always()
@@ -79,7 +79,7 @@ jobs:
           cache: "pnpm"
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter site exec playwright install --with-deps chromium
-      - run: pnpm --filter @bouclier/patterns build
+      - run: pnpm --filter @bouclier-ai/patterns build
       - run: SKIP_ENV_VALIDATION=true pnpm --filter site build
       - run: pnpm --filter site exec playwright test --project=chromium
       - name: Upload E2E report

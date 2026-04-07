@@ -64,7 +64,7 @@ final class PatternManager: @unchecked Sendable {
 
         let hash = SHA256.hash(data: data)
         let hashPrefix = hash.prefix(8).map { String(format: "%02x", $0) }.joined()
-        print("[bouclier] Loaded \(compiled.count) patterns from \(url.lastPathComponent) (SHA-256: \(hashPrefix)...)")
+        print("[bouclier.ai] Loaded \(compiled.count) patterns from \(url.lastPathComponent) (SHA-256: \(hashPrefix)...)")
 
         return InjectionFilter(patterns: compiled)
     }
@@ -110,7 +110,7 @@ final class PatternManager: @unchecked Sendable {
             lock.lock()
             _filter = newFilter
             lock.unlock()
-            print("[bouclier] Patterns hot-reloaded")
+            print("[bouclier.ai] Patterns hot-reloaded")
             onChange?()
         }
     }
