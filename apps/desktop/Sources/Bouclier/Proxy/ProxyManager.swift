@@ -12,6 +12,11 @@ final class ProxyManager: ObservableObject {
     @Published var errorMessage: String?
     @Published var stats = ProxyStats()
     @Published var logs: [LogEntry] = []
+    /// True once the on-device ML classifier (Prompt Guard 2) finishes
+    /// loading on a background task. Mirrored from `PatternManager` so
+    /// the menu bar can show a small "ML active" badge and the
+    /// diagnostics dashboard can report whether fused detection is on.
+    @Published var mlClassifierActive = false
 
     var port: Int {
         let p = UserDefaults.standard.object(forKey: "proxyPort") as? Int ?? 8484
@@ -35,12 +40,24 @@ final class ProxyManager: ObservableObject {
     private var proxyChannel: Channel?
     let ca = CertificateAuthority()
     let extensionManager = ExtensionManager()
-    private let patternManager = PatternManager(onChange: {
-        print("[bouclier.ai] Patterns updated")
-    })
+    private var patternManager: PatternManager!
     private var storage: StorageManager?
 
     init() {
+        // PatternManager's onChange fires both for patterns hot-reload
+        // and when the ML classifier finishes loading on its background
+        // task. Forward both events to the UI by reading the current
+        // classifier state from the active filter.
+        patternManager = PatternManager(onChange: { [weak self] in
+            Task { @MainActor in
+                guard let self else { return }
+                let active = self.patternManager.filter.hasMLClassifier
+                if self.mlClassifierActive != active {
+                    self.mlClassifierActive = active
+                }
+                print("[bouclier.ai] Patterns/classifier updated (ML active: \(active))")
+            }
+        })
         // Register crash cleanup — disable system proxy if we die unexpectedly
         registerCleanupHandlers()
     }
@@ -218,7 +235,11 @@ final class ProxyManager: ObservableObject {
             matchCount: requestLog.matchCount,
             patternIds: requestLog.patternNames,
             severity: requestLog.detected ? "high" : nil,
-            requestSize: requestLog.bodySize
+            requestSize: requestLog.bodySize,
+            mlScore: requestLog.mlScore,
+            entropyAnomaly: requestLog.entropyAnomaly,
+            fusedScore: requestLog.fusedScore,
+            mlAvailable: requestLog.mlAvailable
         )
     }
 

@@ -64,6 +64,20 @@ final class StorageManager: Sendable {
             )
         }
 
+        // v2 — fused-scoring telemetry. ML classifier (Prompt Guard 2)
+        // and entropy heuristic now contribute to detection alongside
+        // regex; persist their per-request scores so the dashboard can
+        // surface why a request was blocked, and so we can tune the
+        // fused thresholds against real traffic later.
+        migrator.registerMigration("v2") { db in
+            try db.alter(table: "scan_logs") { t in
+                t.add(column: "mlScore", .double)              // 0..1, NULL when ML unavailable
+                t.add(column: "entropyAnomaly", .double).notNull().defaults(to: 0)
+                t.add(column: "fusedScore", .double).notNull().defaults(to: 0)
+                t.add(column: "mlAvailable", .integer).notNull().defaults(to: 0)
+            }
+        }
+
         try migrator.migrate(dbPool)
     }
 
@@ -77,14 +91,21 @@ final class StorageManager: Sendable {
         matchCount: Int,
         patternIds: [String],
         severity: String?,
-        requestSize: Int
+        requestSize: Int,
+        mlScore: Float?,
+        entropyAnomaly: Double,
+        fusedScore: Double,
+        mlAvailable: Bool
     ) {
         do {
             try dbPool.write { db in
                 try db.execute(
                     sql: """
-                        INSERT INTO scan_logs (source, targetHost, detected, matchCount, patternIds, severity, requestSize)
-                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                        INSERT INTO scan_logs (
+                            source, targetHost, detected, matchCount, patternIds, severity, requestSize,
+                            mlScore, entropyAnomaly, fusedScore, mlAvailable
+                        )
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """,
                     arguments: [
                         source,
@@ -94,6 +115,10 @@ final class StorageManager: Sendable {
                         String(data: try JSONSerialization.data(withJSONObject: patternIds), encoding: .utf8) ?? "[]",
                         severity,
                         requestSize,
+                        mlScore.map { Double($0) },
+                        entropyAnomaly,
+                        fusedScore,
+                        mlAvailable ? 1 : 0,
                     ]
                 )
 
@@ -184,6 +209,11 @@ struct ScanLogRow: FetchableRecord, Codable, Sendable {
     let patternIds: String?
     let severity: String?
     let requestSize: Int?
+    // Added in v2 — fused scoring telemetry.
+    let mlScore: Double?
+    let entropyAnomaly: Double
+    let fusedScore: Double
+    let mlAvailable: Int
 }
 
 struct DailyStatsRow: FetchableRecord, Codable, Sendable {

@@ -17,6 +17,7 @@ let package = Package(
         .package(url: "https://github.com/apple/swift-nio-ssl.git", from: "2.29.0"),
         .package(url: "https://github.com/apple/swift-nio-transport-services.git", from: "1.23.0"),
         .package(url: "https://github.com/sparkle-project/Sparkle.git", from: "2.6.0"),
+        .package(url: "https://github.com/huggingface/swift-transformers.git", from: "0.1.12"),
     ],
     targets: [
         .executableTarget(
@@ -31,6 +32,7 @@ let package = Package(
                 .product(name: "NIOSSL", package: "swift-nio-ssl"),
                 .product(name: "NIOTransportServices", package: "swift-nio-transport-services"),
                 .product(name: "Sparkle", package: "Sparkle"),
+                .product(name: "Transformers", package: "swift-transformers"),
             ],
             resources: [
                 .copy("Resources"),

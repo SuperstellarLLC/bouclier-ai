@@ -9,9 +9,19 @@ import Foundation
 /// 3. Compiled fallback: hardcoded critical patterns
 ///
 /// Watches the user override directory for changes and swaps the active InjectionFilter.
+///
+/// On startup also kicks off an async load of the bundled CoreML
+/// classifier (Meta Prompt Guard 2). The classifier takes ~200-500ms
+/// to compile + load on first launch, so the filter starts in
+/// regex-only mode and swaps to a fused (regex+ML+entropy) filter the
+/// moment the classifier is ready. If the model fails to load (missing
+/// `.mlpackage`, unsupported hardware, etc.) the filter stays in
+/// regex-only mode for the lifetime of the process.
 final class PatternManager: @unchecked Sendable {
     private let lock = NSLock()
     private var _filter: InjectionFilter
+    private var _patterns: [FilterPattern]
+    private var _classifier: MLClassifier?
     private var fileMonitor: DispatchSourceFileSystemObject?
     private var monitorFD: Int32 = -1
     private var onChange: (() -> Void)?
@@ -38,13 +48,44 @@ final class PatternManager: @unchecked Sendable {
         self.onChange = onChange
 
         // Load best available patterns
-        if let userFilter = Self.loadFromPath(Self.userPatternsPath) {
-            _filter = userFilter
+        if let userPatterns = Self.loadPatternsFromPath(Self.userPatternsPath) {
+            _patterns = userPatterns
         } else {
-            _filter = InjectionFilter()
+            _patterns = Self.bundledOrFallbackPatterns()
         }
+        _classifier = nil
+        _filter = InjectionFilter(patterns: _patterns, classifier: nil)
 
         startWatching()
+        Task.detached(priority: .utility) { [weak self] in
+            await self?.loadClassifierAsync()
+        }
+    }
+
+    /// Load the on-device CoreML classifier on a background task and
+    /// swap the active filter when ready. Failure is non-fatal — the
+    /// filter stays in regex-only mode for the rest of the process.
+    private func loadClassifierAsync() async {
+        do {
+            let classifier = try await MLClassifier()
+            installClassifier(classifier)
+        } catch {
+            print("[bouclier.ai] ML classifier unavailable, staying in regex-only mode: \(error)")
+        }
+    }
+
+    /// Synchronous critical section for swapping the active filter to
+    /// one that includes the ML classifier. Split out from the async
+    /// loader because Swift 6 disallows `NSLock` mutation from async
+    /// contexts.
+    private func installClassifier(_ classifier: MLClassifier) {
+        lock.lock()
+        _classifier = classifier
+        _filter = InjectionFilter(patterns: _patterns, classifier: classifier)
+        let count = _patterns.count
+        lock.unlock()
+        print("[bouclier.ai] ML classifier loaded — fused detection active (\(count) patterns + Prompt Guard 2)")
+        onChange?()
     }
 
     deinit {
@@ -53,7 +94,10 @@ final class PatternManager: @unchecked Sendable {
 
     // MARK: - Pattern Loading
 
-    private static func loadFromPath(_ url: URL) -> InjectionFilter? {
+    /// Load and compile patterns from a JSON file. Returns the compiled
+    /// pattern array (not a fully-built filter) so the caller can pair
+    /// them with the latest classifier when constructing a filter.
+    private static func loadPatternsFromPath(_ url: URL) -> [FilterPattern]? {
         guard FileManager.default.fileExists(atPath: url.path),
               let data = try? Data(contentsOf: url),
               let patternSet = try? JSONDecoder().decode(PatternSetJSON.self, from: data)
@@ -65,8 +109,17 @@ final class PatternManager: @unchecked Sendable {
         let hash = SHA256.hash(data: data)
         let hashPrefix = hash.prefix(8).map { String(format: "%02x", $0) }.joined()
         print("[bouclier.ai] Loaded \(compiled.count) patterns from \(url.lastPathComponent) (SHA-256: \(hashPrefix)...)")
+        return compiled
+    }
 
-        return InjectionFilter(patterns: compiled)
+    /// Pull the bundled patterns out of a default-constructed filter so
+    /// PatternManager can rebuild filters with new classifiers without
+    /// going back to disk. Slightly indirect because `InjectionFilter`
+    /// owns its own loader, but keeps a single source of truth for the
+    /// bundled-pattern fallback path.
+    private static func bundledOrFallbackPatterns() -> [FilterPattern] {
+        let temp = InjectionFilter()
+        return temp.allPatterns
     }
 
     // MARK: - File Watching
@@ -106,12 +159,16 @@ final class PatternManager: @unchecked Sendable {
         // Brief delay for file writes to settle
         Thread.sleep(forTimeInterval: 0.3)
 
-        if let newFilter = Self.loadFromPath(Self.userPatternsPath) {
-            lock.lock()
-            _filter = newFilter
-            lock.unlock()
-            print("[bouclier.ai] Patterns hot-reloaded")
-            onChange?()
+        guard let newPatterns = Self.loadPatternsFromPath(Self.userPatternsPath) else {
+            return
         }
+        lock.lock()
+        _patterns = newPatterns
+        // Preserve any classifier that has already been loaded so we
+        // don't lose ML detection on every patterns.json edit.
+        _filter = InjectionFilter(patterns: newPatterns, classifier: _classifier)
+        lock.unlock()
+        print("[bouclier.ai] Patterns hot-reloaded")
+        onChange?()
     }
 }
