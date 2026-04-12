@@ -49,6 +49,26 @@ struct MenuBarView: View {
                     )
                 }
 
+                // ML classifier status — small inline badge so users
+                // can see whether the on-device fused detection layer
+                // is active. The classifier loads asynchronously after
+                // the proxy starts; until it's ready the badge shows
+                // the regex-only state.
+                HStack(spacing: 6) {
+                    Image(systemName: proxyManager.mlClassifierActive ? "brain.head.profile.fill" : "brain.head.profile")
+                        .foregroundStyle(proxyManager.mlClassifierActive ? .purple : .secondary)
+                        .font(.caption)
+                    Text(proxyManager.mlClassifierActive
+                         ? "Fused detection active (regex + on-device ML)"
+                         : "Regex detection (ML classifier loading…)")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                }
+                .padding(8)
+                .background((proxyManager.mlClassifierActive ? Color.purple : Color.gray).opacity(0.06))
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+
                 if proxyManager.stats.injectionsBlocked == 0 && proxyManager.stats.requestsScanned > 0 {
                     HStack(spacing: 6) {
                         Image(systemName: "checkmark.circle.fill")

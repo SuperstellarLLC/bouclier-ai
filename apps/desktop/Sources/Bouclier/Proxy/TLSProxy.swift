@@ -311,7 +311,11 @@ private final class HTTPInspectionHandler: ChannelInboundHandler, RemovableChann
             detected: inspection.detected,
             matchCount: inspection.matchCount,
             patternNames: inspection.patternNames,
-            bodySize: bodySize
+            bodySize: bodySize,
+            mlScore: inspection.mlScore,
+            entropyAnomaly: inspection.entropyAnomaly,
+            fusedScore: inspection.fusedScore,
+            mlAvailable: inspection.mlAvailable
         ))
 
         var finalBody = inspection.sanitizedBody
@@ -565,4 +569,11 @@ struct RequestLog: Sendable {
     let matchCount: Int
     let patternNames: [String]
     let bodySize: Int
+    // Fused scoring telemetry — populated by InjectionFilter.scan().
+    // mlScore is nil when the classifier wasn't consulted; mlAvailable
+    // distinguishes "ML cleared this" from "ML never ran".
+    let mlScore: Float?
+    let entropyAnomaly: Double
+    let fusedScore: Double
+    let mlAvailable: Bool
 }

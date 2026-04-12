@@ -43,7 +43,11 @@ struct DiagnosticsExportTests {
                 matchCount: 2,
                 patternIds: #"["role-001","exfil-001"]"#,
                 severity: "critical",
-                requestSize: 1024
+                requestSize: 1024,
+                mlScore: nil,
+                entropyAnomaly: 0,
+                fusedScore: 0,
+                mlAvailable: 0
             ),
         ]
 
@@ -79,7 +83,11 @@ struct DiagnosticsExportTests {
                 matchCount: 1,
                 patternIds: #"["role-001"]"#,
                 severity: "critical",
-                requestSize: 512
+                requestSize: 512,
+                mlScore: nil,
+                entropyAnomaly: 0,
+                fusedScore: 0,
+                mlAvailable: 0
             ),
         ]
 
@@ -108,7 +116,11 @@ struct DiagnosticsExportTests {
                 matchCount: 0,
                 patternIds: "not json",
                 severity: nil,
-                requestSize: nil
+                requestSize: nil,
+                mlScore: nil,
+                entropyAnomaly: 0,
+                fusedScore: 0,
+                mlAvailable: 0
             ),
         ]
 

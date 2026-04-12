@@ -51,6 +51,19 @@ enum HTTPRequestInspector {
         let bodyScanSkipped: Bool
         /// True if the request was rejected for exceeding `maxBodyBytes`.
         let rejectedOversize: Bool
+        /// Highest ML maliciousness score across URI + body scans, or
+        /// `nil` if the classifier wasn't consulted on either.
+        let mlScore: Float?
+        /// Highest entropy anomaly score across URI + body scans.
+        let entropyAnomaly: Double
+        /// Highest fused score across URI + body scans. The body is the
+        /// long-form content that usually drives the decision; we take
+        /// the max so a strong URI signal isn't lost.
+        let fusedScore: Double
+        /// True if the ML classifier ran on at least one of the
+        /// URI/body scans. Used by the audit log to distinguish
+        /// "ML cleared it" from "ML never ran".
+        let mlAvailable: Bool
     }
 
     /// Inspect a complete HTTP request. Returns nil only if the request
@@ -72,7 +85,11 @@ enum HTTPRequestInspector {
                 severities: [],
                 sanitizedBody: body,
                 bodyScanSkipped: true,
-                rejectedOversize: true
+                rejectedOversize: true,
+                mlScore: nil,
+                entropyAnomaly: 0,
+                fusedScore: 0,
+                mlAvailable: false
             )
         }
 
@@ -102,7 +119,11 @@ enum HTTPRequestInspector {
                 severities: uriScan.severities,
                 sanitizedBody: body,
                 bodyScanSkipped: !scannable,
-                rejectedOversize: false
+                rejectedOversize: false,
+                mlScore: uriScan.mlScore,
+                entropyAnomaly: uriScan.entropyAnomaly,
+                fusedScore: uriScan.fusedScore,
+                mlAvailable: uriScan.mlAvailable
             )
         }
 
@@ -113,6 +134,14 @@ enum HTTPRequestInspector {
         let names = Array(Set(uriScan.patternNames + bodyScan.patternNames))
         let categories = Array(Set(uriScan.categories + bodyScan.categories))
         let severities = Array(Set(uriScan.severities + bodyScan.severities))
+
+        // Take the max of each fused-scoring signal across URI + body
+        // scans. The body usually dominates, but we don't want a high
+        // URI score to disappear.
+        let mlScore = combinedMax(uriScan.mlScore, bodyScan.mlScore)
+        let entropyAnomaly = max(uriScan.entropyAnomaly, bodyScan.entropyAnomaly)
+        let fusedScore = max(uriScan.fusedScore, bodyScan.fusedScore)
+        let mlAvailable = uriScan.mlAvailable || bodyScan.mlAvailable
 
         let sanitized: ByteBuffer
         if bodyScan.detected {
@@ -131,8 +160,23 @@ enum HTTPRequestInspector {
             severities: severities,
             sanitizedBody: sanitized,
             bodyScanSkipped: false,
-            rejectedOversize: false
+            rejectedOversize: false,
+            mlScore: mlScore,
+            entropyAnomaly: entropyAnomaly,
+            fusedScore: fusedScore,
+            mlAvailable: mlAvailable
         )
+    }
+
+    /// Max of two optional Floats. Treats `nil` as "no signal" so a
+    /// real value always wins over the absence of one.
+    private static func combinedMax(_ a: Float?, _ b: Float?) -> Float? {
+        switch (a, b) {
+        case (nil, nil): return nil
+        case (let x?, nil): return x
+        case (nil, let y?): return y
+        case (let x?, let y?): return max(x, y)
+        }
     }
 
     /// Decide whether to scan the body based on method + Content-Type.
