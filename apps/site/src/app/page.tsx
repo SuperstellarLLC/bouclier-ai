@@ -130,6 +130,11 @@ export default function Home() {
                 <ArrowDown />
               </a>
             </div>
+
+            <p className="text-text-secondary mt-5 text-sm">
+              <span className="text-text font-semibold">Built with Llama.</span> Uses Meta Llama
+              Prompt Guard 2 for on-device prompt attack detection.
+            </p>
           </div>
         </div>
       </section>
@@ -370,25 +375,30 @@ export default function Home() {
 
       {/* ── Footer ───────────────────────────────── */}
       <footer className="border-border border-t py-12">
-        <div className="mx-auto flex max-w-5xl items-center justify-between px-6">
-          <div className="flex items-center gap-2.5">
-            <Image
-              src="/images/logo-64.png"
-              alt="Bouclier.ai"
-              width={20}
-              height={20}
-              className="rounded-[4px]"
-            />
-            <span className="text-text text-sm font-semibold">Bouclier.ai</span>
+        <div className="mx-auto max-w-5xl px-6">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2.5">
+              <Image
+                src="/images/logo-64.png"
+                alt="Bouclier.ai"
+                width={20}
+                height={20}
+                className="rounded-[4px]"
+              />
+              <span className="text-text text-sm font-semibold">Bouclier.ai</span>
+            </div>
+            <div className="text-text-secondary flex gap-6 text-sm">
+              <Link href="/blocked" className="hover:text-text transition-colors">
+                Blocked
+              </Link>
+              <Link href="/privacy" className="hover:text-text transition-colors">
+                Privacy
+              </Link>
+            </div>
           </div>
-          <div className="text-text-secondary flex gap-6 text-sm">
-            <Link href="/blocked" className="hover:text-text transition-colors">
-              Blocked
-            </Link>
-            <Link href="/privacy" className="hover:text-text transition-colors">
-              Privacy
-            </Link>
-          </div>
+          <p className="text-text-secondary mt-4 text-xs">
+            Built with Llama. Uses Meta Llama Prompt Guard 2 for on-device prompt attack detection.
+          </p>
         </div>
       </footer>
     </main>

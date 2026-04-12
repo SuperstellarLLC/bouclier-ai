@@ -249,6 +249,16 @@ struct AboutView: View {
 
             Divider().frame(width: 200)
 
+            Text("Built with Llama")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.primary)
+
+            Text("Uses Meta Llama Prompt Guard 2 for on-device prompt attack detection.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 300)
+
             Text("All detection runs locally.\nNo data ever leaves your machine.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
