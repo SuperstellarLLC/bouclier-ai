@@ -61,6 +61,10 @@ docker-compose.override.yml
 DerivedData/
 Package.resolved
 
+# ML conversion venv + HuggingFace cache
+apps/desktop/.venv-ml/
+**/PromptGuardTokenizer/.cache/
+
 # turbo
 .turbo/
 
