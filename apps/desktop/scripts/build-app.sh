@@ -55,6 +55,17 @@ if [ -f "$PROJECT_DIR/icon/Bouclier.icns" ]; then
   cp "$PROJECT_DIR/icon/Bouclier.icns" "$CONTENTS/Resources/AppIcon.icns"
 fi
 
+# Third-party notices and licenses required by bundled model materials
+REPO_ROOT="$(dirname "$(dirname "$PROJECT_DIR")")"
+if [ -f "$REPO_ROOT/NOTICE.txt" ]; then
+  cp "$REPO_ROOT/NOTICE.txt" "$CONTENTS/Resources/NOTICE.txt"
+fi
+if [ -f "$REPO_ROOT/LICENSES/Llama-4-Community-License.txt" ]; then
+  mkdir -p "$CONTENTS/Resources/LICENSES"
+  cp "$REPO_ROOT/LICENSES/Llama-4-Community-License.txt" \
+    "$CONTENTS/Resources/LICENSES/Llama-4-Community-License.txt"
+fi
+
 # Sparkle framework
 mkdir -p "$CONTENTS/Frameworks"
 SPARKLE_PATH=$(find "$PROJECT_DIR/.build/artifacts" -name "Sparkle.framework" -type d | head -1)

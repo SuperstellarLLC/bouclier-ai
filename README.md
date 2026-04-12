@@ -46,3 +46,10 @@ Detected injections are replaced with:
 ```
 [Possible prompt injection redacted by Bouclier.ai. See https://www.bouclier.ai/blocked for details]
 ```
+
+## Attribution
+
+Built with Llama. Bouclier.ai uses Meta Llama Prompt Guard 2 for on-device prompt attack detection.
+
+Third-party notice: `NOTICE.txt`
+Llama 4 Community License: `LICENSES/Llama-4-Community-License.txt`

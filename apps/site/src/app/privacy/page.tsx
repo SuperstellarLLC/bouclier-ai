@@ -138,8 +138,15 @@ export default function PrivacyPage() {
         </Section>
 
         <Section title="Detection method">
-          Deterministic regex pattern matching and heuristic scoring. No AI or ML model is used. No
+          Bouclier.ai uses deterministic regex pattern matching, heuristic scoring, and on-device
+          Meta Llama Prompt Guard 2 classification for additional prompt attack detection. No
           request content is sent to any external service.
+        </Section>
+
+        <Section title="Attribution">
+          Built with Llama. Bouclier.ai uses Meta Llama Prompt Guard 2 locally on your Mac. The
+          bundled legal notice and Llama 4 Community License are distributed with the app and in
+          this repository.
         </Section>
 
         <Section title="Certificate authority">
