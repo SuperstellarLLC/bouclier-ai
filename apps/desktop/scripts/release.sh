@@ -39,11 +39,13 @@ NEXT_VERSION=$(bump_patch "$CURRENT_VERSION")
 if [ -n "$CURRENT_VERSION" ]; then
   echo "  Current released version: $CURRENT_VERSION"
 fi
-prompt_with_default VERSION "Version" "${NEXT_VERSION:-0.2.7}"
+prompt_with_default VERSION "Version" "${NEXT_VERSION:-0.2.8}"
 prompt_required APPLE_ID "Apple ID" "you@example.com"
 prompt_with_default TEAM_ID "Apple Team ID" "U86PR842AK"
 prompt_required DOWNLOAD_BASE_URL "Vercel Blob public URL" "https://xyz.public.blob.vercel-storage.com"
 prompt_secret APP_PASSWORD "App-specific password"
+prompt_secret BLOB_READ_WRITE_TOKEN "Vercel Blob read-write token (from Storage > your store > .env.local)"
+export BLOB_READ_WRITE_TOKEN
 
 DMG="$PROJECT_DIR/build/Bouclier-ai-v${VERSION}-macOS.dmg"
 APP="$PROJECT_DIR/build/Bouclier-ai.app"
@@ -121,15 +123,23 @@ VERSION="$VERSION" DOWNLOAD_BASE_URL="$DOWNLOAD_BASE_URL" "$SCRIPT_DIR/publish-u
 echo ""
 
 # ── Step 5: Upload DMG ──────────────────────────
+# Correct subcommand is `vercel blob put` — `upload` was silently
+# failing because of the 2>/dev/null muzzle below it. Token is passed
+# as env var so the CLI can find the target store without folder
+# linking; --allow-overwrite lets reruns of the same version replace.
 echo "▸ Step 6/7: Uploading DMG to Vercel Blob..."
-if command -v vercel &>/dev/null; then
-  vercel blob upload "$DMG" --no-confirm 2>/dev/null || {
-    echo "  ⚠ vercel blob upload failed — upload manually:"
-    echo "    vercel blob upload $DMG"
-  }
-else
+if ! command -v vercel &>/dev/null; then
   echo "  ⚠ vercel CLI not found — upload manually:"
-  echo "    vercel blob upload $DMG"
+  echo "    vercel blob put $DMG --pathname Bouclier-ai-v${VERSION}-macOS.dmg --allow-overwrite"
+  echo ""
+elif vercel blob put "$DMG" \
+       --pathname "Bouclier-ai-v${VERSION}-macOS.dmg" \
+       --allow-overwrite; then
+  echo "  ✓ Uploaded"
+else
+  echo ""
+  echo "  ⚠ Upload failed. Run manually from any blob-linked folder:"
+  echo "    vercel blob put $DMG --pathname Bouclier-ai-v${VERSION}-macOS.dmg --allow-overwrite"
 fi
 echo ""
 
