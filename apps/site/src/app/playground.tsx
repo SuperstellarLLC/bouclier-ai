@@ -74,15 +74,17 @@ export function Playground() {
       className="border-border to-bouclier-light/30 border-t bg-gradient-to-b from-white py-24"
     >
       <div className="mx-auto max-w-5xl px-6">
-        <span className="text-bouclier text-xs font-semibold uppercase tracking-widest">
-          Live demo
-        </span>
-        <h2 className="mt-3 text-3xl font-bold tracking-tight">Try to sneak one past it.</h2>
-        <p className="text-text-secondary mt-4 max-w-2xl">
-          Paste any prompt — benign or adversarial. The exact scanner the Mac app ships runs right
-          here in your browser. 161 regex patterns, Unicode normalization, heuristic scoring.
-          Nothing leaves your machine.
-        </p>
+        <div className="reveal">
+          <span className="text-bouclier text-xs font-semibold uppercase tracking-widest">
+            Live demo
+          </span>
+          <h2 className="mt-3 text-3xl font-bold tracking-tight">Try to sneak one past it.</h2>
+          <p className="text-text-secondary mt-4 max-w-2xl">
+            Paste any prompt — benign or adversarial. The exact scanner the Mac app ships runs right
+            here in your browser. 161 regex patterns, Unicode normalization, heuristic scoring.
+            Nothing leaves your machine.
+          </p>
+        </div>
 
         <div className="mt-8 flex flex-wrap gap-2">
           {PRESETS.map((p) => {
@@ -104,7 +106,7 @@ export function Playground() {
           })}
         </div>
 
-        <div className="mt-6 grid gap-6 lg:grid-cols-2">
+        <div className="reveal-stagger reveal-stagger-2 mt-6 grid gap-6 lg:grid-cols-2">
           {/* Input */}
           <div className="border-border overflow-hidden rounded-2xl border bg-white shadow-sm">
             <div className="border-border bg-surface flex items-center justify-between border-b px-5 py-3">

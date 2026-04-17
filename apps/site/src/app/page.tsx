@@ -103,7 +103,7 @@ export default function Home() {
             <div className="shield-ring-delayed border-bouclier/15 h-[360px] w-[360px] rounded-full border" />
           </div>
 
-          <div className="relative">
+          <div className="hero-recede relative">
             <div className="border-bouclier/20 text-bouclier mb-6 inline-flex items-center gap-2 rounded-full border bg-white px-4 py-1.5 text-sm font-medium shadow-sm">
               <span className="bg-accent-green h-1.5 w-1.5 rounded-full" />v{APP_VERSION} —{" "}
               {PATTERN_COUNT} patterns across {CATEGORY_COUNT} categories
@@ -152,15 +152,17 @@ export default function Home() {
       {/* ── How it works ─────────────────────────── */}
       <section id="how" className="border-border bg-surface border-t py-24">
         <div className="mx-auto max-w-5xl px-6">
-          <SectionLabel>How it works</SectionLabel>
-          <h2 className="mt-3 text-3xl font-bold tracking-tight">Intercept. Scan. Protect.</h2>
-          <p className="text-text-secondary mt-4 max-w-2xl">
-            A System Extension routes AI API traffic through a local proxy on your Mac. Every
-            request and response is inspected before reaching the provider — no code changes, no
-            SDK, no cloud dependency.
-          </p>
+          <div className="reveal">
+            <SectionLabel>How it works</SectionLabel>
+            <h2 className="mt-3 text-3xl font-bold tracking-tight">Intercept. Scan. Protect.</h2>
+            <p className="text-text-secondary mt-4 max-w-2xl">
+              A System Extension routes AI API traffic through a local proxy on your Mac. Every
+              request and response is inspected before reaching the provider — no code changes, no
+              SDK, no cloud dependency.
+            </p>
+          </div>
 
-          <div className="mt-16 grid gap-6 md:grid-cols-3">
+          <div className="reveal-stagger reveal-stagger-3 mt-16 grid gap-6 md:grid-cols-3">
             <FlowCard
               step="01"
               title="Intercept"
@@ -179,7 +181,7 @@ export default function Home() {
           </div>
 
           {/* Flow diagram */}
-          <div className="border-border mt-16 rounded-2xl border bg-white p-8">
+          <div className="reveal border-border mt-16 rounded-2xl border bg-white p-8">
             <div className="flex flex-col items-center gap-3 sm:flex-row sm:gap-0">
               <FlowNode label="Your apps" sublabel="Any AI-powered tool on your Mac" />
               <FlowArrow />
@@ -204,15 +206,17 @@ export default function Home() {
       {/* ── Benchmark ────────────────────────────── */}
       <section className="border-border border-t py-24">
         <div className="mx-auto max-w-5xl px-6">
-          <SectionLabel>Results</SectionLabel>
-          <h2 className="mt-3 text-3xl font-bold tracking-tight">Measured, not marketed.</h2>
-          <p className="text-text-secondary mt-4 max-w-2xl">
-            Every release is tested against {BENCHMARK_ATTACKS} real-world attack samples and{" "}
-            {BENCHMARK_BENIGN} benign inputs. Detection quality is enforced in CI — regressions
-            block the release.
-          </p>
+          <div className="reveal">
+            <SectionLabel>Results</SectionLabel>
+            <h2 className="mt-3 text-3xl font-bold tracking-tight">Measured, not marketed.</h2>
+            <p className="text-text-secondary mt-4 max-w-2xl">
+              Every release is tested against {BENCHMARK_ATTACKS} real-world attack samples and{" "}
+              {BENCHMARK_BENIGN} benign inputs. Detection quality is enforced in CI — regressions
+              block the release.
+            </p>
+          </div>
 
-          <div className="mt-12 grid gap-4 sm:grid-cols-4">
+          <div className="reveal-stagger reveal-stagger-4 mt-12 grid gap-4 sm:grid-cols-4">
             <MetricCard value={BENCHMARK_TPR} label="Attacks caught" />
             <MetricCard value={BENCHMARK_FPR} label="False positive rate" />
             <MetricCard value={String(PATTERN_COUNT)} label="Detection rules" />
@@ -224,14 +228,16 @@ export default function Home() {
       {/* ── Coverage ─────────────────────────────── */}
       <section id="coverage" className="border-border bg-surface border-t py-24">
         <div className="mx-auto max-w-5xl px-6">
-          <SectionLabel>Coverage</SectionLabel>
-          <h2 className="mt-3 text-3xl font-bold tracking-tight">
-            {CATEGORY_COUNT} attack categories.
-          </h2>
-          <p className="text-text-secondary mt-4 max-w-2xl">
-            Sourced from OWASP LLM Top 10, MITRE ATLAS, HackAPrompt, and red-team research from
-            Anthropic, Microsoft, and leading AI security labs.
-          </p>
+          <div className="reveal">
+            <SectionLabel>Coverage</SectionLabel>
+            <h2 className="mt-3 text-3xl font-bold tracking-tight">
+              {CATEGORY_COUNT} attack categories.
+            </h2>
+            <p className="text-text-secondary mt-4 max-w-2xl">
+              Sourced from OWASP LLM Top 10, MITRE ATLAS, HackAPrompt, and red-team research from
+              Anthropic, Microsoft, and leading AI security labs.
+            </p>
+          </div>
 
           <div className="text-text-secondary mt-8 flex flex-wrap gap-x-6 gap-y-1 text-xs">
             <span className="flex items-center gap-1.5">
@@ -248,7 +254,7 @@ export default function Home() {
             </span>
           </div>
 
-          <div className="mt-6 grid gap-2 sm:grid-cols-3">
+          <div className="reveal-stagger reveal-stagger-3 mt-6 grid gap-2 sm:grid-cols-3">
             {CATEGORIES.map((cat) => (
               <div
                 key={cat.name}
@@ -269,10 +275,12 @@ export default function Home() {
       {/* ── What it stops ────────────────────────── */}
       <section className="border-border border-t py-24">
         <div className="mx-auto max-w-5xl px-6">
-          <SectionLabel>In action</SectionLabel>
-          <h2 className="mt-3 text-3xl font-bold tracking-tight">What it stops.</h2>
+          <div className="reveal">
+            <SectionLabel>In action</SectionLabel>
+            <h2 className="mt-3 text-3xl font-bold tracking-tight">What it stops.</h2>
+          </div>
 
-          <div className="mt-12 grid gap-6 md:grid-cols-2">
+          <div className="reveal-stagger reveal-stagger-2 mt-12 grid gap-6 md:grid-cols-2">
             <ThreatCard
               label="BLOCKED"
               category="Role Hijack"
@@ -304,10 +312,14 @@ export default function Home() {
       {/* ── Enterprise ───────────────────────────── */}
       <section className="border-border bg-surface border-t py-24">
         <div className="mx-auto max-w-5xl px-6">
-          <SectionLabel>Enterprise</SectionLabel>
-          <h2 className="mt-3 text-3xl font-bold tracking-tight">Ready for your security team.</h2>
+          <div className="reveal">
+            <SectionLabel>Enterprise</SectionLabel>
+            <h2 className="mt-3 text-3xl font-bold tracking-tight">
+              Ready for your security team.
+            </h2>
+          </div>
 
-          <div className="mt-12 grid gap-6 md:grid-cols-2">
+          <div className="reveal-stagger reveal-stagger-2 mt-12 grid gap-6 md:grid-cols-2">
             <FeatureCard
               title="MDM managed"
               description="Deploy and configure via Jamf, Kandji, or Mosyle. Control intercepted domains, enforcement policy, and feature flags across your fleet."
@@ -331,10 +343,12 @@ export default function Home() {
       {/* ── Privacy ──────────────────────────────── */}
       <section className="border-border border-t py-24">
         <div className="mx-auto max-w-5xl px-6">
-          <SectionLabel>Privacy</SectionLabel>
-          <h2 className="mt-3 text-3xl font-bold tracking-tight">Nothing leaves your Mac.</h2>
+          <div className="reveal">
+            <SectionLabel>Privacy</SectionLabel>
+            <h2 className="mt-3 text-3xl font-bold tracking-tight">Nothing leaves your Mac.</h2>
+          </div>
 
-          <div className="mt-12 grid gap-y-5">
+          <div className="reveal mt-12 grid gap-y-5">
             {[
               "All detection runs locally. No cloud. No telemetry. No data leaves your machine.",
               "The local CA key is stored encrypted in your Keychain, unique to your device, and removable anytime.",
@@ -362,7 +376,7 @@ export default function Home() {
 
       {/* ── CTA ──────────────────────────────────── */}
       <section className="border-border bg-bouclier-dark border-t py-24">
-        <div className="mx-auto max-w-5xl px-6 text-center">
+        <div className="reveal-scale mx-auto max-w-5xl px-6 text-center">
           <h2 className="text-3xl font-bold tracking-tight text-white">
             Install once. Protect everything.
           </h2>

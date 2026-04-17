@@ -95,3 +95,106 @@ body {
 .scan-line {
   animation: scan-line 2.5s ease-in-out infinite;
 }
+
+/* ──────────────────────────────────────────────────────────────
+   Scroll-driven reveals (Chrome 115+, Firefox 136+, Safari behind
+   flag as of 18.4). Progressive enhancement only: browsers without
+   `animation-timeline` just see the final state — we never leave
+   content hidden. Inside the @supports block we start elements
+   slightly dim/offset and let the view-timeline finish them.
+
+   Distances are deliberately tiny (12px) — 2026 premium feel is
+   measured in pixels, not viewports. Stagger within rows is
+   achieved by offsetting `animation-range` per nth-child column,
+   not per-element delay (scroll-driven timelines ignore delay).
+   ────────────────────────────────────────────────────────────── */
+
+@keyframes reveal-rise {
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes reveal-scale {
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes hero-recede {
+  to {
+    opacity: 0.45;
+    transform: translateY(-14px) scale(0.99);
+  }
+}
+
+@supports (animation-timeline: view()) {
+  @media (prefers-reduced-motion: no-preference) {
+    .reveal,
+    .reveal-stagger > * {
+      opacity: 0.7;
+      transform: translateY(12px);
+      animation: reveal-rise linear both;
+      animation-timeline: view();
+      animation-range: entry 15% cover 35%;
+    }
+
+    /* Within-row stagger for 3-column grids — each column's range
+       starts slightly later so items cascade instead of snapping
+       in together. Scroll timelines don't honor animation-delay,
+       hence the per-column range shift. */
+    .reveal-stagger-3 > *:nth-child(3n + 2) {
+      animation-range: entry 17% cover 37%;
+    }
+    .reveal-stagger-3 > *:nth-child(3n) {
+      animation-range: entry 19% cover 39%;
+    }
+
+    .reveal-stagger-4 > *:nth-child(4n + 2) {
+      animation-range: entry 16% cover 36%;
+    }
+    .reveal-stagger-4 > *:nth-child(4n + 3) {
+      animation-range: entry 18% cover 38%;
+    }
+    .reveal-stagger-4 > *:nth-child(4n) {
+      animation-range: entry 20% cover 40%;
+    }
+
+    .reveal-stagger-2 > *:nth-child(2n) {
+      animation-range: entry 18% cover 38%;
+    }
+
+    .reveal-scale {
+      opacity: 0.7;
+      transform: scale(0.985);
+      animation: reveal-scale linear both;
+      animation-timeline: view();
+      animation-range: entry 10% cover 40%;
+    }
+
+    /* Hero content gently recedes as the user scrolls past, giving
+       a faint sense of depth without parallax. Scroll-root timeline
+       (not view) because the hero is already in viewport at load. */
+    .hero-recede {
+      animation: hero-recede linear both;
+      animation-timeline: scroll(root);
+      animation-range: 0 70vh;
+    }
+  }
+
+  /* Reduced motion: keep the opacity lift (it's the part that
+     signals "this just appeared") but compress the range to a
+     1% slice so there's no perceptible travel. */
+  @media (prefers-reduced-motion: reduce) {
+    .reveal,
+    .reveal-stagger > *,
+    .reveal-scale {
+      opacity: 0.7;
+      animation: reveal-rise linear both;
+      animation-timeline: view();
+      animation-range: entry 0% entry 1%;
+    }
+  }
+}
