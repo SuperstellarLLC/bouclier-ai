@@ -11,6 +11,7 @@ struct MenuBarView: View {
                 Circle()
                     .fill(statusColor)
                     .frame(width: 10, height: 10)
+                    .animation(.easeInOut(duration: 0.25), value: statusColor)
                     .accessibilityLabel(statusAccessibilityLabel)
                 Text("Bouclier.ai")
                     .font(.headline)
@@ -18,6 +19,8 @@ struct MenuBarView: View {
                 Text(statusText)
                     .font(.caption)
                     .foregroundStyle(proxyManager.errorMessage != nil ? .red : .secondary)
+                    .contentTransition(.opacity)
+                    .animation(.easeInOut(duration: 0.25), value: statusText)
             }
 
             if let error = proxyManager.errorMessage {
@@ -33,6 +36,7 @@ struct MenuBarView: View {
                 .background(.red.opacity(0.1))
                 .clipShape(RoundedRectangle(cornerRadius: 6))
                 .accessibilityElement(children: .combine)
+                .transition(.move(edge: .top).combined(with: .opacity))
             }
 
             if proxyManager.isRunning {
@@ -58,6 +62,7 @@ struct MenuBarView: View {
                     Image(systemName: proxyManager.mlClassifierActive ? "brain.head.profile.fill" : "brain.head.profile")
                         .foregroundStyle(proxyManager.mlClassifierActive ? .purple : .secondary)
                         .font(.caption)
+                        .contentTransition(.symbolEffect(.replace))
                     Text(proxyManager.mlClassifierActive
                          ? "Fused detection active (regex + on-device ML)"
                          : "Regex detection (ML classifier loading…)")
@@ -68,6 +73,7 @@ struct MenuBarView: View {
                 .padding(8)
                 .background((proxyManager.mlClassifierActive ? Color.purple : Color.gray).opacity(0.06))
                 .clipShape(RoundedRectangle(cornerRadius: 6))
+                .animation(.easeInOut(duration: 0.35), value: proxyManager.mlClassifierActive)
 
                 if proxyManager.stats.injectionsBlocked == 0 && proxyManager.stats.requestsScanned > 0 {
                     HStack(spacing: 6) {
@@ -81,6 +87,7 @@ struct MenuBarView: View {
                     .padding(8)
                     .background(.green.opacity(0.06))
                     .clipShape(RoundedRectangle(cornerRadius: 6))
+                    .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .top)))
                 } else if let lastBlocked = proxyManager.logs.first(where: { $0.blocked }) {
                     Button(action: { openLogFile() }) {
                         HStack(spacing: 6) {
@@ -101,6 +108,28 @@ struct MenuBarView: View {
                     .padding(8)
                     .background(.orange.opacity(0.1))
                     .clipShape(RoundedRectangle(cornerRadius: 6))
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+                    .id(lastBlocked.id)
+                }
+
+                // Self-test: runs a known injection through the active
+                // detector so the user gets an immediate "yes, it works"
+                // confirmation without waiting for real traffic.
+                Button(action: { proxyManager.runSelfTest() }) {
+                    Label("Run detection test", systemImage: "testtube.2")
+                        .font(.caption)
+                }
+                .buttonStyle(.plain)
+                .padding(.vertical, 4)
+                .padding(.horizontal, 8)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(.blue.opacity(0.06))
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+                .help("Send a synthetic injection through the scanner and show the verdict")
+
+                if let result = proxyManager.selfTestResult {
+                    SelfTestBanner(result: result)
+                        .transition(.opacity.combined(with: .move(edge: .top)))
                 }
             }
 
@@ -153,7 +182,11 @@ struct MenuBarView: View {
             .keyboardShortcut("q")
         }
         .padding()
-        .frame(width: 280)
+        .frame(width: 300)
+        .animation(.spring(response: 0.35, dampingFraction: 0.85), value: proxyManager.isRunning)
+        .animation(.spring(response: 0.35, dampingFraction: 0.85), value: proxyManager.errorMessage)
+        .animation(.spring(response: 0.35, dampingFraction: 0.85), value: proxyManager.selfTestResult)
+        .animation(.spring(response: 0.35, dampingFraction: 0.85), value: proxyManager.logs.first?.id)
     }
 
     private func exportDiagnostics() {
@@ -250,6 +283,8 @@ struct StatBadge: View {
             VStack(alignment: .leading, spacing: 1) {
                 Text(value)
                     .font(.system(.body, design: .monospaced).bold())
+                    .contentTransition(.numericText())
+                    .animation(.spring(response: 0.3, dampingFraction: 0.7), value: value)
                 Text(label)
                     .font(.caption2)
                     .foregroundStyle(.secondary)
@@ -257,5 +292,38 @@ struct StatBadge: View {
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(value) \(label)")
+    }
+}
+
+/// Transient banner surfaced after the user taps "Run detection test".
+/// Auto-dismisses from ProxyManager; this view just renders whichever
+/// result is currently published.
+struct SelfTestBanner: View {
+    let result: SelfTestResult
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: result.passed ? "checkmark.shield.fill" : "exclamationmark.shield.fill")
+                .foregroundStyle(result.passed ? .green : .red)
+                .font(.callout)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(result.headline)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(result.passed ? .green : .red)
+                Text(result.detail)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+            Spacer()
+            Text(String(format: "%.2f", result.fusedScore))
+                .font(.system(.caption2, design: .monospaced))
+                .foregroundStyle(.secondary)
+        }
+        .padding(8)
+        .background((result.passed ? Color.green : Color.red).opacity(0.08))
+        .clipShape(RoundedRectangle(cornerRadius: 6))
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Self-test result: \(result.headline). \(result.detail).")
     }
 }

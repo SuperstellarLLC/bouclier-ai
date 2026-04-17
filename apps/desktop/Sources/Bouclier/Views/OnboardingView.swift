@@ -22,11 +22,20 @@ struct OnboardingView: View {
             Group {
                 if currentStep == 0 {
                     welcomeStep
+                        .transition(.asymmetric(
+                            insertion: .move(edge: .leading).combined(with: .opacity),
+                            removal: .move(edge: .leading).combined(with: .opacity)
+                        ))
                 } else {
                     protectStep
+                        .transition(.asymmetric(
+                            insertion: .move(edge: .trailing).combined(with: .opacity),
+                            removal: .move(edge: .trailing).combined(with: .opacity)
+                        ))
                 }
             }
             .padding(32)
+            .animation(.spring(response: 0.45, dampingFraction: 0.85), value: currentStep)
         }
         .frame(width: 480, height: 400)
     }
@@ -99,13 +108,7 @@ struct OnboardingView: View {
             } else {
                 Button(action: {
                     isSettingUp = true
-                    Task {
-                        proxyManager.setup()
-                        // setup() triggers async work internally;
-                        // observe proxyManager.isRunning to know when it finishes
-                        try? await Task.sleep(for: .seconds(2))
-                        await MainActor.run { isSettingUp = false }
-                    }
+                    proxyManager.setup()
                 }) {
                     if isSettingUp {
                         ProgressView()
@@ -125,6 +128,15 @@ struct OnboardingView: View {
                 .buttonStyle(.bordered)
                 .foregroundStyle(.secondary)
             }
+        }
+        // Flip the setup spinner off when the proxy actually starts OR
+        // when setup surfaces an error. Replaces a prior 2-second sleep
+        // that could unblock the button before the proxy was ready.
+        .onChange(of: proxyManager.isRunning) { _, running in
+            if running { isSettingUp = false }
+        }
+        .onChange(of: proxyManager.errorMessage) { _, error in
+            if error != nil { isSettingUp = false }
         }
     }
 }
