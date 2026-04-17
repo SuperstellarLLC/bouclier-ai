@@ -43,6 +43,13 @@ export function MobileNav({ downloadUrl }: { downloadUrl: string }) {
         <div className="border-border absolute left-0 right-0 top-full border-b bg-white px-6 py-4">
           <div className="flex flex-col gap-3">
             <a
+              href="#playground"
+              onClick={() => setOpen(false)}
+              className="text-text-secondary hover:text-text py-1 text-sm"
+            >
+              Try it
+            </a>
+            <a
               href="#how"
               onClick={() => setOpen(false)}
               className="text-text-secondary hover:text-text py-1 text-sm"
