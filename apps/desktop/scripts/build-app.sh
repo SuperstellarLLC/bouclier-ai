@@ -10,11 +10,14 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+SITE_DIR="$(dirname "$(dirname "$PROJECT_DIR")")/apps/site"
 cd "$PROJECT_DIR"
+
+# shellcheck source=_prompts.sh
+source "$SCRIPT_DIR/_prompts.sh"
 
 CONFIG="debug"
 SIGN=false
-VERSION="${VERSION:-0.2.0}"
 
 for arg in "$@"; do
   case "$arg" in
@@ -22,6 +25,15 @@ for arg in "$@"; do
     --sign) SIGN=true ;;
   esac
 done
+
+# VERSION is usually set by release.sh; when build-app.sh is invoked
+# directly (debug builds), default to the current released version so
+# the plist stays coherent with the rest of the repo. No prompt — this
+# script runs in tight dev loops and shouldn't block on input.
+if [ -z "${VERSION:-}" ]; then
+  VERSION=$(current_app_version "$SITE_DIR/src/lib/constants.ts")
+  VERSION="${VERSION:-0.0.0}"
+fi
 
 echo "Building Bouclier.ai ($CONFIG)..."
 

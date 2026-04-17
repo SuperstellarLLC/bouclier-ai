@@ -4,11 +4,11 @@ set -euo pipefail
 # Full release pipeline: build → sign → DMG → notarize → Sparkle → upload → deploy.
 #
 # Usage:
-#   APPLE_ID=you@example.com \
-#   DOWNLOAD_BASE_URL=https://xyz.public.blob.vercel-storage.com \
-#     ./scripts/release.sh
+#   ./scripts/release.sh
 #
-# Prompts for version and app-specific password at runtime.
+# The script prompts for everything it needs. Any value set in the
+# environment beforehand is used without prompting (handy for CI or
+# repeated invocations).
 #
 # Prerequisites:
 #   - Developer ID identity in Keychain
@@ -16,31 +16,41 @@ set -euo pipefail
 #   - Provisioning profiles in profiles/
 #   - App-specific password (appleid.apple.com → App-Specific Passwords)
 #   - vercel CLI authenticated
+#   - HuggingFace access to meta-llama/Llama-Prompt-Guard-2-86M
+#     (first release only; subsequent builds reuse the cached .mlpackage)
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 SITE_DIR="$(dirname "$(dirname "$PROJECT_DIR")")/apps/site"
 
-APPLE_ID="${APPLE_ID:?APPLE_ID env var required}"
-TEAM_ID="${TEAM_ID:-U86PR842AK}"
-DOWNLOAD_BASE_URL="${DOWNLOAD_BASE_URL:?DOWNLOAD_BASE_URL env var required}"
+# shellcheck source=_prompts.sh
+source "$SCRIPT_DIR/_prompts.sh"
 
-read -rp "Version (e.g. 0.2.0): " VERSION
-if [ -z "$VERSION" ]; then echo "Version is required."; exit 1; fi
-
-echo -n "App-specific password: "
-read -rs APP_PASSWORD
 echo ""
-if [ -z "$APP_PASSWORD" ]; then echo "Password is required."; exit 1; fi
+echo "═══════════════════════════════════════════════"
+echo "  Bouclier.ai — Release Pipeline"
+echo "═══════════════════════════════════════════════"
+echo ""
+
+# Suggest the next patch version as default — users just press enter to
+# accept a standard bump, and only type for major/minor jumps.
+CURRENT_VERSION=$(current_app_version "$SITE_DIR/src/lib/constants.ts")
+NEXT_VERSION=$(bump_patch "$CURRENT_VERSION")
+if [ -n "$CURRENT_VERSION" ]; then
+  echo "  Current released version: $CURRENT_VERSION"
+fi
+prompt_with_default VERSION "Version" "${NEXT_VERSION:-0.2.7}"
+prompt_required APPLE_ID "Apple ID" "you@example.com"
+prompt_with_default TEAM_ID "Apple Team ID" "U86PR842AK"
+prompt_required DOWNLOAD_BASE_URL "Vercel Blob public URL" "https://xyz.public.blob.vercel-storage.com"
+prompt_secret APP_PASSWORD "App-specific password"
 
 DMG="$PROJECT_DIR/build/Bouclier-ai-v${VERSION}-macOS.dmg"
 APP="$PROJECT_DIR/build/Bouclier-ai.app"
 REPO_ROOT="$(dirname "$(dirname "$PROJECT_DIR")")"
 
 echo ""
-echo "═══════════════════════════════════════════════"
-echo "  Bouclier.ai v${VERSION} — Release Pipeline"
-echo "═══════════════════════════════════════════════"
+echo "── Starting release for v${VERSION} ──"
 echo ""
 
 # ── Step 0: Bump version in source files ────────
@@ -52,8 +62,16 @@ sed -i '' "/<key>CFBundleShortVersionString<\/key>/{n;s|<string>.*</string>|<str
 echo "  ✓ Version bumped in constants.ts + plists"
 echo ""
 
-# ── Step 1: Build + Sign ────────────────────────
-echo "▸ Step 1/6: Building and signing..."
+# ── Step 1: Ensure CoreML model is built ────────
+# The .mlpackage is gitignored (too large for GitHub) but must exist on
+# disk for swift build to bundle it into the app. ensure-model.sh is a
+# no-op when the model is already present, so this is free on reruns.
+echo "▸ Step 1/7: Ensuring CoreML model is present..."
+"$SCRIPT_DIR/ensure-model.sh"
+echo ""
+
+# ── Step 2: Build + Sign ────────────────────────
+echo "▸ Step 2/7: Building and signing..."
 VERSION="$VERSION" "$SCRIPT_DIR/build-app.sh" --release --sign
 echo "  ✓ App built and signed at $APP"
 echo ""
@@ -62,7 +80,7 @@ echo ""
 # We notarize the app as a zip first, then staple the ticket onto the
 # .app before packaging the DMG. This way the app inside the DMG has
 # the notarization ticket embedded and Gatekeeper won't block it.
-echo "▸ Step 2/6: Notarizing app..."
+echo "▸ Step 3/7: Notarizing app..."
 APP_ZIP="$PROJECT_DIR/build/Bouclier-ai-notarize.zip"
 ditto -c -k --keepParent "$APP" "$APP_ZIP"
 
@@ -80,7 +98,7 @@ echo "  ✓ App notarized and stapled"
 echo ""
 
 # ── Step 3: Create DMG with Applications shortcut ──
-echo "▸ Step 3/6: Creating DMG..."
+echo "▸ Step 4/7: Creating DMG..."
 rm -f "$DMG"
 
 DMG_STAGE="$PROJECT_DIR/build/dmg-stage"
@@ -98,12 +116,12 @@ echo "  ✓ Notarized and stapled"
 echo ""
 
 # ── Step 4: Sparkle sign + appcast ──────────────
-echo "▸ Step 4/6: Signing for Sparkle and generating appcast..."
+echo "▸ Step 5/7: Signing for Sparkle and generating appcast..."
 VERSION="$VERSION" DOWNLOAD_BASE_URL="$DOWNLOAD_BASE_URL" "$SCRIPT_DIR/publish-update.sh"
 echo ""
 
 # ── Step 5: Upload DMG ──────────────────────────
-echo "▸ Step 5/6: Uploading DMG to Vercel Blob..."
+echo "▸ Step 6/7: Uploading DMG to Vercel Blob..."
 if command -v vercel &>/dev/null; then
   vercel blob upload "$DMG" --no-confirm 2>/dev/null || {
     echo "  ⚠ vercel blob upload failed — upload manually:"
@@ -116,7 +134,7 @@ fi
 echo ""
 
 # ── Step 6: Deploy site ─────────────────────────
-echo "▸ Step 6/6: Deploying site..."
+echo "▸ Step 7/7: Deploying site..."
 if command -v vercel &>/dev/null; then
   cd "$SITE_DIR"
   vercel --prod --yes 2>/dev/null || {
