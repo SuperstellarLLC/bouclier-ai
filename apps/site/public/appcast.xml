@@ -6,29 +6,35 @@
     <description>Updates for Bouclier.ai — prompt injection firewall for macOS</description>
     <language>en</language>
     <item>
-      <title>Version 0.2.6</title>
-      <pubDate>Tue, 07 Apr 2026 18:54:36 +0200</pubDate>
-      <sparkle:version>0.2.6</sparkle:version>
-      <sparkle:shortVersionString>0.2.6</sparkle:shortVersionString>
+      <title>Version 0.2.8</title>
+      <pubDate>Fri, 17 Apr 2026 12:41:30 +0200</pubDate>
+      <sparkle:version>0.2.8</sparkle:version>
+      <sparkle:shortVersionString>0.2.8</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
       <description><![CDATA[
-        <h2>Bouclier.ai v0.2.6</h2>
-        <ul>
-          <li>161 detection patterns across 21 attack categories (was 35 / 11)</li>
-          <li>Streaming SSE response scanning (OpenAI, Anthropic, Gemini, Mistral)</li>
-          <li>8 false-positive dampeners for academic, tutorial, and translation contexts</li>
-          <li>HTTP pipeline hardening: body-size cap, CRLF rejection, Content-Type gating</li>
-          <li>Structured metrics with latency histograms and per-category hit counts</li>
-          <li>Export Diagnostics bundle for enterprise support handoff</li>
-          <li>MDM feature flags (sseInspection, uriScanning, telemetryEnabled)</li>
-          <li>Input validation on all MDM config: ports, hostnames, webhook URLs</li>
-          <li>STRIDE threat model published</li>
-        </ul>
-      ]]></description>
+<h2>Bouclier.ai v0.2.8</h2>
+<h4>Fixed</h4>
+<ul>
+<li>ML classifier (Meta Llama Prompt Guard 2) never actually loaded in shipped builds — the resource lookup pointed at the wrong bundle, so every install since v0.2.6 silently ran on regex-only detection. Fused detection now activates at launch as intended.</li>
+<li>"Check for Updates…" menu-bar button was permanently disabled because the updater flag was never wired to Sparkle's own state.</li>
+<li>Onboarding "Enable Protection" spinner could unblock before the proxy was actually running. The spinner now clears when the proxy is ready or when setup surfaces an error.</li>
+</ul>
+<h4>Added</h4>
+<ul>
+<li>"Run detection test" button in the menu bar — sends a synthetic injection through the live filter and shows a pass/fail verdict inline.</li>
+<li>Three-state ML classifier badge: active, loading, or unavailable with the reason in a tooltip. No more indefinite "loading…" when the model can't load.</li>
+<li>Subtle motion across menu-bar state changes — animated stat counters, spring transitions on status and alert banners, symbol morphs on the ML indicator.</li>
+</ul>
+<h4>Changed</h4>
+<ul>
+<li>New app icon (clean blue shield) replaces the placeholder.</li>
+<li>Menu-bar popover widened 280pt → 300pt so blocked-event messages stop truncating mid-line.</li>
+</ul>
+]]></description>
       <enclosure
-        url="https://0tdi95zyjwsefpzx.public.blob.vercel-storage.com/download/Bouclier-ai-v0.2.6-macOS.dmg"
-        sparkle:edSignature="dYHeABAMFrRu0xuR9630dHrOBfeIcgAgTwLKs6USaaXA1hyHwraR8Co2Yy3+xCzG/GX5RnQD8ZnxOSJTr6jRDQ=="
-        length="7802242"
+        url="https://0tdi95zyjwsefpzx.public.blob.vercel-storage.com/download/Bouclier-ai-v0.2.8-macOS.dmg"
+        sparkle:edSignature="S2kpFoj/gitqc28aoqFF8VetsFGep0x15ZDvBGZ3CbElLSi2EdR9UW9W5kJo7KkcNrGZT1qlR6tIo5cVrizQCg=="
+        length="271744267"
         type="application/octet-stream"
       />
     </item>
