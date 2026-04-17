@@ -18,6 +18,12 @@ final class ProxyManager: ObservableObject {
     /// diagnostics dashboard can report whether fused detection is on.
     @Published var mlClassifierActive = false
 
+    /// Non-nil when the ML classifier failed to load (missing model,
+    /// unsupported hardware, etc). The menu bar uses this to switch
+    /// from "loading…" to "unavailable" so users aren't staring at a
+    /// spinner forever.
+    @Published var mlClassifierError: String?
+
     /// Most recent synthetic self-test result. Nil until the user taps
     /// "Run detection test" in the menu bar. Cleared on a timer so the
     /// banner auto-dismisses.
@@ -57,10 +63,14 @@ final class ProxyManager: ObservableObject {
             Task { @MainActor in
                 guard let self else { return }
                 let active = self.patternManager.filter.hasMLClassifier
+                let error = self.patternManager.classifierLoadError
                 if self.mlClassifierActive != active {
                     self.mlClassifierActive = active
                 }
-                print("[bouclier.ai] Patterns/classifier updated (ML active: \(active))")
+                if self.mlClassifierError != error {
+                    self.mlClassifierError = error
+                }
+                print("[bouclier.ai] Patterns/classifier updated (ML active: \(active), error: \(error ?? "none"))")
             }
         })
         // Register crash cleanup — disable system proxy if we die unexpectedly

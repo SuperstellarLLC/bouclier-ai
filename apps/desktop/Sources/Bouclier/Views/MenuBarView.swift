@@ -55,25 +55,28 @@ struct MenuBarView: View {
 
                 // ML classifier status — small inline badge so users
                 // can see whether the on-device fused detection layer
-                // is active. The classifier loads asynchronously after
-                // the proxy starts; until it's ready the badge shows
-                // the regex-only state.
+                // is active. Three states:
+                //   - active  → fused detection running (regex + ML)
+                //   - failed  → classifier wouldn't load; show the reason
+                //               so users aren't stuck watching a spinner
+                //   - loading → still warming up (usually <1s)
                 HStack(spacing: 6) {
-                    Image(systemName: proxyManager.mlClassifierActive ? "brain.head.profile.fill" : "brain.head.profile")
-                        .foregroundStyle(proxyManager.mlClassifierActive ? .purple : .secondary)
+                    Image(systemName: mlBadgeIcon)
+                        .foregroundStyle(mlBadgeColor)
                         .font(.caption)
                         .contentTransition(.symbolEffect(.replace))
-                    Text(proxyManager.mlClassifierActive
-                         ? "Fused detection active (regex + on-device ML)"
-                         : "Regex detection (ML classifier loading…)")
+                    Text(mlBadgeText)
                         .font(.caption2)
                         .foregroundStyle(.secondary)
+                        .lineLimit(2)
                     Spacer()
                 }
                 .padding(8)
-                .background((proxyManager.mlClassifierActive ? Color.purple : Color.gray).opacity(0.06))
+                .background(mlBadgeColor.opacity(0.06))
                 .clipShape(RoundedRectangle(cornerRadius: 6))
+                .help(proxyManager.mlClassifierError ?? "")
                 .animation(.easeInOut(duration: 0.35), value: proxyManager.mlClassifierActive)
+                .animation(.easeInOut(duration: 0.35), value: proxyManager.mlClassifierError)
 
                 if proxyManager.stats.injectionsBlocked == 0 && proxyManager.stats.requestsScanned > 0 {
                     HStack(spacing: 6) {
@@ -266,6 +269,24 @@ struct MenuBarView: View {
 
     private var statusAccessibilityLabel: String {
         "Protection status: \(statusText)"
+    }
+
+    private var mlBadgeIcon: String {
+        if proxyManager.mlClassifierActive { return "brain.head.profile.fill" }
+        if proxyManager.mlClassifierError != nil { return "exclamationmark.brain" }
+        return "brain.head.profile"
+    }
+
+    private var mlBadgeColor: Color {
+        if proxyManager.mlClassifierActive { return .purple }
+        if proxyManager.mlClassifierError != nil { return .orange }
+        return .gray
+    }
+
+    private var mlBadgeText: String {
+        if proxyManager.mlClassifierActive { return "Fused detection active (regex + on-device ML)" }
+        if proxyManager.mlClassifierError != nil { return "Regex detection only — ML model unavailable" }
+        return "Regex detection (ML classifier loading…)"
     }
 }
 

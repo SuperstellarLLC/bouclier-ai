@@ -22,9 +22,19 @@ final class PatternManager: @unchecked Sendable {
     private var _filter: InjectionFilter
     private var _patterns: [FilterPattern]
     private var _classifier: MLClassifier?
+    private var _classifierLoadError: String?
     private var fileMonitor: DispatchSourceFileSystemObject?
     private var monitorFD: Int32 = -1
     private var onChange: (() -> Void)?
+
+    /// Reason the classifier failed to load (nil while loading or after
+    /// successful load). Surfaced to the UI so the menu bar can distinguish
+    /// "still warming up" from "not coming, here's why".
+    var classifierLoadError: String? {
+        lock.lock()
+        defer { lock.unlock() }
+        return _classifierLoadError
+    }
 
     static let userPatternsDir: URL = {
         let dir = FileManager.default.urls(
@@ -65,13 +75,24 @@ final class PatternManager: @unchecked Sendable {
     /// Load the on-device CoreML classifier on a background task and
     /// swap the active filter when ready. Failure is non-fatal — the
     /// filter stays in regex-only mode for the rest of the process.
+    /// Both outcomes fire onChange so the UI can transition out of the
+    /// "loading" state either way.
     private func loadClassifierAsync() async {
         do {
             let classifier = try await MLClassifier()
             installClassifier(classifier)
         } catch {
-            print("[bouclier.ai] ML classifier unavailable, staying in regex-only mode: \(error)")
+            recordClassifierLoadFailure(error)
         }
+    }
+
+    private func recordClassifierLoadFailure(_ error: Error) {
+        let reason = "\(error)"
+        lock.lock()
+        _classifierLoadError = reason
+        lock.unlock()
+        print("[bouclier.ai] ML classifier unavailable, staying in regex-only mode: \(reason)")
+        onChange?()
     }
 
     /// Synchronous critical section for swapping the active filter to
