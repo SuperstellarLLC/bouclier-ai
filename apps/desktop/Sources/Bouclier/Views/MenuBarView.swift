@@ -183,6 +183,21 @@ struct MenuBarView: View {
                 NSApplication.shared.terminate(nil)
             }
             .keyboardShortcut("q")
+
+            // Subtle version stamp so users can verify a Sparkle update
+            // landed without digging into Settings → About. Clickable to
+            // trigger a manual update check when Sparkle allows it.
+            HStack(spacing: 4) {
+                Spacer()
+                Button(action: { if updater.canCheckForUpdates { updater.checkForUpdates() } }) {
+                    Text("v\(appVersion)")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
+                .buttonStyle(.plain)
+                .disabled(!updater.canCheckForUpdates)
+                .help(updater.canCheckForUpdates ? "Check for updates" : "Version \(appVersion)")
+            }
         }
         .padding()
         .frame(width: 300)
@@ -287,6 +302,10 @@ struct MenuBarView: View {
         if proxyManager.mlClassifierActive { return "Fused detection active (regex + on-device ML)" }
         if proxyManager.mlClassifierError != nil { return "Regex detection only — ML model unavailable" }
         return "Regex detection (ML classifier loading…)"
+    }
+
+    private var appVersion: String {
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—"
     }
 }
 
