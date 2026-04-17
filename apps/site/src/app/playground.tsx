@@ -57,6 +57,12 @@ const CATEGORY_LABELS: Record<Category, string> = {
   "alignment-bypass": "Alignment Bypass",
 };
 
+// Cap textarea length to prevent any single regex (known or yet-unknown)
+// from freezing the tab on pathological inputs. 10k chars is well above
+// any realistic prompt — defense in depth against ReDoS on top of the
+// already-sanitised patterns.
+const MAX_INPUT_CHARS = 10_000;
+
 export function Playground() {
   const [input, setInput] = useState(PRESETS[0]!.text);
 
@@ -119,9 +125,10 @@ export function Playground() {
             </div>
             <textarea
               value={input}
-              onChange={(e) => setInput(e.target.value)}
+              onChange={(e) => setInput(e.target.value.slice(0, MAX_INPUT_CHARS))}
               placeholder="Paste a prompt to scan…"
               spellCheck={false}
+              maxLength={MAX_INPUT_CHARS}
               aria-label="Prompt to scan"
               className="text-text block h-64 w-full resize-none bg-white px-5 py-4 font-mono text-sm leading-relaxed focus:outline-none"
             />
