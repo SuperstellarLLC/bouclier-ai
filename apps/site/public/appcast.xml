@@ -6,26 +6,22 @@
     <description>Updates for Bouclier.ai — prompt injection firewall for macOS</description>
     <language>en</language>
     <item>
-      <title>Version 0.2.10</title>
-      <pubDate>Fri, 17 Apr 2026 13:46:52 +0200</pubDate>
-      <sparkle:version>0.2.10</sparkle:version>
-      <sparkle:shortVersionString>0.2.10</sparkle:shortVersionString>
+      <title>Version 0.2.11</title>
+      <pubDate>Fri, 17 Apr 2026 14:09:08 +0200</pubDate>
+      <sparkle:version>0.2.11</sparkle:version>
+      <sparkle:shortVersionString>0.2.11</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
       <description><![CDATA[
-<h2>Bouclier.ai v0.2.10</h2>
+<h2>Bouclier.ai v0.2.11</h2>
 <h4>Fixed</h4>
 <ul>
-<li>ML classifier (Meta Prompt Guard 2) still wasn't actually loading in v0.2.9. CoreML refuses raw `.mlpackage` files at runtime ("Compile the model with Xcode or MLModel.compileModel(at:)") and SwiftPM doesn't auto-compile. Release builds now pre-compile to `.mlmodelc` via `xcrun coremlcompiler`; dev builds fall back to an on-demand compile cached in Application Support. Fused detection (regex + ML + entropy) is live for real this time.</li>
-</ul>
-<h4>Changed</h4>
-<ul>
-<li>ML-error badge in the menu bar is now click-to-copy — clicking copies the raw CoreML / tokenizer error string to the clipboard so it can be pasted into bug reports without screenshotting a tooltip.</li>
+<li>ML classifier (Meta Prompt Guard 2) still wasn't loading in v0.2.10. The tokenizer download script was missing `config.json` from its allow-list, so swift-transformers' `AutoTokenizer.from(modelFolder:)` threw `configurationMissing("config.json")` — it reads `model_type` from that file to dispatch to the right tokenizer class. Added to the download script and bundled the file directly so fused detection finally lights up.</li>
 </ul>
 ]]></description>
       <enclosure
-        url="https://0tdi95zyjwsefpzx.public.blob.vercel-storage.com/download/Bouclier-ai-v0.2.10-macOS.dmg"
-        sparkle:edSignature="enjdJxCvOOXoQmX8lshtvhiLlOpYmJoyof1LfGSTDDsxXVEquFWq6MSmckiKxtO8A5ToezBLK7AcRUsyUcl/DA=="
-        length="271866535"
+        url="https://0tdi95zyjwsefpzx.public.blob.vercel-storage.com/download/Bouclier-ai-v0.2.11-macOS.dmg"
+        sparkle:edSignature="Bhd1ZYjPSOcjrm5P6YeHY3RiOdc8QHnUCBlTHMx+RzBf65XYg29G1sQjacjKyLvLC+hRNBRgTJiG4LCcORn5BQ=="
+        length="271796090"
         type="application/octet-stream"
       />
     </item>
