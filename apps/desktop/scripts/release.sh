@@ -1,7 +1,9 @@
 #!/bin/bash
 set -euo pipefail
 
-# Full release pipeline: build → sign → DMG → notarize → Sparkle → upload → deploy.
+# Release pipeline: build → sign → notarize → DMG → Sparkle → upload.
+# Site deploy happens via Vercel's git integration on the commit+push
+# that follows the release, so there's no explicit deploy step here.
 #
 # Usage:
 #   ./scripts/release.sh
@@ -69,12 +71,12 @@ echo ""
 # The .mlpackage is gitignored (too large for GitHub) but must exist on
 # disk for swift build to bundle it into the app. ensure-model.sh is a
 # no-op when the model is already present, so this is free on reruns.
-echo "▸ Step 1/7: Ensuring CoreML model is present..."
+echo "▸ Step 1/6: Ensuring CoreML model is present..."
 "$SCRIPT_DIR/ensure-model.sh"
 echo ""
 
 # ── Step 2: Build + Sign ────────────────────────
-echo "▸ Step 2/7: Building and signing..."
+echo "▸ Step 2/6: Building and signing..."
 VERSION="$VERSION" "$SCRIPT_DIR/build-app.sh" --release --sign
 echo "  ✓ App built and signed at $APP"
 echo ""
@@ -83,7 +85,7 @@ echo ""
 # We notarize the app as a zip first, then staple the ticket onto the
 # .app before packaging the DMG. This way the app inside the DMG has
 # the notarization ticket embedded and Gatekeeper won't block it.
-echo "▸ Step 3/7: Notarizing app..."
+echo "▸ Step 3/6: Notarizing app..."
 APP_ZIP="$PROJECT_DIR/build/Bouclier-ai-notarize.zip"
 ditto -c -k --keepParent "$APP" "$APP_ZIP"
 
@@ -101,7 +103,7 @@ echo "  ✓ App notarized and stapled"
 echo ""
 
 # ── Step 3: Create DMG with Applications shortcut ──
-echo "▸ Step 4/7: Creating DMG..."
+echo "▸ Step 4/6: Creating DMG..."
 rm -f "$DMG"
 
 DMG_STAGE="$PROJECT_DIR/build/dmg-stage"
@@ -119,7 +121,7 @@ echo "  ✓ Notarized and stapled"
 echo ""
 
 # ── Step 4: Sparkle sign + appcast ──────────────
-echo "▸ Step 5/7: Signing for Sparkle and generating appcast..."
+echo "▸ Step 5/6: Signing for Sparkle and generating appcast..."
 VERSION="$VERSION" DOWNLOAD_BASE_URL="$DOWNLOAD_BASE_URL" "$SCRIPT_DIR/publish-update.sh"
 echo ""
 
@@ -128,7 +130,7 @@ echo ""
 # failing because of the 2>/dev/null muzzle below it. Token is passed
 # as env var so the CLI can find the target store without folder
 # linking; --allow-overwrite lets reruns of the same version replace.
-echo "▸ Step 6/7: Uploading DMG to Vercel Blob..."
+echo "▸ Step 6/6: Uploading DMG to Vercel Blob..."
 if ! command -v vercel &>/dev/null; then
   echo "  ⚠ vercel CLI not found — upload manually:"
   echo "    vercel blob put $DMG --pathname Bouclier-ai-v${VERSION}-macOS.dmg --allow-overwrite"
@@ -144,25 +146,20 @@ else
 fi
 echo ""
 
-# ── Step 6: Deploy site ─────────────────────────
-echo "▸ Step 7/7: Deploying site..."
-if command -v vercel &>/dev/null; then
-  cd "$SITE_DIR"
-  vercel --prod --yes 2>/dev/null || {
-    echo "  ⚠ vercel deploy failed — deploy manually:"
-    echo "    cd $SITE_DIR && vercel --prod"
-  }
-else
-  echo "  ⚠ vercel CLI not found — deploy manually:"
-  echo "    cd $SITE_DIR && vercel --prod"
-fi
-echo ""
-
 echo "═══════════════════════════════════════════════"
-echo "  Bouclier.ai v${VERSION} released!"
+echo "  Bouclier.ai v${VERSION} built and uploaded"
 echo "═══════════════════════════════════════════════"
 echo ""
 echo "  DMG:     $DMG"
 echo "  Appcast: $SITE_DIR/public/appcast.xml"
-echo "  Site:    https://www.bouclier.ai"
+echo ""
+echo "  Commit and push to deploy the site (Vercel picks up the appcast +"
+echo "  version bump on push to main):"
+echo ""
+echo "    git add apps/site/src/lib/constants.ts \\"
+echo "            apps/desktop/Sources/Bouclier/Resources/Info.plist \\"
+echo "            apps/desktop/Sources/BouclierExtension/GeneratedInfo.plist \\"
+echo "            apps/site/public/appcast.xml"
+echo "    git commit -m \"chore: v${VERSION} release\""
+echo "    git push"
 echo ""
