@@ -6,22 +6,22 @@
     <description>Updates for Bouclier.ai — prompt injection firewall for macOS</description>
     <language>en</language>
     <item>
-      <title>Version 0.2.11</title>
-      <pubDate>Fri, 17 Apr 2026 14:09:08 +0200</pubDate>
-      <sparkle:version>0.2.11</sparkle:version>
-      <sparkle:shortVersionString>0.2.11</sparkle:shortVersionString>
+      <title>Version 0.2.12</title>
+      <pubDate>Fri, 17 Apr 2026 14:24:42 +0200</pubDate>
+      <sparkle:version>0.2.12</sparkle:version>
+      <sparkle:shortVersionString>0.2.12</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
       <description><![CDATA[
-<h2>Bouclier.ai v0.2.11</h2>
+<h2>Bouclier.ai v0.2.12</h2>
 <h4>Fixed</h4>
 <ul>
-<li>ML classifier (Meta Prompt Guard 2) still wasn't loading in v0.2.10. The tokenizer download script was missing `config.json` from its allow-list, so swift-transformers' `AutoTokenizer.from(modelFolder:)` threw `configurationMissing("config.json")` — it reads `model_type` from that file to dispatch to the right tokenizer class. Added to the download script and bundled the file directly so fused detection finally lights up.</li>
+<li>Tokenizer load still failed in v0.2.11 with `unsupportedTokenizer("DebertaV2Tokenizer")` — swift-transformers' registry doesn't know that class name. The underlying model in tokenizer.json is Unigram SPM, which is exactly what T5Tokenizer (a trivial `class T5Tokenizer: UnigramTokenizer {}` subclass in swift-transformers) routes to. Renamed the `tokenizer_class` label to `T5Tokenizer` in tokenizer_config.json so lookup succeeds; tokenization behaviour is unchanged because it's driven by tokenizer.json. convert-promptguard.py applies the same rewrite automatically on future runs.</li>
 </ul>
 ]]></description>
       <enclosure
-        url="https://0tdi95zyjwsefpzx.public.blob.vercel-storage.com/download/Bouclier-ai-v0.2.11-macOS.dmg"
-        sparkle:edSignature="Bhd1ZYjPSOcjrm5P6YeHY3RiOdc8QHnUCBlTHMx+RzBf65XYg29G1sQjacjKyLvLC+hRNBRgTJiG4LCcORn5BQ=="
-        length="271796090"
+        url="https://0tdi95zyjwsefpzx.public.blob.vercel-storage.com/download/Bouclier-ai-v0.2.12-macOS.dmg"
+        sparkle:edSignature="qXjOekY7yfh7Z3HDxfymd75iWJsWwUgJfkclGo8/dUwSwO7IbwSgbMrIXQnqaz9eLMYtV6t5uiHA+wyagC2GCA=="
+        length="271724346"
         type="application/octet-stream"
       />
     </item>
