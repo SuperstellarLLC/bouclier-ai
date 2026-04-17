@@ -82,7 +82,8 @@ if [ -n "$BUILT_VERSION" ]; then
   echo "  Latest build on disk: $BUILT_VERSION"
 fi
 prompt_with_default VERSION "Version" "${BUILT_VERSION:-0.0.0}"
-prompt_required DOWNLOAD_BASE_URL "Vercel Blob public URL" "https://xyz.public.blob.vercel-storage.com"
+prompt_with_default DOWNLOAD_BASE_URL "Vercel Blob public URL" \
+  "https://0tdi95zyjwsefpzx.public.blob.vercel-storage.com/download"
 
 DMG="$PROJECT_DIR/build/Bouclier-ai-v${VERSION}-macOS.dmg"
 SIGN_UPDATE="$PROJECT_DIR/.build/artifacts/sparkle/Sparkle/bin/sign_update"
