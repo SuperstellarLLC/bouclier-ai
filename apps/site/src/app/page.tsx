@@ -1,6 +1,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { MobileNav } from "./mobile-nav";
+import { Playground } from "./playground";
 import {
   APP_VERSION,
   BENCHMARK_ATTACKS,
@@ -56,6 +57,12 @@ export default function Home() {
             <span className="text-text text-[15px] font-semibold tracking-tight">Bouclier.ai</span>
           </Link>
           <div className="hidden items-center gap-6 sm:flex">
+            <a
+              href="#playground"
+              className="text-text-secondary hover:text-text text-sm transition-colors"
+            >
+              Try it
+            </a>
             <a
               href="#how"
               className="text-text-secondary hover:text-text text-sm transition-colors"
@@ -138,6 +145,9 @@ export default function Home() {
           </div>
         </div>
       </section>
+
+      {/* ── Live playground ──────────────────────── */}
+      <Playground />
 
       {/* ── How it works ─────────────────────────── */}
       <section id="how" className="border-border bg-surface border-t py-24">
