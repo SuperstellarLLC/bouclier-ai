@@ -130,19 +130,28 @@ echo ""
 # failing because of the 2>/dev/null muzzle below it. Token is passed
 # as env var so the CLI can find the target store without folder
 # linking; --allow-overwrite lets reruns of the same version replace.
+#
+# The upload --pathname MUST mirror whatever path component is in
+# DOWNLOAD_BASE_URL, otherwise the appcast/site point at /download/...
+# while the DMG lands at /... and Sparkle auto-update 404s silently.
+# Extract the path portion of DOWNLOAD_BASE_URL and prepend it.
+DOWNLOAD_PATH=$(echo "$DOWNLOAD_BASE_URL" | sed -E 's|^https?://[^/]+||; s|^/||; s|/$||')
+UPLOAD_PATHNAME="${DOWNLOAD_PATH:+${DOWNLOAD_PATH}/}Bouclier-ai-v${VERSION}-macOS.dmg"
+
 echo "▸ Step 6/6: Uploading DMG to Vercel Blob..."
+echo "  Target pathname: $UPLOAD_PATHNAME"
 if ! command -v vercel &>/dev/null; then
   echo "  ⚠ vercel CLI not found — upload manually:"
-  echo "    vercel blob put $DMG --pathname Bouclier-ai-v${VERSION}-macOS.dmg --allow-overwrite"
+  echo "    vercel blob put $DMG --pathname $UPLOAD_PATHNAME --allow-overwrite"
   echo ""
 elif vercel blob put "$DMG" \
-       --pathname "Bouclier-ai-v${VERSION}-macOS.dmg" \
+       --pathname "$UPLOAD_PATHNAME" \
        --allow-overwrite; then
   echo "  ✓ Uploaded"
 else
   echo ""
   echo "  ⚠ Upload failed. Run manually from any blob-linked folder:"
-  echo "    vercel blob put $DMG --pathname Bouclier-ai-v${VERSION}-macOS.dmg --allow-overwrite"
+  echo "    vercel blob put $DMG --pathname $UPLOAD_PATHNAME --allow-overwrite"
 fi
 echo ""
 
