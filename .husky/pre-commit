@@ -1,1 +1,2 @@
+./scripts/check-changelog.sh
 npx lint-staged
