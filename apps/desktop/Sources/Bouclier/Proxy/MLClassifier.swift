@@ -65,17 +65,21 @@ final class MLClassifier: @unchecked Sendable {
     /// load happens once at app startup, so the caller should `await`
     /// this from a Task during the proxy's initialization sequence.
     init() async throws {
-        // Locate the compiled CoreML model. Xcode compiles `.mlpackage`
-        // resources into `.mlmodelc` at build time; in SwiftPM dev builds
-        // the raw `.mlpackage` is also accepted. Resources live in the
-        // SPM-generated module bundle (`Bouclier_Bouclier.bundle`), not
-        // at `Bundle.main`'s root — looking in `Bundle.main` silently
-        // returns nil and the classifier never loads.
+        // Locate the CoreML model. Release builds pre-compile the
+        // `.mlpackage` to `.mlmodelc` via build-app.sh, so the check
+        // below prefers the compiled form. Dev builds (`swift run`)
+        // only have the raw `.mlpackage` — CoreML refuses to load
+        // those directly, so we compile on demand and cache the
+        // result in Application Support (not Caches, which the OS
+        // can wipe mid-session).
+        //
+        // Resources live in the SPM-generated module bundle
+        // (`Bouclier_Bouclier.bundle`), not at `Bundle.main`'s root.
         let modelURL: URL
         if let compiled = Bundle.module.url(forResource: "PromptGuard2", withExtension: "mlmodelc") {
             modelURL = compiled
         } else if let raw = Bundle.module.url(forResource: "PromptGuard2", withExtension: "mlpackage") {
-            modelURL = raw
+            modelURL = try Self.compiledCopy(of: raw)
         } else {
             throw ClassifierError.modelNotFound
         }
@@ -98,6 +102,33 @@ final class MLClassifier: @unchecked Sendable {
             throw ClassifierError.tokenizerNotFound
         }
         self.tokenizer = try await AutoTokenizer.from(modelFolder: tokenizerDir)
+    }
+
+    /// Compile a raw `.mlpackage` to `.mlmodelc` and cache the result in
+    /// Application Support so subsequent launches skip the ~1-2s compile.
+    /// Invalidated by filename — if the bundled .mlpackage is replaced
+    /// (new release), the cached compiled copy is rebuilt.
+    private static func compiledCopy(of rawPackage: URL) throws -> URL {
+        let supportDir = try FileManager.default.url(
+            for: .applicationSupportDirectory, in: .userDomainMask,
+            appropriateFor: nil, create: true
+        ).appendingPathComponent("ai.bouclier.app/compiled-models", isDirectory: true)
+        try FileManager.default.createDirectory(at: supportDir, withIntermediateDirectories: true)
+
+        let cachedURL = supportDir.appendingPathComponent("PromptGuard2.mlmodelc", isDirectory: true)
+        if FileManager.default.fileExists(atPath: cachedURL.path) {
+            return cachedURL
+        }
+
+        let freshCompiled = try MLModel.compileModel(at: rawPackage)
+        // compileModel drops the output in a temp dir under Caches. Move
+        // it into Application Support so the next launch can reuse it
+        // without paying the compile cost again.
+        if FileManager.default.fileExists(atPath: cachedURL.path) {
+            try FileManager.default.removeItem(at: cachedURL)
+        }
+        try FileManager.default.moveItem(at: freshCompiled, to: cachedURL)
+        return cachedURL
     }
 
     // MARK: - Inference

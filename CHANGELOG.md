@@ -8,6 +8,24 @@ The `[VERSION]` section for each release is extracted verbatim by
 `apps/desktop/scripts/publish-update.sh` and injected into the Sparkle
 appcast. Write for end users, not for internal engineering notes.
 
+## [0.2.10] — 2026-04-17
+
+### Fixed
+
+- ML classifier (Meta Prompt Guard 2) still wasn't actually loading in
+  v0.2.9. CoreML refuses raw `.mlpackage` files at runtime ("Compile the
+  model with Xcode or MLModel.compileModel(at:)") and SwiftPM doesn't
+  auto-compile. Release builds now pre-compile to `.mlmodelc` via
+  `xcrun coremlcompiler`; dev builds fall back to an on-demand compile
+  cached in Application Support. Fused detection (regex + ML + entropy)
+  is live for real this time.
+
+### Changed
+
+- ML-error badge in the menu bar is now click-to-copy — clicking copies
+  the raw CoreML / tokenizer error string to the clipboard so it can be
+  pasted into bug reports without screenshotting a tooltip.
+
 ## [0.2.9] — 2026-04-17
 
 ### Added

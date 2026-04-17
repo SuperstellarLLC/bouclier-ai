@@ -4,6 +4,7 @@ struct MenuBarView: View {
     @ObservedObject var proxyManager: ProxyManager
     @ObservedObject var updater: AutoUpdater
     @Environment(\.openSettings) private var openSettings
+    @State private var mlErrorCopied = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -57,20 +58,33 @@ struct MenuBarView: View {
                 // can see whether the on-device fused detection layer
                 // is active. Three states:
                 //   - active  → fused detection running (regex + ML)
-                //   - failed  → classifier wouldn't load; show the reason
-                //               so users aren't stuck watching a spinner
+                //   - failed  → classifier wouldn't load; click the badge
+                //               to copy the raw error to the clipboard so
+                //               it can be pasted into bug reports (tooltip
+                //               alone forces a screenshot)
                 //   - loading → still warming up (usually <1s)
-                HStack(spacing: 6) {
-                    Image(systemName: mlBadgeIcon)
-                        .foregroundStyle(mlBadgeColor)
-                        .font(.caption)
-                        .contentTransition(.symbolEffect(.replace))
-                    Text(mlBadgeText)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(2)
-                    Spacer()
+                Button(action: copyMLErrorToClipboard) {
+                    HStack(spacing: 6) {
+                        Image(systemName: mlBadgeIcon)
+                            .foregroundStyle(mlBadgeColor)
+                            .font(.caption)
+                            .contentTransition(.symbolEffect(.replace))
+                        Text(mlBadgeText)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(2)
+                            .multilineTextAlignment(.leading)
+                        Spacer()
+                        if proxyManager.mlClassifierError != nil {
+                            Image(systemName: mlErrorCopied ? "checkmark" : "doc.on.doc")
+                                .font(.caption2)
+                                .foregroundStyle(.tertiary)
+                                .contentTransition(.symbolEffect(.replace))
+                        }
+                    }
                 }
+                .buttonStyle(.plain)
+                .disabled(proxyManager.mlClassifierError == nil)
                 .padding(8)
                 .background(mlBadgeColor.opacity(0.06))
                 .clipShape(RoundedRectangle(cornerRadius: 6))
@@ -306,6 +320,17 @@ struct MenuBarView: View {
 
     private var appVersion: String {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—"
+    }
+
+    private func copyMLErrorToClipboard() {
+        guard let error = proxyManager.mlClassifierError else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(error, forType: .string)
+        mlErrorCopied = true
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(1.5))
+            mlErrorCopied = false
+        }
     }
 }
 
