@@ -8,6 +8,15 @@ The `[VERSION]` section for each release is extracted verbatim by
 `apps/desktop/scripts/publish-update.sh` and injected into the Sparkle
 appcast. Write for end users, not for internal engineering notes.
 
+## [0.2.9] — 2026-04-17
+
+### Added
+
+- Version number shown in the bottom-right of the menubar popover, so you
+  can see at a glance which build you're running without opening Settings
+  → About. Clickable to trigger a manual update check when Sparkle is
+  ready.
+
 ## [0.2.8] — 2026-04-17
 
 ### Fixed
