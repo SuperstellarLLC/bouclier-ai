@@ -27,7 +27,7 @@ struct GeneralSettingsView: View {
     @AppStorage("proxyPort") private var port: Int = 8484
     @AppStorage("launchAtLogin") private var launchAtLogin: Bool = false
     @AppStorage("showNotifications") private var showNotifications: Bool = true
-    @AppStorage("quietMode") private var quietMode: Bool = false
+    @AppStorage("quietMode") private var quietMode: Bool = true
 
     var body: some View {
         Form {

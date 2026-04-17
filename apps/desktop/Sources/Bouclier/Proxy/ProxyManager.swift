@@ -316,7 +316,12 @@ final class ProxyManager: ObservableObject {
         let content = UNMutableNotificationContent()
         content.title = "Injection Blocked"
         content.body = "Blocked \(count) injection\(count > 1 ? "s" : "") → \(target)"
-        content.sound = UserDefaults.standard.bool(forKey: "quietMode") ? nil : .default
+        // Default to quiet when the user hasn't made a choice —
+        // notification sounds on every blocked request get noisy fast on
+        // heavy AI workflows. SettingsView's @AppStorage mirrors the
+        // same default so the Settings toggle renders consistently.
+        let quiet = UserDefaults.standard.object(forKey: "quietMode") as? Bool ?? true
+        content.sound = quiet ? nil : .default
         let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
         UNUserNotificationCenter.current().add(request)
     }
