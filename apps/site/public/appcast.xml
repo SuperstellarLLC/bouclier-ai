@@ -6,22 +6,26 @@
     <description>Updates for Bouclier.ai — prompt injection firewall for macOS</description>
     <language>en</language>
     <item>
-      <title>Version 0.2.9</title>
-      <pubDate>Fri, 17 Apr 2026 13:13:08 +0200</pubDate>
-      <sparkle:version>0.2.9</sparkle:version>
-      <sparkle:shortVersionString>0.2.9</sparkle:shortVersionString>
+      <title>Version 0.2.10</title>
+      <pubDate>Fri, 17 Apr 2026 13:46:52 +0200</pubDate>
+      <sparkle:version>0.2.10</sparkle:version>
+      <sparkle:shortVersionString>0.2.10</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
       <description><![CDATA[
-<h2>Bouclier.ai v0.2.9</h2>
-<h4>Added</h4>
+<h2>Bouclier.ai v0.2.10</h2>
+<h4>Fixed</h4>
 <ul>
-<li>Version number shown in the bottom-right of the menubar popover, so you can see at a glance which build you're running without opening Settings → About. Clickable to trigger a manual update check when Sparkle is ready.</li>
+<li>ML classifier (Meta Prompt Guard 2) still wasn't actually loading in v0.2.9. CoreML refuses raw `.mlpackage` files at runtime ("Compile the model with Xcode or MLModel.compileModel(at:)") and SwiftPM doesn't auto-compile. Release builds now pre-compile to `.mlmodelc` via `xcrun coremlcompiler`; dev builds fall back to an on-demand compile cached in Application Support. Fused detection (regex + ML + entropy) is live for real this time.</li>
+</ul>
+<h4>Changed</h4>
+<ul>
+<li>ML-error badge in the menu bar is now click-to-copy — clicking copies the raw CoreML / tokenizer error string to the clipboard so it can be pasted into bug reports without screenshotting a tooltip.</li>
 </ul>
 ]]></description>
       <enclosure
-        url="https://0tdi95zyjwsefpzx.public.blob.vercel-storage.com/download/Bouclier-ai-v0.2.9-macOS.dmg"
-        sparkle:edSignature="J3lhylVS6fO5Ca/xnZ2Khp4VyRB+hVJpjirwcxuhxLmbHb35qb5kIx9GWv7d3C8Sf3knIcg3aqPEQgy68p9oDw=="
-        length="271790992"
+        url="https://0tdi95zyjwsefpzx.public.blob.vercel-storage.com/download/Bouclier-ai-v0.2.10-macOS.dmg"
+        sparkle:edSignature="enjdJxCvOOXoQmX8lshtvhiLlOpYmJoyof1LfGSTDDsxXVEquFWq6MSmckiKxtO8A5ToezBLK7AcRUsyUcl/DA=="
+        length="271866535"
         type="application/octet-stream"
       />
     </item>
