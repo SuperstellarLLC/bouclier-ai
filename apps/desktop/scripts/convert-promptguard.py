@@ -83,6 +83,21 @@ def download_tokenizer_files() -> None:
     )
     print(f"      → {sorted(p.name for p in TOKENIZER_OUTPUT.iterdir())}")
 
+    # swift-transformers' AutoTokenizer registry doesn't include
+    # DebertaV2Tokenizer. The underlying model in tokenizer.json is
+    # Unigram SPM — the exact thing T5Tokenizer (= class T5Tokenizer:
+    # UnigramTokenizer {} in swift-transformers) handles. Renaming the
+    # class label routes through the supported path; the tokenizer
+    # behaviour is unchanged because it's all driven by tokenizer.json.
+    import json as _json
+    tok_config = TOKENIZER_OUTPUT / "tokenizer_config.json"
+    if tok_config.exists():
+        data = _json.loads(tok_config.read_text())
+        if data.get("tokenizer_class") == "DebertaV2Tokenizer":
+            data["tokenizer_class"] = "T5Tokenizer"
+            tok_config.write_text(_json.dumps(data, indent=2))
+            print("      → rewrote tokenizer_class: DebertaV2Tokenizer → T5Tokenizer")
+
 
 def load_model() -> tuple[PromptGuardWrapper, dict]:
     print(f"[2/4] Loading {MODEL_ID}")
