@@ -8,6 +8,18 @@ The `[VERSION]` section for each release is extracted verbatim by
 `apps/desktop/scripts/publish-update.sh` and injected into the Sparkle
 appcast. Write for end users, not for internal engineering notes.
 
+## [0.2.11] — 2026-04-17
+
+### Fixed
+
+- ML classifier (Meta Prompt Guard 2) still wasn't loading in v0.2.10.
+  The tokenizer download script was missing `config.json` from its
+  allow-list, so swift-transformers' `AutoTokenizer.from(modelFolder:)`
+  threw `configurationMissing("config.json")` — it reads `model_type`
+  from that file to dispatch to the right tokenizer class. Added to
+  the download script and bundled the file directly so fused detection
+  finally lights up.
+
 ## [0.2.10] — 2026-04-17
 
 ### Fixed
