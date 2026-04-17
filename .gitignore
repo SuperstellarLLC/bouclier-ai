@@ -65,6 +65,10 @@ Package.resolved
 apps/desktop/.venv-ml/
 **/PromptGuardTokenizer/.cache/
 
+# CoreML model — reproducible via apps/desktop/scripts/convert-promptguard.py,
+# too large for GitHub (>100MB per file). Regenerated or bundled at release time.
+**/PromptGuard2.mlpackage/
+
 # turbo
 .turbo/
 
