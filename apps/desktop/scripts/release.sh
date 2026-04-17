@@ -40,9 +40,10 @@ if [ -n "$CURRENT_VERSION" ]; then
   echo "  Current released version: $CURRENT_VERSION"
 fi
 prompt_with_default VERSION "Version" "${NEXT_VERSION:-0.2.8}"
-prompt_required APPLE_ID "Apple ID" "you@example.com"
+prompt_with_default APPLE_ID "Apple ID" "yann.borie@superstellar.io"
 prompt_with_default TEAM_ID "Apple Team ID" "U86PR842AK"
-prompt_required DOWNLOAD_BASE_URL "Vercel Blob public URL" "https://xyz.public.blob.vercel-storage.com"
+prompt_with_default DOWNLOAD_BASE_URL "Vercel Blob public URL" \
+  "https://0tdi95zyjwsefpzx.public.blob.vercel-storage.com/download"
 prompt_secret APP_PASSWORD "App-specific password"
 prompt_secret BLOB_READ_WRITE_TOKEN "Vercel Blob read-write token (from Storage > your store > .env.local)"
 export BLOB_READ_WRITE_TOKEN
