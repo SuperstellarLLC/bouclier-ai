@@ -70,6 +70,10 @@ def download_tokenizer_files() -> None:
         repo_id=MODEL_ID,
         local_dir=str(TOKENIZER_OUTPUT),
         allow_patterns=[
+            # config.json is required — swift-transformers' AutoTokenizer
+            # reads `model_type` from it to pick the right tokenizer class.
+            # Missing → ClassifierError.predictionFailed(configurationMissing("config.json")).
+            "config.json",
             "tokenizer.json",
             "tokenizer_config.json",
             "special_tokens_map.json",
