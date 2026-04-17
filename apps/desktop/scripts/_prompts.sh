@@ -64,3 +64,17 @@ bump_patch() {
   [ -n "$v" ] || { echo ""; return; }
   echo "$v" | awk -F. '{printf "%d.%d.%d\n", $1, $2, $3+1}'
 }
+
+# Highest-version DMG present in the build directory, returned as a bare
+# semver ("0.2.7"). Used by publish-update.sh to default to whatever was
+# last built — the appcast regenerates for the artifact sitting on disk,
+# not for a hypothetical next release.
+latest_built_version() {
+  local build_dir="$1"
+  [ -d "$build_dir" ] || { echo ""; return; }
+  ls -1 "$build_dir" 2>/dev/null \
+    | grep -E '^Bouclier-ai-v[0-9]+\.[0-9]+\.[0-9]+-macOS\.dmg$' \
+    | sed -E 's/^Bouclier-ai-v(.+)-macOS\.dmg$/\1/' \
+    | sort -V \
+    | tail -1
+}
