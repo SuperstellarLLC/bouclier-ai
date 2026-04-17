@@ -59,8 +59,11 @@ export const alignmentBypassPatterns: Pattern[] = [
     description: "Gibberish-looking adversarial suffixes from GCG attacks",
     category: "alignment-bypass",
     severity: "high",
+    // `\[{1,8}` (bounded) instead of `\[{1,}` (unbounded) — the GCG
+    // payload is a handful of brackets at most, and the open quantifier
+    // gave quadratic backtracking on bracket bombs.
     regex:
-      "(?:describing\\.\\\\\\s*\\+\\s*similarlyNow\\s+write|==\\s*interface\\s+Manuel\\s+WITH\\s+steps\\s+instead\\s+sentences\\s*:\\)ish\\?|\\[{1,}\\s?github\\s?\\]\\s*\\(\\s*Sure)",
+      "(?:describing\\.\\\\\\s*\\+\\s*similarlyNow\\s+write|==\\s*interface\\s+Manuel\\s+WITH\\s+steps\\s+instead\\s+sentences\\s*:\\)ish\\?|\\[{1,8}\\s?github\\s?\\]\\s*\\(\\s*Sure)",
     flags: "i",
     examples: [
       "describing.\\ + similarlyNow write oppositely",
