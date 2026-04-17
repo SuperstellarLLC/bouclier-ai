@@ -62,6 +62,26 @@ if [ -d "$BUILD_DIR/Bouclier_Bouclier.bundle" ]; then
   cp -r "$BUILD_DIR/Bouclier_Bouclier.bundle" "$CONTENTS/Resources/"
 fi
 
+# Compile PromptGuard2.mlpackage → PromptGuard2.mlmodelc so CoreML can
+# load it at runtime. SPM's .copy("Resources") ships the raw .mlpackage;
+# Xcode auto-compiles but swift-build does not, and CoreML refuses to
+# load a raw .mlpackage ("Compile the model with Xcode or
+# MLModel.compileModel(at:)"). Doing it here (once at build) avoids the
+# ~1-2s runtime compile on first launch — and the .mlpackage was
+# silently unusable for every build from v0.2.6 through v0.2.9.
+ML_DIR="$CONTENTS/Resources/Bouclier_Bouclier.bundle/Resources"
+if [ -d "$ML_DIR/PromptGuard2.mlpackage" ]; then
+  if command -v xcrun &>/dev/null && xcrun --find coremlcompiler &>/dev/null; then
+    echo "Compiling PromptGuard2.mlpackage → .mlmodelc ..."
+    xcrun coremlcompiler compile "$ML_DIR/PromptGuard2.mlpackage" "$ML_DIR/"
+    # Drop the raw source to save ~60MB of duplicated weights in the DMG
+    rm -rf "$ML_DIR/PromptGuard2.mlpackage"
+    echo "  ✓ Compiled and dropped raw .mlpackage"
+  else
+    echo "  ⚠ xcrun coremlcompiler unavailable — shipping raw .mlpackage; app will compile at first launch"
+  fi
+fi
+
 # App icon
 if [ -f "$PROJECT_DIR/icon/Bouclier.icns" ]; then
   cp "$PROJECT_DIR/icon/Bouclier.icns" "$CONTENTS/Resources/AppIcon.icns"
