@@ -6,17 +6,25 @@ set -euo pipefail
 # Prerequisites:
 #   1. build/Bouclier-ai-v$VERSION-macOS.dmg exists (signed + notarized + stapled)
 #   2. Sparkle EdDSA key is in login Keychain
-#   3. DOWNLOAD_BASE_URL env var is set (e.g. the Vercel Blob public URL)
 #
 # Usage:
-#   VERSION=0.2.0 DOWNLOAD_BASE_URL=https://xyz.public.blob.vercel-storage.com ./scripts/publish-update.sh
+#   ./scripts/publish-update.sh
+#
+# Prompts interactively for version and Vercel Blob URL. Env vars
+# (VERSION, DOWNLOAD_BASE_URL) are honored when set — release.sh passes
+# them through so this stays a no-prompt pass in the pipeline.
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 SITE_DIR="$(dirname "$(dirname "$PROJECT_DIR")")/apps/site"
 
-VERSION="${VERSION:?VERSION env var required (e.g. 0.2.0)}"
-DOWNLOAD_BASE_URL="${DOWNLOAD_BASE_URL:?DOWNLOAD_BASE_URL env var required}"
+# shellcheck source=_prompts.sh
+source "$SCRIPT_DIR/_prompts.sh"
+
+CURRENT_VERSION=$(current_app_version "$SITE_DIR/src/lib/constants.ts")
+NEXT_VERSION=$(bump_patch "$CURRENT_VERSION")
+prompt_with_default VERSION "Version" "${NEXT_VERSION:-0.2.7}"
+prompt_required DOWNLOAD_BASE_URL "Vercel Blob public URL" "https://xyz.public.blob.vercel-storage.com"
 
 DMG="$PROJECT_DIR/build/Bouclier-ai-v${VERSION}-macOS.dmg"
 SIGN_UPDATE="$PROJECT_DIR/.build/artifacts/sparkle/Sparkle/bin/sign_update"
