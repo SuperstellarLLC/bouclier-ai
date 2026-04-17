@@ -21,9 +21,14 @@ SITE_DIR="$(dirname "$(dirname "$PROJECT_DIR")")/apps/site"
 # shellcheck source=_prompts.sh
 source "$SCRIPT_DIR/_prompts.sh"
 
-CURRENT_VERSION=$(current_app_version "$SITE_DIR/src/lib/constants.ts")
-NEXT_VERSION=$(bump_patch "$CURRENT_VERSION")
-prompt_with_default VERSION "Version" "${NEXT_VERSION:-0.2.7}"
+# Default to the version of the most recently built DMG — this script
+# regenerates the appcast for an artifact that already exists on disk,
+# not for a hypothetical next release.
+BUILT_VERSION=$(latest_built_version "$PROJECT_DIR/build")
+if [ -n "$BUILT_VERSION" ]; then
+  echo "  Latest build on disk: $BUILT_VERSION"
+fi
+prompt_with_default VERSION "Version" "${BUILT_VERSION:-0.0.0}"
 prompt_required DOWNLOAD_BASE_URL "Vercel Blob public URL" "https://xyz.public.blob.vercel-storage.com"
 
 DMG="$PROJECT_DIR/build/Bouclier-ai-v${VERSION}-macOS.dmg"
