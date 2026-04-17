@@ -210,19 +210,26 @@ xattr -cr "$APP"
 if [ "$SIGN" = true ]; then
   IDENTITY="${SIGNING_IDENTITY:-Developer ID Application}"
   CODESIGN="codesign --force --options runtime --timestamp --sign"
+  # Preserve-metadata variant for Sparkle components. They ship
+  # pre-signed by the Sparkle project with whatever entitlements that
+  # release needs; a plain `--force` re-sign wipes them. Harmless for
+  # our non-sandboxed case today (Sparkle ships empty entitlements for
+  # this path), defensive if a future Sparkle version starts relying on
+  # something specific.
+  CODESIGN_PRESERVE="codesign --force --preserve-metadata=entitlements --options runtime --timestamp --sign"
 
   # 1. Sparkle nested binaries (innermost first)
   SPARKLE="$CONTENTS/Frameworks/Sparkle.framework/Versions/B"
   if [ -d "$SPARKLE" ]; then
-    echo "Signing Sparkle XPC services..."
-    $CODESIGN "$IDENTITY" "$SPARKLE/XPCServices/Downloader.xpc"
-    $CODESIGN "$IDENTITY" "$SPARKLE/XPCServices/Installer.xpc"
+    echo "Signing Sparkle XPC services (preserving entitlements)..."
+    $CODESIGN_PRESERVE "$IDENTITY" "$SPARKLE/XPCServices/Downloader.xpc"
+    $CODESIGN_PRESERVE "$IDENTITY" "$SPARKLE/XPCServices/Installer.xpc"
 
-    echo "Signing Sparkle Updater.app..."
-    $CODESIGN "$IDENTITY" "$SPARKLE/Updater.app"
+    echo "Signing Sparkle Updater.app (preserving entitlements)..."
+    $CODESIGN_PRESERVE "$IDENTITY" "$SPARKLE/Updater.app"
 
-    echo "Signing Sparkle Autoupdate..."
-    $CODESIGN "$IDENTITY" "$SPARKLE/Autoupdate"
+    echo "Signing Sparkle Autoupdate (preserving entitlements)..."
+    $CODESIGN_PRESERVE "$IDENTITY" "$SPARKLE/Autoupdate"
 
     echo "Signing Sparkle.framework..."
     $CODESIGN "$IDENTITY" "$CONTENTS/Frameworks/Sparkle.framework"
