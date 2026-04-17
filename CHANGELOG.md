@@ -8,6 +8,21 @@ The `[VERSION]` section for each release is extracted verbatim by
 `apps/desktop/scripts/publish-update.sh` and injected into the Sparkle
 appcast. Write for end users, not for internal engineering notes.
 
+## [0.2.12] — 2026-04-17
+
+### Fixed
+
+- Tokenizer load still failed in v0.2.11 with
+  `unsupportedTokenizer("DebertaV2Tokenizer")` — swift-transformers'
+  registry doesn't know that class name. The underlying model in
+  tokenizer.json is Unigram SPM, which is exactly what T5Tokenizer
+  (a trivial `class T5Tokenizer: UnigramTokenizer {}` subclass in
+  swift-transformers) routes to. Renamed the `tokenizer_class` label
+  to `T5Tokenizer` in tokenizer_config.json so lookup succeeds;
+  tokenization behaviour is unchanged because it's driven by
+  tokenizer.json. convert-promptguard.py applies the same rewrite
+  automatically on future runs.
+
 ## [0.2.11] — 2026-04-17
 
 ### Fixed
