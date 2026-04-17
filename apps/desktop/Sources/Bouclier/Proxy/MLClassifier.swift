@@ -10,10 +10,6 @@ import Tokenizers
 /// `.mlpackage` or tokenizer files are missing from the bundle the
 /// `init()` throws and the rest of the proxy continues running on
 /// regex-only detection.
-///
-/// This is a *standalone* component as of this commit. It is not yet
-/// wired into `InjectionFilter` — see the conversation on integrating
-/// the fused scorer (regex + ML + entropy) for next steps.
 final class MLClassifier: @unchecked Sendable {
     // MARK: - Public types
 
@@ -71,11 +67,14 @@ final class MLClassifier: @unchecked Sendable {
     init() async throws {
         // Locate the compiled CoreML model. Xcode compiles `.mlpackage`
         // resources into `.mlmodelc` at build time; in SwiftPM dev builds
-        // the raw `.mlpackage` is also accepted.
+        // the raw `.mlpackage` is also accepted. Resources live in the
+        // SPM-generated module bundle (`Bouclier_Bouclier.bundle`), not
+        // at `Bundle.main`'s root — looking in `Bundle.main` silently
+        // returns nil and the classifier never loads.
         let modelURL: URL
-        if let compiled = Bundle.main.url(forResource: "PromptGuard2", withExtension: "mlmodelc") {
+        if let compiled = Bundle.module.url(forResource: "PromptGuard2", withExtension: "mlmodelc") {
             modelURL = compiled
-        } else if let raw = Bundle.main.url(forResource: "PromptGuard2", withExtension: "mlpackage") {
+        } else if let raw = Bundle.module.url(forResource: "PromptGuard2", withExtension: "mlpackage") {
             modelURL = raw
         } else {
             throw ClassifierError.modelNotFound
@@ -92,7 +91,7 @@ final class MLClassifier: @unchecked Sendable {
         // Load the tokenizer from a bundled folder containing
         // tokenizer.json + tokenizer_config.json + special_tokens_map.json,
         // populated by the convert-promptguard.py script.
-        guard let tokenizerDir = Bundle.main.url(
+        guard let tokenizerDir = Bundle.module.url(
             forResource: "PromptGuardTokenizer",
             withExtension: nil
         ) else {
