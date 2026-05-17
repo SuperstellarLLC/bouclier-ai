@@ -337,9 +337,18 @@ private final class HTTPInspectionHandler: ChannelInboundHandler, RemovableChann
         // We run it whenever the feature flag is on AND injection
         // didn't already block the request. Runs in the same Task as
         // text PII so both passes share one cooperative hop.
+        //
+        // P0 fix: `bodyScanSkipped` is set true for any body the
+        // injection scanner doesn't recognise — including
+        // `multipart/form-data` (the Files API shape). Without the
+        // multipart override, every file upload would skip the
+        // multimodal pass entirely and Phase 4 would be dead code in
+        // production. Multipart bodies are explicitly eligible.
+        let mmContentType = (head.headers.first(name: "Content-Type") ?? "").lowercased()
+        let isMultipart = mmContentType.hasPrefix("multipart/")
         let mmEligible = FeatureFlags.multimodalInspection
             && !inspection.detected
-            && !inspection.bodyScanSkipped
+            && (!inspection.bodyScanSkipped || isMultipart)
             && PIIPolicy.shared.shouldRedact(host: host)
 
         if piiEligible || mmEligible {

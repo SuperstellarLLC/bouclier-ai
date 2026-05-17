@@ -9,11 +9,15 @@ import NIOHTTP1
 /// channel setup needed.
 enum HTTPRequestInspector {
     /// Maximum buffered request body, in bytes. A single request larger
-    /// than this is rejected at the proxy to protect the event loop from
-    /// OOM / slow-loris uploads. AI chat payloads are well under 1 MB in
-    /// practice; we keep generous headroom for long document-grounded
-    /// prompts while still bounding the blast radius.
-    static let maxBodyBytes = 10 * 1024 * 1024
+    /// than this is rejected at the proxy to protect the event loop
+    /// from OOM / slow-loris uploads. Raised in v0.4.0 from 10 MB to
+    /// 64 MB to accommodate multimodal payloads — OpenAI's vision
+    /// images and Anthropic's PDF documents commonly exceed 10 MB
+    /// once base64-encoded, and the Files API multipart uploads
+    /// frequently sit in the 5–50 MB range. Bodies past this cap
+    /// are still rejected with 413; true streaming inspection of
+    /// >64 MB uploads is on the Phase 4.5 roadmap.
+    static let maxBodyBytes = 64 * 1024 * 1024
 
     /// Maximum number of bytes buffered while waiting for the end of a
     /// CONNECT request line + headers. 8 KiB is well above any legitimate
@@ -95,7 +99,13 @@ enum HTTPRequestInspector {
     /// the TLS handler after `inspect()` and the text PII pass.
     /// Idempotent and safe to call when
     /// `FeatureFlags.multimodalInspection` is off (returns the input
-    /// unchanged with an empty report).
+    /// unchanged with an empty report). Handles two body shapes:
+    ///
+    /// * JSON envelopes with base64-embedded media (OpenAI / Anthropic /
+    ///   Gemini chat bodies). Routes via MultimodalPIIInspector +
+    ///   MultimodalRewriter.
+    /// * multipart/form-data uploads (OpenAI / Anthropic Files API,
+    ///   transcription endpoints). Routes via MultipartMediaScanner.
     static func applyMultimodalInspection(
         body: ByteBuffer,
         contentType: String,
@@ -107,16 +117,33 @@ enum HTTPRequestInspector {
             report: MultimodalPIIInspector.Report(imagesScanned: 0, pdfsScanned: 0, audioScanned: 0, findings: [], latencyMs: 0)
         )
         guard FeatureFlags.multimodalInspection else { return empty }
-        guard shouldScanBody(contentType: contentType, method: method),
-              body.readableBytes > 0
+        guard body.readableBytes > 0,
+              method != .GET, method != .HEAD, method != .DELETE,
+              method != .OPTIONS, method != .CONNECT, method != .TRACE
         else { return empty }
-        // Snapshot the body to a Data so JSONSerialization can chew on
-        // it. ByteBuffer's `getBytes` returns nil only on a malformed
-        // index range, which we never construct.
         guard let bytes = body.getBytes(at: body.readerIndex, length: body.readableBytes) else {
             return empty
         }
         let bodyData = Data(bytes)
+
+        // Route on Content-Type. multipart/form-data needs its own
+        // scanner that parses parts and rewrites them in place;
+        // JSON-shaped bodies (chat completions) ride the existing
+        // MultimodalPIIInspector path.
+        let ct = contentType.lowercased()
+        if ct.hasPrefix("multipart/") {
+            if let result = await MultipartMediaScanner.inspect(body: bodyData, contentType: contentType) {
+                if result.report.findings.isEmpty {
+                    return MultimodalPass(body: body, report: result.report)
+                }
+                var buf = allocator.buffer(capacity: result.body.count)
+                buf.writeBytes(result.body)
+                return MultimodalPass(body: buf, report: result.report)
+            }
+            return empty
+        }
+
+        guard shouldScanBody(contentType: contentType, method: method) else { return empty }
         let report = await MultimodalPIIInspector.inspect(body: bodyData)
         guard !report.findings.isEmpty else {
             return MultimodalPass(body: body, report: report)
