@@ -137,7 +137,7 @@ export default function Home() {
               Bouclier.ai sits between your apps and AI providers and inspects every prompt before
               it leaves your Mac. Prompt injections get stripped; emails, IBANs, NHS numbers and
               other PII get replaced with reversible placeholders so the model still answers
-              correctly. Runs locally — no data leaves your machine.
+              correctly. Runs locally — your prompts never leave your Mac.
             </p>
 
             <p className="mt-3 inline-flex items-center gap-2 rounded-full border border-amber-300 bg-amber-50 px-3 py-1 text-xs font-medium text-amber-900">
@@ -419,12 +419,14 @@ export default function Home() {
         <div className="mx-auto max-w-5xl px-6">
           <div className="reveal">
             <SectionLabel>Privacy</SectionLabel>
-            <h2 className="mt-3 text-3xl font-bold tracking-tight">Nothing leaves your Mac.</h2>
+            <h2 className="mt-3 text-3xl font-bold tracking-tight">
+              Your prompts never leave your Mac.
+            </h2>
           </div>
 
           <div className="reveal mt-12 grid gap-y-5">
             {[
-              "All detection runs locally. No cloud. No telemetry. No data leaves your machine.",
+              "All detection runs locally. No cloud LLM, no analytics, no telemetry in the app.",
               "The local CA key is stored encrypted in your Keychain, unique to your device, and removable anytime.",
               "Scan logs never contain your prompts, responses, or API keys — only detection metadata.",
               "Local storage with automatic rotation. You own your data.",

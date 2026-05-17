@@ -21,7 +21,7 @@ describe("Home page", () => {
 
   it("renders the privacy section", () => {
     render(<Home />);
-    expect(screen.getAllByText(/no data leaves your machine/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/your prompts never leave your mac/i).length).toBeGreaterThan(0);
   });
 
   it("surfaces the new PII redaction section", () => {

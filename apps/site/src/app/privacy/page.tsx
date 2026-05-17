@@ -36,14 +36,15 @@ export default function PrivacyPage() {
 
       <article className="mx-auto max-w-3xl px-6 py-16">
         <h1 className="text-3xl font-bold tracking-tight">Privacy Policy</h1>
-        <p className="text-text-secondary mt-2 text-sm">Last updated: April 2026</p>
+        <p className="text-text-secondary mt-2 text-sm">Last updated: May 2026</p>
 
         {/* Summary box */}
         <div className="border-accent-green/30 mt-10 rounded-xl border-2 bg-emerald-50 p-6">
           <p className="font-medium text-emerald-900">
-            Bouclier.ai processes all data locally on your device. We do not collect personal data.
-            We do not operate servers that receive your data. We have no analytics, no telemetry,
-            and no user accounts.
+            Bouclier.ai processes all prompt content locally on your device. The app collects no
+            personal data, has no analytics, no crash reporting, and no user accounts. The only
+            information that ever reaches a bouclier.ai server is a single anonymous timestamp when
+            you click the Download button on this marketing site — full scope described below.
           </p>
         </div>
 

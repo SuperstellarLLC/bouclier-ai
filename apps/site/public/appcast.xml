@@ -6,22 +6,44 @@
     <description>Updates for Bouclier.ai — prompt injection firewall for macOS</description>
     <language>en</language>
     <item>
-      <title>Version 0.2.12</title>
-      <pubDate>Fri, 17 Apr 2026 14:24:42 +0200</pubDate>
-      <sparkle:version>0.2.12</sparkle:version>
-      <sparkle:shortVersionString>0.2.12</sparkle:shortVersionString>
+      <title>Version 0.3.0</title>
+      <pubDate>Sun, 17 May 2026 21:35:33 +0200</pubDate>
+      <sparkle:version>0.3.0</sparkle:version>
+      <sparkle:shortVersionString>0.3.0</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
       <description><![CDATA[
-<h2>Bouclier.ai v0.2.12</h2>
+<h2>Bouclier.ai v0.3.0</h2>
+<h4>Added</h4>
+<ul>
+<li>**PII redaction (beta, opt-in).** Strip personal data from prompts before they reach Claude, ChatGPT, Cursor and other AI providers. Detected entities are replaced with reversible placeholders on the way out and restored locally on the way back, so the model never sees the cleartext and you still read normal answers.</li>
+</ul>
+<p> Detects emails, IBANs, credit cards, US SSNs, IP addresses, AWS</p>
+<p> access keys, JWTs, French SIRET/SIREN/NIR, UK NHS numbers, UK NINO,</p>
+<p> UK postcodes, and US NPI. Runs entirely on your Mac — no cloud</p>
+<p> service, no third-party API, no telemetry.</p>
+<p> Off by default. Enable from Settings → Privacy and use the new</p>
+<p> menu-bar "Redacted" counter to see what's being protected.</p>
+<ul>
+<li>**Per-domain rules.** Allow or deny redaction for specific hosts — useful for internal LLM gateways that already enforce compliance, or for embedding endpoints where redaction would break the request.</li>
+<li>**Pause button.** One-click pause from the menu bar (1, 5, 15, or 60 minutes) when you need to disable redaction temporarily without digging through Settings.</li>
+<li>**Preview before send.** Optional confirmation modal lists what would be redacted before each request leaves your Mac, with a per-domain "Don't ask again" option once you trust a host.</li>
+<li>**Redaction report.** One-click PDF export from Settings → Privacy with totals, per-type and per-host breakdowns, and a SHA-256 integrity hash. Hand it to your compliance team or attach to an audit binder.</li>
+<li>**Beta branding.** Every surface (menu bar, About panel, marketing site nav, footer, SEO metadata) now flags Bouclier as a beta. New Terms of Use page sets expectations explicitly: experimental, best-effort, not for production or regulated workloads.</li>
+</ul>
+<h4>Changed</h4>
+<ul>
+<li>**Tagline.** "Stop prompt injections. Stop PII from leaking to LLMs." Marketing copy is now value-centric and no longer makes claims that aren't substantiated.</li>
+<li>**About panel.** Now shows version, prototype warning, and quick links to Terms and Privacy.</li>
+</ul>
 <h4>Fixed</h4>
 <ul>
-<li>Tokenizer load still failed in v0.2.11 with `unsupportedTokenizer("DebertaV2Tokenizer")` — swift-transformers' registry doesn't know that class name. The underlying model in tokenizer.json is Unigram SPM, which is exactly what T5Tokenizer (a trivial `class T5Tokenizer: UnigramTokenizer {}` subclass in swift-transformers) routes to. Renamed the `tokenizer_class` label to `T5Tokenizer` in tokenizer_config.json so lookup succeeds; tokenization behaviour is unchanged because it's driven by tokenizer.json. convert-promptguard.py applies the same rewrite automatically on future runs.</li>
+<li>**Detector overlap resolution.** A latent bug in the PII tier prevented longer spans from winning when two same-rank detectors matched the same offset.</li>
 </ul>
 ]]></description>
       <enclosure
-        url="https://0tdi95zyjwsefpzx.public.blob.vercel-storage.com/download/Bouclier-ai-v0.2.12-macOS.dmg"
-        sparkle:edSignature="qXjOekY7yfh7Z3HDxfymd75iWJsWwUgJfkclGo8/dUwSwO7IbwSgbMrIXQnqaz9eLMYtV6t5uiHA+wyagC2GCA=="
-        length="271724346"
+        url="https://0tdi95zyjwsefpzx.public.blob.vercel-storage.com/download/Bouclier-ai-v0.3.0-macOS.dmg"
+        sparkle:edSignature="n7cO4oFDu9B2EeKpoyw3m3+uGNRPjXHx/a4vmyJE8sC32PgHfFVaxw36Lg0sJ073xiJJPXdvfTq2nTMS654iAg=="
+        length="271951028"
         type="application/octet-stream"
       />
     </item>
