@@ -76,6 +76,13 @@ enum MultimodalImageExtractor {
         var isImage: Bool {
             mediaType.lowercased().hasPrefix("image/")
         }
+
+        /// True if this attachment's media type is audio. Routes
+        /// the payload through SFSpeechRecognizer instead of Vision
+        /// or PDFKit.
+        var isAudio: Bool {
+            mediaType.lowercased().hasPrefix("audio/")
+        }
     }
 
     // MARK: - Public entry point
@@ -116,6 +123,10 @@ enum MultimodalImageExtractor {
                 return
             }
             if let image = matchGeminiInlineData(dict, at: path) {
+                out.append(image)
+                return
+            }
+            if let image = matchOpenAIInputAudio(dict, at: path) {
                 out.append(image)
                 return
             }
@@ -167,14 +178,65 @@ enum MultimodalImageExtractor {
         )
     }
 
+    /// OpenAI's audio-input shape used by gpt-4o-audio-preview and
+    /// successors:
+    /// ```
+    /// {"type":"input_audio",
+    ///  "input_audio":{"data":"<base64>", "format":"mp3"}}
+    /// ```
+    /// `format` is one of "wav" or "mp3" per OpenAI's docs; we map it
+    /// to a media type so downstream routing matches the Gemini /
+    /// Anthropic flow.
+    private static func matchOpenAIInputAudio(_ dict: [String: Any], at path: [Image.PathComponent]) -> Image? {
+        // P0: gate on the surrounding `type` field. Without this, any
+        // content block that happens to contain an `input_audio`
+        // sibling would trigger SFSpeechRecognizer — the most
+        // expensive scanner in the proxy — and would cause the
+        // rewriter to clobber an unrelated content block. Audio
+        // wall-clock cost (~60 s × 4 concurrent) makes this far more
+        // exploitable than image/PDF, which is why we tighten this
+        // matcher specifically.
+        guard (dict["type"] as? String) == "input_audio",
+              let block = dict["input_audio"] as? [String: Any],
+              let data = block["data"] as? String
+        else { return nil }
+        let format = (block["format"] as? String)?.lowercased() ?? "mp3"
+        let mediaType: String = {
+            switch format {
+            case "wav": return "audio/wav"
+            case "mp3": return "audio/mpeg"
+            case "m4a", "mp4": return "audio/mp4"
+            case "flac": return "audio/flac"
+            case "ogg", "opus": return "audio/ogg"
+            case "webm": return "audio/webm"
+            default: return "audio/\(format)"
+            }
+        }()
+        guard let decoded = decodeBase64(data) else { return nil }
+        let payloadPath = path + [.key("input_audio"), .key("data")]
+        return Image(
+            data: decoded, mediaType: mediaType, provider: .openai,
+            path: payloadPath, contentBlockPath: path
+        )
+    }
+
     private static func matchGeminiInlineData(_ dict: [String: Any], at path: [Image.PathComponent]) -> Image? {
         let inlineKey = dict["inlineData"] != nil ? "inlineData" : (dict["inline_data"] != nil ? "inline_data" : nil)
         guard let inlineKey,
               let inline = dict[inlineKey] as? [String: Any],
               let mediaType = inline["mimeType"] as? String ?? inline["mime_type"] as? String,
-              mediaType.hasPrefix("image/"),
               let data = inline["data"] as? String
         else { return nil }
+        // Gemini's inlineData carries images, audio, PDFs, and video
+        // through the same content shape. We accept image/*, audio/*,
+        // and application/pdf — anything else stays untouched.
+        let canonical = mediaType.lowercased()
+            .split(separator: ";").first.map(String.init)?
+            .trimmingCharacters(in: .whitespaces) ?? ""
+        guard canonical.hasPrefix("image/") || canonical.hasPrefix("audio/")
+            || canonical == "application/pdf" else {
+            return nil
+        }
         guard let decoded = decodeBase64(data) else { return nil }
         let payloadPath = path + [.key(inlineKey), .key("data")]
         return Image(

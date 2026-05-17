@@ -104,7 +104,7 @@ enum HTTPRequestInspector {
     ) async -> MultimodalPass {
         let empty = MultimodalPass(
             body: body,
-            report: MultimodalPIIInspector.Report(imagesScanned: 0, pdfsScanned: 0, findings: [], latencyMs: 0)
+            report: MultimodalPIIInspector.Report(imagesScanned: 0, pdfsScanned: 0, audioScanned: 0, findings: [], latencyMs: 0)
         )
         guard FeatureFlags.multimodalInspection else { return empty }
         guard shouldScanBody(contentType: contentType, method: method),
