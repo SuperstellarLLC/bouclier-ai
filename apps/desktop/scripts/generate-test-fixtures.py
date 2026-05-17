@@ -87,6 +87,36 @@ def text_pdf(text: str, name: str) -> None:
     print(f"  → {name} ({path.stat().st_size:,} bytes)")
 
 
+def audio_fixtures() -> None:
+    """Generate short MP3 audio fixtures via macOS's built-in `say`.
+    The Swift AudioPIIScanner tests don't actually exercise these (the
+    Speech-framework recogniser isn't reliably authorised in headless
+    test environments — tests inject a stub transcriber instead) but
+    they're useful for manual reproduction and stay tiny (<50 KB)."""
+    import subprocess, shutil
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    if not shutil.which("say"):
+        print("  ! `say` not available (non-macOS environment); skipping audio fixtures")
+        return
+    samples = [
+        ("audio-with-email.m4a", "My email is alice at example dot com"),
+        ("audio-clean.m4a", "The weather today is partly cloudy"),
+    ]
+    for name, phrase in samples:
+        path = OUT_DIR / name
+        # Direct AAC output via the say --data-format flag. Keeps the
+        # file small (~5-10 KB per second) and gives us a real audio
+        # container Apple can decode.
+        subprocess.run([
+            "say", "--voice=Samantha", "--rate=180",
+            "--data-format=aac",
+            "-o", str(path),
+            phrase,
+        ], check=False)
+        if path.exists():
+            print(f"  → {name} ({path.stat().st_size:,} bytes)")
+
+
 def encrypted_pdf(text: str, name: str, password: str = "hunter2") -> None:
     """Generate a password-protected PDF. reportlab uses the same
     canvas API + the StandardEncryption helper."""
@@ -159,7 +189,9 @@ def main() -> int:
         "JPEG",
     )
 
-    print("\n[2] Generating PDF fixtures...")
+    print("\n[2] Generating audio fixtures via macOS `say` (synthesised speech)...")
+    audio_fixtures()
+    print("\n[3] Generating PDF fixtures...")
     text_pdf("Invoice for Acme Co.\nContact: alice@acme.io\nIBAN GB82 WEST 1234 5698 7654 32",
              "pdf-text-with-pii.pdf")
     text_pdf("Just a meeting agenda\nWelcome\nAgenda items\nClosing", "pdf-text-clean.pdf")

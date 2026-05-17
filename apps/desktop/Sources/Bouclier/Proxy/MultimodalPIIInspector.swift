@@ -34,17 +34,53 @@ enum MultimodalPIIInspector {
             /// the same as a real finding by the rewriter so the
             /// content block gets stripped instead of forwarded.
             case unscannable(reason: PDFPIIScanner.ScanResult.UnscannableReason)
+            /// Audio attachment was rejected without inspection —
+            /// authorisation denied, format unsupported, too long.
+            case unscannableAudio(reason: AudioPIIScanner.ScanResult.UnscannableReason)
         }
     }
 
     /// Aggregated scan report. `findings` is empty when nothing of
-    /// interest was found. `imagesScanned` / `pdfsScanned` split so
-    /// the menu-bar UI can show meaningful counts.
+    /// interest was found. Per-media counts let the menu-bar UI
+    /// distinguish "5 images, 1 PDF, 0 audio" without scanning the
+    /// findings list.
     struct Report: Sendable {
         let imagesScanned: Int
         let pdfsScanned: Int
+        let audioScanned: Int
         let findings: [Finding]
         let latencyMs: Double
+    }
+
+    /// Scan an audio attachment. Mirrors the PDF helper above but
+    /// routes through `AudioPIIScanner` (SFSpeechRecognizer on-device).
+    private static func audioFindings(for image: MultimodalImageExtractor.Image) async -> [Finding] {
+        guard let result = try? await AudioPIIScanner.shared.scan(
+            audioData: image.data, mediaType: image.mediaType
+        ) else { return [] }
+        var out: [Finding] = []
+        if let reason = result.unscannable {
+            out.append(Finding(
+                imagePath: image.path,
+                contentBlockPath: image.contentBlockPath,
+                mediaType: image.mediaType,
+                provider: image.provider,
+                category: .unscannableAudio(reason: reason),
+                value: reason.rawValue
+            ))
+            return out
+        }
+        for det in result.piiDetections {
+            out.append(Finding(
+                imagePath: image.path,
+                contentBlockPath: image.contentBlockPath,
+                mediaType: image.mediaType,
+                provider: image.provider,
+                category: .textPII(type: det.type),
+                value: det.value
+            ))
+        }
+        return out
     }
 
     /// Hard ceiling on images we'll scan per request. A prompt with
@@ -69,16 +105,19 @@ enum MultimodalPIIInspector {
         let start = CFAbsoluteTimeGetCurrent()
         let images = MultimodalImageExtractor.extract(from: body)
         guard !images.isEmpty else {
-            return Report(imagesScanned: 0, pdfsScanned: 0, findings: [], latencyMs: 0)
+            return Report(imagesScanned: 0, pdfsScanned: 0, audioScanned: 0,
+                          findings: [], latencyMs: 0)
         }
         let imageCount = images.filter { $0.isImage }.count
         let pdfCount = images.filter { $0.isPDF }.count
+        let audioCount = images.filter { $0.isAudio }.count
         // Cap the request — see `maxImagesPerRequest`. The proxy still
         // forwards the body unmodified (because we return an empty
         // findings list), so the user's prompt isn't dropped; we just
         // refuse to spend our Vision budget on an obvious fan-out.
         guard images.count <= maxImagesPerRequest else {
-            return Report(imagesScanned: 0, pdfsScanned: 0, findings: [], latencyMs: 0)
+            return Report(imagesScanned: 0, pdfsScanned: 0, audioScanned: 0,
+                          findings: [], latencyMs: 0)
         }
 
         let throttle = maxConcurrentScans
@@ -111,6 +150,7 @@ enum MultimodalPIIInspector {
         return Report(
             imagesScanned: imageCount,
             pdfsScanned: pdfCount,
+            audioScanned: audioCount,
             findings: findings,
             latencyMs: (CFAbsoluteTimeGetCurrent() - start) * 1000
         )
@@ -119,10 +159,13 @@ enum MultimodalPIIInspector {
     private static func findings(for image: MultimodalImageExtractor.Image) async -> [Finding] {
         // Route by media type. Images go through Vision OCR + face
         // detection. PDFs go through PDFKit text-layer + Vision OCR
-        // fallback on scanned pages. Both end up producing PIIScanner
-        // detections that we map into Finding instances on the same
-        // contentBlockPath, so the rewriter doesn't care which
-        // pipeline produced them.
+        // fallback on scanned pages. Audio goes through SFSpeechRecognizer.
+        // All paths end up producing PIIScanner detections that we map
+        // into Finding instances on the same contentBlockPath, so the
+        // rewriter doesn't care which pipeline produced them.
+        if image.isAudio {
+            return await audioFindings(for: image)
+        }
         if image.isPDF {
             guard let pdfResult = try? await PDFPIIScanner.shared.scan(pdfData: image.data) else {
                 return []
