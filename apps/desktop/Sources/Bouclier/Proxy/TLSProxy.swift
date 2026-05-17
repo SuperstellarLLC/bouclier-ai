@@ -368,7 +368,7 @@ private final class HTTPInspectionHandler: ChannelInboundHandler, RemovableChann
                     : HTTPRequestInspector.MultimodalPass(
                         body: baseBody,
                         report: MultimodalPIIInspector.Report(
-                            imagesScanned: 0, findings: [], latencyMs: 0
+                            imagesScanned: 0, pdfsScanned: 0, findings: [], latencyMs: 0
                         )
                     )
 

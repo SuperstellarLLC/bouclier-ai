@@ -29,15 +29,20 @@ enum MultimodalPIIInspector {
         enum Category: Sendable, Equatable {
             case textPII(type: String)
             case face(confidence: Float)
+            /// Attachment was rejected without inspection — encrypted
+            /// PDF, document past page cap, malformed file. Treated
+            /// the same as a real finding by the rewriter so the
+            /// content block gets stripped instead of forwarded.
+            case unscannable(reason: PDFPIIScanner.ScanResult.UnscannableReason)
         }
     }
 
     /// Aggregated scan report. `findings` is empty when nothing of
-    /// interest was found; `imagesScanned` reports how many images
-    /// were inspected so the audit log can distinguish "no images"
-    /// from "scanned and clean".
+    /// interest was found. `imagesScanned` / `pdfsScanned` split so
+    /// the menu-bar UI can show meaningful counts.
     struct Report: Sendable {
         let imagesScanned: Int
+        let pdfsScanned: Int
         let findings: [Finding]
         let latencyMs: Double
     }
@@ -64,14 +69,16 @@ enum MultimodalPIIInspector {
         let start = CFAbsoluteTimeGetCurrent()
         let images = MultimodalImageExtractor.extract(from: body)
         guard !images.isEmpty else {
-            return Report(imagesScanned: 0, findings: [], latencyMs: 0)
+            return Report(imagesScanned: 0, pdfsScanned: 0, findings: [], latencyMs: 0)
         }
+        let imageCount = images.filter { $0.isImage }.count
+        let pdfCount = images.filter { $0.isPDF }.count
         // Cap the request — see `maxImagesPerRequest`. The proxy still
         // forwards the body unmodified (because we return an empty
         // findings list), so the user's prompt isn't dropped; we just
         // refuse to spend our Vision budget on an obvious fan-out.
         guard images.count <= maxImagesPerRequest else {
-            return Report(imagesScanned: 0, findings: [], latencyMs: 0)
+            return Report(imagesScanned: 0, pdfsScanned: 0, findings: [], latencyMs: 0)
         }
 
         let throttle = maxConcurrentScans
@@ -102,13 +109,62 @@ enum MultimodalPIIInspector {
         }
 
         return Report(
-            imagesScanned: images.count,
+            imagesScanned: imageCount,
+            pdfsScanned: pdfCount,
             findings: findings,
             latencyMs: (CFAbsoluteTimeGetCurrent() - start) * 1000
         )
     }
 
     private static func findings(for image: MultimodalImageExtractor.Image) async -> [Finding] {
+        // Route by media type. Images go through Vision OCR + face
+        // detection. PDFs go through PDFKit text-layer + Vision OCR
+        // fallback on scanned pages. Both end up producing PIIScanner
+        // detections that we map into Finding instances on the same
+        // contentBlockPath, so the rewriter doesn't care which
+        // pipeline produced them.
+        if image.isPDF {
+            guard let pdfResult = try? await PDFPIIScanner.shared.scan(pdfData: image.data) else {
+                return []
+            }
+            var out: [Finding] = []
+            // P0 fix: unscannable PDFs (encrypted, oversize, malformed)
+            // surface as a synthetic finding so the rewriter still
+            // strips the content. Silent pass-through of an
+            // un-inspected document would be a fail-open bug.
+            if let reason = pdfResult.unscannable {
+                out.append(Finding(
+                    imagePath: image.path,
+                    contentBlockPath: image.contentBlockPath,
+                    mediaType: image.mediaType,
+                    provider: image.provider,
+                    category: .unscannable(reason: reason),
+                    value: reason.rawValue
+                ))
+                return out
+            }
+            for det in pdfResult.piiDetections {
+                out.append(Finding(
+                    imagePath: image.path,
+                    contentBlockPath: image.contentBlockPath,
+                    mediaType: image.mediaType,
+                    provider: image.provider,
+                    category: .textPII(type: det.type),
+                    value: det.value
+                ))
+            }
+            for face in pdfResult.faces {
+                out.append(Finding(
+                    imagePath: image.path,
+                    contentBlockPath: image.contentBlockPath,
+                    mediaType: image.mediaType,
+                    provider: image.provider,
+                    category: .face(confidence: face.confidence),
+                    value: "face"
+                ))
+            }
+            return out
+        }
         guard let result = try? await MediaPIIScanner.shared.scan(imageData: image.data) else {
             return []
         }
