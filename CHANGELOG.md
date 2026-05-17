@@ -8,6 +8,18 @@ The `[VERSION]` section for each release is extracted verbatim by
 `apps/desktop/scripts/publish-update.sh` and injected into the Sparkle
 appcast. Write for end users, not for internal engineering notes.
 
+## [0.3.2] — 2026-05-17
+
+### Added
+
+- **50+ new secret detectors.** API keys, OAuth tokens, webhooks, and connection strings — OpenAI, Anthropic, GitHub, Slack, Stripe, Twilio, SendGrid, AWS, GCP, Azure, and 20+ more.
+- **PEM and SSH private keys** detected across line boundaries.
+- **Generic high-entropy fallback** catches credentials that don't match a provider-specific shape but still look like bearer material in a key-value context.
+
+### Fixed
+
+- Disambiguated `sk-…` provider variants so `sk-ant-…` is no longer misclassified as an OpenAI key.
+
 ## [0.3.0] — 2026-05-17
 
 ### Added
