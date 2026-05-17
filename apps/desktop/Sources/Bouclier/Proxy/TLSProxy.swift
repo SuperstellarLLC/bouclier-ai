@@ -312,7 +312,7 @@ private final class HTTPInspectionHandler: ChannelInboundHandler, RemovableChann
                 bodySize: bodySize,
                 scanDurationSeconds: scanDuration,
                 detected: inspection.detected,
-                rewritten: inspection.detected && !inspection.bodyScanSkipped,
+                rewritten: inspection.bodyRewritten,
                 oversized: false,
                 categories: inspection.categories,
                 severities: inspection.severities
@@ -321,22 +321,26 @@ private final class HTTPInspectionHandler: ChannelInboundHandler, RemovableChann
 
         let finalBody = inspection.sanitizedBody
 
-        // Run the PII redactor on injection-clean bodies. Injection-blocked
-        // bodies already carry the redaction message; sending them through
-        // PII redaction wastes a CoreML/regex pass on a known-replacement.
-        // Per-domain policy short-circuits redaction when the host is on
-        // the deny list (so internal LLM gateways can opt out without
-        // disabling the feature globally).
+        // Run the PII redactor on bodies the injection scanner didn't
+        // already rewrite. Injection-rewritten bodies carry a
+        // placeholder string — there's nothing left worth redacting,
+        // and re-running CoreML/regex on the placeholder is waste.
+        // Crucially we gate on `bodyRewritten`, not `detected`:
+        // URI-only injection matches don't touch the body, so the
+        // user's PII is still in there and must be redacted. Per-domain
+        // policy short-circuits redaction when the host is on the deny
+        // list (so internal LLM gateways can opt out without disabling
+        // the feature globally).
         let piiEligible = FeatureFlags.piiRedaction
             && PIIPolicy.shared.shouldRedact(host: host)
-            && !inspection.detected
+            && !inspection.bodyRewritten
             && !inspection.bodyScanSkipped
 
         // Multimodal inspection is independent of text PII — an image
         // may carry an IBAN that's invisible to the text scanners.
         // We run it whenever the feature flag is on AND injection
-        // didn't already block the request. Runs in the same Task as
-        // text PII so both passes share one cooperative hop.
+        // didn't already replace the body bytes. Runs in the same Task
+        // as text PII so both passes share one cooperative hop.
         //
         // P0 fix: `bodyScanSkipped` is set true for any body the
         // injection scanner doesn't recognise — including
@@ -344,10 +348,17 @@ private final class HTTPInspectionHandler: ChannelInboundHandler, RemovableChann
         // multipart override, every file upload would skip the
         // multimodal pass entirely and Phase 4 would be dead code in
         // production. Multipart bodies are explicitly eligible.
+        //
+        // P1 fix (cross-phase review): gate on `bodyRewritten` rather
+        // than `detected` — a URI-only injection match doesn't rewrite
+        // body bytes, so attachments are still present and must be
+        // scanned. Without this fix, a URI like
+        // `?q=ignore+previous+instructions` would silently let images
+        // and PDFs in the body pass through unscanned.
         let mmContentType = (head.headers.first(name: "Content-Type") ?? "").lowercased()
         let isMultipart = mmContentType.hasPrefix("multipart/")
         let mmEligible = FeatureFlags.multimodalInspection
-            && !inspection.detected
+            && !inspection.bodyRewritten
             && (!inspection.bodyScanSkipped || isMultipart)
             && PIIPolicy.shared.shouldRedact(host: host)
 

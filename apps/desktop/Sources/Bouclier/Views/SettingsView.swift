@@ -74,11 +74,11 @@ struct PrivacySettingsView: View {
             }
 
             Section {
-                Toggle("Inspect images and PDFs in outbound multimodal prompts", isOn: $multimodalInspectionEnabled)
+                Toggle("Inspect images, PDFs, and audio in outbound multimodal prompts", isOn: $multimodalInspectionEnabled)
             } header: {
                 Text("Media inspection (beta)")
             } footer: {
-                Text("Runs Apple's Vision OCR on every image and PDFKit on every PDF attached to an outbound prompt (OpenAI, Anthropic, Gemini). When PII or faces appear inside an attachment, the attachment is replaced with a descriptive placeholder so the model still answers but never sees the cleartext. Encrypted PDFs are stripped because they can't be inspected. Audio inspection arrives in a later release.")
+                Text("Runs Apple's Vision OCR on every image, PDFKit on every PDF, and on-device Apple Speech on every audio clip attached to an outbound prompt (OpenAI, Anthropic, Gemini, plus Files-API uploads). When PII or faces appear inside an attachment, the attachment is replaced with a descriptive placeholder so the model still answers but never sees the cleartext. Encrypted PDFs and unreadable audio are stripped because they can't be inspected. Nothing about your attachments leaves your Mac.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
