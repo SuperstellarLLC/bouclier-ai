@@ -247,7 +247,7 @@ struct MultimodalRewriterTests {
                     mediaType: "image/png",
                     provider: .openai,
                     category: .face(confidence: 0.9),
-                    value: "face"
+                    cleartextValue: "face"
                 ),
             ],
             latencyMs: 1
