@@ -19,7 +19,8 @@ appcast. Write for end users, not for internal engineering notes.
 
 ### Changed
 
-- Settings → Privacy toggle is now "Inspect images and PDFs in outbound multimodal prompts" and actually takes effect for non-MDM users (the underlying flag now reads UserDefaults too).
+- Settings → Privacy toggle is now "Inspect images, PDFs, and audio in outbound multimodal prompts" and actually takes effect for non-MDM users (the underlying flag now reads UserDefaults too).
+- A 30-second wall-clock budget caps multimodal inspection so a single pathological request can't blow past your AI client's read timeout.
 
 ## [0.3.3] — 2026-05-17
 

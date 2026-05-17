@@ -167,8 +167,11 @@ export default function PrivacyPage() {
 
         <Section title="Detection method">
           Bouclier.ai uses deterministic regex pattern matching, heuristic scoring, and on-device
-          Meta Llama Prompt Guard 2 classification for additional prompt attack detection. No
-          request content is sent to any external service.
+          Meta Llama Prompt Guard 2 classification for additional prompt attack detection. When
+          multimodal inspection is enabled, attachments are scanned on-device using Apple Vision
+          (image OCR + face detection), PDFKit (PDF text extraction + OCR fallback) and
+          SFSpeechRecognizer (audio transcription with <code>requiresOnDeviceRecognition</code> set
+          so audio never leaves the Mac). No request content is sent to any external service.
         </Section>
 
         <Section title="Attribution">

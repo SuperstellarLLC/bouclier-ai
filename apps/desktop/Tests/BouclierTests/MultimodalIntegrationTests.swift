@@ -32,11 +32,15 @@ struct MultimodalIntegrationTests {
         return (try? Data(contentsOf: url)) ?? Data()
     }
 
+    // Per-key override + defer-per-key clear so parallel suites that
+    // call `FeatureFlags.clearTestOverrides()` (e.g. FeatureFlagsTests)
+    // don't race with our flag state. Using clearTestOverrides() in
+    // our own defer would wipe other suites' overrides too.
     private func enableMultimodal() {
         FeatureFlags.setTestOverride("multimodalInspection", true)
     }
     private func disableMultimodal() {
-        FeatureFlags.clearTestOverrides()
+        FeatureFlags.setTestOverride("multimodalInspection", nil)
     }
 
     @Test("JSON body with a base64 image containing OCR'd PII gets rewritten")
@@ -110,7 +114,12 @@ struct MultimodalIntegrationTests {
 
     @Test("Feature flag off → multimodal pass is a no-op even for a flagged body")
     func featureFlagGate() async {
-        // Don't enable the flag.
+        // Explicitly force the flag OFF (rather than relying on the
+        // compile-time default) so a parallel suite that set it true
+        // and hasn't yet cleared can't race us. Defer-clear restores
+        // the no-override state.
+        FeatureFlags.setTestOverride("multimodalInspection", false)
+        defer { FeatureFlags.setTestOverride("multimodalInspection", nil) }
         let b64 = base64Fixture("image-with-iban")
         let bodyStr = """
         {"messages":[{"role":"user","content":[
