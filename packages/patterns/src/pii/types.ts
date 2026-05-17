@@ -7,6 +7,7 @@ export type PIIEntityType =
   | "IPV4"
   | "IPV6"
   | "AWS_ACCESS_KEY"
+  | "AWS_SECRET_KEY"
   | "JWT"
   // EU
   | "FR_SIRET"
@@ -17,7 +18,84 @@ export type PIIEntityType =
   | "UK_NINO"
   | "UK_POSTCODE"
   // US healthcare
-  | "US_NPI";
+  | "US_NPI"
+  // LLM providers
+  | "OPENAI_KEY"
+  | "ANTHROPIC_KEY"
+  | "XAI_KEY"
+  | "GOOGLE_API_KEY"
+  | "OPENROUTER_KEY"
+  | "MISTRAL_KEY"
+  | "GROQ_KEY"
+  | "FIREWORKS_KEY"
+  | "COHERE_KEY"
+  | "PERPLEXITY_KEY"
+  | "DEEPSEEK_KEY"
+  | "TOGETHER_KEY"
+  // Source control
+  | "GITHUB_PAT"
+  | "GITHUB_OAUTH"
+  | "GITHUB_APP"
+  | "GITHUB_FINE_GRAINED_PAT"
+  | "GITLAB_PAT"
+  | "BITBUCKET_APP_PASSWORD"
+  // Communication
+  | "SLACK_TOKEN"
+  | "SLACK_WEBHOOK"
+  | "DISCORD_WEBHOOK"
+  | "DISCORD_BOT_TOKEN"
+  | "TELEGRAM_BOT_TOKEN"
+  // Payments
+  | "STRIPE_KEY"
+  | "SQUARE_TOKEN"
+  | "PAYPAL_BRAINTREE"
+  | "SHOPIFY_TOKEN"
+  // Email & SaaS
+  | "SENDGRID_KEY"
+  | "MAILGUN_KEY"
+  | "MAILCHIMP_KEY"
+  | "POSTMARK_TOKEN"
+  | "TWILIO_API_KEY"
+  | "TWILIO_ACCOUNT_SID"
+  // Cloud infra
+  | "GCP_API_KEY"
+  | "GCP_OAUTH_CLIENT"
+  | "GCP_SERVICE_ACCOUNT_KEY"
+  | "AZURE_STORAGE_KEY"
+  | "CLOUDFLARE_TOKEN"
+  | "DIGITALOCEAN_TOKEN"
+  | "HEROKU_KEY"
+  | "FLY_API_TOKEN"
+  // Observability
+  | "DATADOG_API_KEY"
+  | "SENTRY_DSN"
+  | "PAGERDUTY_KEY"
+  | "NEW_RELIC_KEY"
+  // Packaging
+  | "NPM_TOKEN"
+  | "PYPI_TOKEN"
+  // Productivity / workspace
+  | "NOTION_TOKEN"
+  | "LINEAR_KEY"
+  | "ASANA_PAT"
+  | "ATLASSIAN_TOKEN"
+  | "HUBSPOT_KEY"
+  | "ALGOLIA_KEY"
+  // Secrets at rest
+  | "PEM_PRIVATE_KEY"
+  | "SSH_PRIVATE_KEY"
+  // Database connection strings (carry embedded passwords)
+  | "POSTGRES_URL"
+  | "MYSQL_URL"
+  | "MONGODB_URL"
+  | "REDIS_URL"
+  // Generic high-entropy bearer / authorization
+  | "BEARER_TOKEN"
+  | "GENERIC_API_KEY"
+  // Native (NSDataDetector on macOS, regex elsewhere)
+  | "PHONE"
+  | "ADDRESS"
+  | "DATE_OF_BIRTH";
 
 /** A single detected PII span. Offsets are into the original (un-normalized) input. */
 export interface PIIDetection {

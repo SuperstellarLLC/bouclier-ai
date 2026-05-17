@@ -1,3 +1,4 @@
+import { SECRET_DETECTORS_GENERIC, SECRET_DETECTORS_HIGH_PRECISION } from "./secrets.js";
 import type { PIIDetection, PIIDetector } from "./types.js";
 import {
   ibanMod97,
@@ -96,7 +97,13 @@ const US_NPI = /\b\d{10}\b/g;
  * come first so the scanner's overlap-resolution keeps them.
  */
 export const PII_DETECTORS: PIIDetector[] = [
-  // High-precision first (long, structured, well-validated).
+  // ── Tier 1 — high-precision secrets (prefix-anchored, near-zero FP).
+  // A string like ghp_AAAA…AAAA gets tagged GITHUB_PAT, never weaker.
+  ...SECRET_DETECTORS_HIGH_PRECISION,
+
+  // ── Tier 2 — structured data with strong validators. JWT must
+  // precede the generic fallback so its full 3-segment span wins over
+  // a bare GENERIC_API_KEY match on the first segment alone.
   { type: "JWT", regex: JWT, validate: isPlausibleJWT },
   { type: "AWS_ACCESS_KEY", regex: AWS_ACCESS_KEY },
   { type: "EMAIL", regex: EMAIL },
@@ -127,4 +134,8 @@ export const PII_DETECTORS: PIIDetector[] = [
 
   { type: "IPV6", regex: IPV6, validate: isPlausibleIPv6 },
   { type: "IPV4", regex: IPV4, validate: isPlausibleIPv4 },
+
+  // ── Tier 3 — generic, context-gated secret fallbacks. Last so any
+  // structurally precise detector has already had its chance to match.
+  ...SECRET_DETECTORS_GENERIC,
 ];

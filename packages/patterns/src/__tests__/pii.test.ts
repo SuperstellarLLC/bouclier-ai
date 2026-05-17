@@ -206,6 +206,113 @@ describe("scanPII", () => {
     expect(cc.end).toBeLessThan(text.indexOf("deadbeef"));
   });
 
+  // ── Secret-key detectors (Gitleaks-derived) ───────────────────────────
+
+  it("detects OpenAI / Anthropic / xAI API keys by prefix", () => {
+    const keys = [
+      ["OPENAI_KEY", "sk-proj-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA12345678"],
+      ["OPENAI_KEY", "sk-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA12345678"],
+      ["ANTHROPIC_KEY", "sk-ant-api03-" + "A".repeat(86)],
+      ["XAI_KEY", "xai-" + "A".repeat(80)],
+    ] as const;
+    for (const [type, key] of keys) {
+      const hits = scanPII(`api: ${key}`);
+      expect(
+        hits.find((h) => h.type === type),
+        type,
+      ).toBeDefined();
+    }
+  });
+
+  it("detects GitHub PATs of every shape", () => {
+    const cases = [
+      ["GITHUB_PAT", "ghp_" + "A".repeat(36)],
+      ["GITHUB_OAUTH", "gho_" + "B".repeat(36)],
+      ["GITHUB_APP", "ghs_" + "C".repeat(36)],
+      ["GITHUB_FINE_GRAINED_PAT", "github_pat_" + "D".repeat(82)],
+    ] as const;
+    for (const [type, key] of cases) {
+      const hits = scanPII(`Authorization: ${key}`);
+      expect(
+        hits.find((h) => h.type === type),
+        type,
+      ).toBeDefined();
+    }
+  });
+
+  it("detects Slack tokens and Discord/Slack webhook URLs", () => {
+    const slackTok = "xoxb-12345678901-12345678901-AbCdEfGhIjKlMnOpQrStUvWx";
+    const slackHook = "https://hooks.slack.com/services/T0ABCDEFG/B0ABCDEFG/" + "A".repeat(24);
+    const discordHook = "https://discord.com/api/webhooks/1234567890123456789/" + "B".repeat(60);
+    expect(scanPII(slackTok).find((h) => h.type === "SLACK_TOKEN")).toBeDefined();
+    expect(scanPII(slackHook).find((h) => h.type === "SLACK_WEBHOOK")).toBeDefined();
+    expect(scanPII(discordHook).find((h) => h.type === "DISCORD_WEBHOOK")).toBeDefined();
+  });
+
+  it("detects Stripe / Google / SendGrid / Twilio keys", () => {
+    const cases = [
+      ["STRIPE_KEY", "sk_live_" + "A".repeat(24)],
+      ["STRIPE_KEY", "rk_test_" + "B".repeat(24)],
+      ["GOOGLE_API_KEY", "AIza" + "C".repeat(35)],
+      ["SENDGRID_KEY", "SG." + "D".repeat(22) + "." + "E".repeat(43)],
+      ["TWILIO_API_KEY", "SK" + "0".repeat(32)],
+      ["TWILIO_ACCOUNT_SID", "AC" + "1".repeat(32)],
+    ] as const;
+    for (const [type, key] of cases) {
+      const hits = scanPII(`secret: ${key}`);
+      expect(
+        hits.find((h) => h.type === type),
+        type,
+      ).toBeDefined();
+    }
+  });
+
+  it("detects PEM private keys (multi-line)", () => {
+    const pem = `-----BEGIN RSA PRIVATE KEY-----
+MIIEpAIBAAKCAQEA1234567890abcdefghijklmnopqrstuvwxyz1234567890==
+-----END RSA PRIVATE KEY-----`;
+    const hits = scanPII(`config: ${pem}`);
+    expect(hits.find((h) => h.type === "PEM_PRIVATE_KEY")).toBeDefined();
+  });
+
+  it("detects DB connection strings with embedded passwords", () => {
+    const cases = [
+      ["POSTGRES_URL", "postgres://user:s3cr3t@db.example.com:5432/mydb"],
+      ["MYSQL_URL", "mysql://root:hunter2@10.0.0.1:3306/app"],
+      ["MONGODB_URL", "mongodb+srv://alice:tok3n@cluster.mongodb.net"],
+      ["REDIS_URL", "redis://:p4ss@redis.example.com:6379"],
+    ] as const;
+    for (const [type, url] of cases) {
+      const hits = scanPII(`DATABASE_URL=${url}`);
+      expect(
+        hits.find((h) => h.type === type),
+        type,
+      ).toBeDefined();
+    }
+  });
+
+  it("generic API-key fallback requires both context and entropy", () => {
+    const highEntropy = "Zk9q7tH8KvLm2nXrPdY3wQa1Bs6Cf4Dg7Hj0Lz5Mn8VbCx";
+    // With context word → matches.
+    const withCtx = scanPII(`api_key=${highEntropy}`);
+    expect(withCtx.find((h) => h.type === "GENERIC_API_KEY")).toBeDefined();
+    // Same value without a key-naming context word → does NOT match.
+    const withoutCtx = scanPII(`hash: ${highEntropy}`);
+    expect(withoutCtx.find((h) => h.type === "GENERIC_API_KEY")).toBeUndefined();
+    // Low-entropy string with context → still does NOT match.
+    const lowEntropy = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+    expect(
+      scanPII(`api_key=${lowEntropy}`).find((h) => h.type === "GENERIC_API_KEY"),
+    ).toBeUndefined();
+  });
+
+  it("JWT still wins over GENERIC_API_KEY on the same offset", () => {
+    const jwt = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOjF9.signature";
+    const hits = scanPII(`token: ${jwt}`);
+    expect(hits.find((h) => h.type === "JWT")).toBeDefined();
+    expect(hits.find((h) => h.type === "GENERIC_API_KEY")).toBeUndefined();
+  });
+
   // R3 part 2: Luhn passes ~10% of random 16-digit strings, so without
   // contextual suppression we'd redact hashes, txn IDs, etc.
   it("CREDIT_CARD context suppression skips Luhn-passing identifiers", () => {

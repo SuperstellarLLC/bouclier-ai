@@ -11,6 +11,65 @@ import Testing
 struct PIIPipelineTests {
     // MARK: - Scanner
 
+    @Test("PIIScanner detects LLM-provider API keys")
+    func detectsLLMKeys() {
+        let scanner = PIIScanner()
+        let cases: [(String, String)] = [
+            ("OPENAI_KEY", "sk-proj-" + String(repeating: "A", count: 40)),
+            ("ANTHROPIC_KEY", "sk-ant-api03-" + String(repeating: "A", count: 86)),
+            ("XAI_KEY", "xai-" + String(repeating: "A", count: 80)),
+            ("GOOGLE_API_KEY", "AIza" + String(repeating: "A", count: 35)),
+        ]
+        for (type, key) in cases {
+            let hits = scanner.scan("Authorization: \(key)")
+            #expect(hits.contains(where: { $0.type == type }), "expected \(type)")
+        }
+    }
+
+    @Test("PIIScanner detects GitHub / Slack / Stripe / Sendgrid keys and webhooks")
+    func detectsCommonSecrets() {
+        let scanner = PIIScanner()
+        let cases: [(String, String)] = [
+            ("GITHUB_PAT", "ghp_" + String(repeating: "A", count: 36)),
+            ("GITHUB_FINE_GRAINED_PAT", "github_pat_" + String(repeating: "A", count: 82)),
+            ("SLACK_TOKEN", "xoxb-12345678901-12345678901-AbCdEfGhIjKlMnOpQrStUvWx"),
+            ("STRIPE_KEY", "sk_live_" + String(repeating: "A", count: 24)),
+            ("SENDGRID_KEY", "SG." + String(repeating: "B", count: 22) + "." + String(repeating: "C", count: 43)),
+            ("TWILIO_API_KEY", "SK" + String(repeating: "0", count: 32)),
+        ]
+        for (type, key) in cases {
+            let hits = scanner.scan("config = \(key)")
+            #expect(hits.contains(where: { $0.type == type }), "expected \(type)")
+        }
+    }
+
+    @Test("PIIScanner detects PEM private keys across line boundaries")
+    func detectsPEMKey() {
+        let scanner = PIIScanner()
+        let pem = """
+        -----BEGIN RSA PRIVATE KEY-----
+        MIIEpAIBAAKCAQEA1234567890abcdefghijklmnopqrstuvwxyz1234567890==
+        -----END RSA PRIVATE KEY-----
+        """
+        let hits = scanner.scan("config:\n\(pem)")
+        #expect(hits.contains(where: { $0.type == "PEM_PRIVATE_KEY" }))
+    }
+
+    @Test("PIIScanner detects DB connection strings with embedded passwords")
+    func detectsDBURLs() {
+        let scanner = PIIScanner()
+        #expect(
+            scanner
+                .scan("DATABASE_URL=postgres://alice:s3cr3t@db.example.com:5432/app")
+                .contains(where: { $0.type == "POSTGRES_URL" })
+        )
+        #expect(
+            scanner
+                .scan("uri=mongodb+srv://bob:tok3n@cluster.mongodb.net")
+                .contains(where: { $0.type == "MONGODB_URL" })
+        )
+    }
+
     @Test("PIIScanner detects emails and Luhn cards in a chat-completion body")
     func scannerDetectsCommonEntities() {
         let scanner = PIIScanner()

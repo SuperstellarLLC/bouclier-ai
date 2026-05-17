@@ -5,6 +5,25 @@ import Foundation
 /// the scanner; semantics must stay in lockstep with
 /// `packages/patterns/src/pii/validators.ts`.
 enum PIIValidators {
+    // MARK: - Shannon entropy
+
+    /// Shannon entropy in bits-per-character. Used to distinguish
+    /// high-entropy secret-like strings from low-entropy English-like
+    /// strings of the same length. ~3.5–4.0 cleanly separates real
+    /// tokens from repetitive or word-like material.
+    @Sendable static func hasShannonEntropy(_ value: String, _ minBitsPerChar: Double) -> Bool {
+        guard !value.isEmpty else { return false }
+        var counts: [Character: Int] = [:]
+        for ch in value { counts[ch, default: 0] += 1 }
+        let n = Double(value.count)
+        var entropy = 0.0
+        for c in counts.values {
+            let p = Double(c) / n
+            entropy -= p * log2(p)
+        }
+        return entropy >= minBitsPerChar
+    }
+
     // MARK: - Luhn
 
     /// Length-agnostic Luhn over a digit-only string.
@@ -250,6 +269,74 @@ enum PIIValidators {
         }
         let range = NSRange(location: 0, length: (lookback as NSString).length)
         return regex.firstMatch(in: lookback, range: range) == nil
+    }
+
+    // MARK: - Secret-context guards
+
+    /// Lookback regex matching key-naming words: api_key, apikey,
+    /// secret, access_token, token, password, auth, bearer, etc.
+    /// Combined with an entropy check, this is what gates GENERIC_API_KEY.
+    static let keyContextLookback = try! NSRegularExpression(
+        pattern: #"(?:api[_\-\s]?key|apikey|secret|access[_\-\s]?key|access[_\-\s]?token|token|password|passwd|pwd|auth|bearer|client[_\-\s]?secret)[\s:=]{1,4}["']?$"#,
+        options: [.caseInsensitive]
+    )
+
+    /// AWS secret access key context.
+    static let awsSecretLookback = try! NSRegularExpression(
+        pattern: #"(?:aws[_\-]?secret(?:[_\-]?access)?[_\-]?key|aws_secret)[\s:=]{1,4}["']?$"#,
+        options: [.caseInsensitive]
+    )
+
+    /// Datadog API key context.
+    static let datadogLookback = try! NSRegularExpression(
+        pattern: #"(?:dd[_\-]?api[_\-]?key|datadog[_\-]?api[_\-]?key)[\s:=]{1,4}["']?$"#,
+        options: [.caseInsensitive]
+    )
+
+    /// Postmark server-token context.
+    static let postmarkLookback = try! NSRegularExpression(
+        pattern: #"(?:postmark|server[_\-]?token)[\s:=]{1,4}["']?$"#,
+        options: [.caseInsensitive]
+    )
+
+    /// Returns a contextOk closure that requires `pattern` to match the
+    /// ~48-char lookback preceding a candidate match.
+    @Sendable static func requireContext(_ pattern: NSRegularExpression) -> @Sendable (String, NSRange) -> Bool {
+        return { content, matchRange in
+            let lookbackLen = min(48, matchRange.location)
+            let lookbackRange = NSRange(location: matchRange.location - lookbackLen, length: lookbackLen)
+            let nsContent = content as NSString
+            let lookback = nsContent.substring(with: lookbackRange)
+            let range = NSRange(location: 0, length: (lookback as NSString).length)
+            return pattern.firstMatch(in: lookback, range: range) != nil
+        }
+    }
+
+    /// Generic API-key validator: entropy + has letter + has digit.
+    @Sendable static func genericKeyValueOk(_ value: String) -> Bool {
+        guard value.count >= 32 else { return false }
+        guard hasShannonEntropy(value, 4.0) else { return false }
+        guard value.contains(where: { $0.isLetter }) else { return false }
+        guard value.contains(where: { $0.isNumber }) else { return false }
+        return true
+    }
+
+    /// Mistral 32-char alnum + entropy.
+    @Sendable static func validateMistral(_ value: String) -> Bool {
+        guard value.count == 32, value.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber) }) else {
+            return false
+        }
+        return hasShannonEntropy(value, 4.0)
+    }
+
+    /// Bearer / Token header generic — entropy 3.5.
+    @Sendable static func validateBearerEntropy(_ value: String) -> Bool {
+        hasShannonEntropy(value, 3.5)
+    }
+
+    /// AWS Secret Access Key — 40 base64-ish chars + entropy 4.0.
+    @Sendable static func validateAWSSecretEntropy(_ value: String) -> Bool {
+        hasShannonEntropy(value, 4.0)
     }
 
     // MARK: - Helpers
