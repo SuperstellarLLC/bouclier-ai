@@ -123,7 +123,7 @@ enum MultipartMediaScanner {
                     mediaType: f.mediaType,
                     provider: .unknown,
                     category: f.category,
-                    value: f.value
+                    cleartextValue: f.cleartextValue
                 )
             }
         }
@@ -252,14 +252,14 @@ enum MultipartMediaScanner {
                 out.append(MultimodalPIIInspector.Finding(
                     imagePath: [], contentBlockPath: [],
                     mediaType: mediaType, provider: .unknown,
-                    category: .textPII(type: det.type), value: det.value
+                    category: .textPII(type: det.type), cleartextValue: det.value
                 ))
             }
             for face in result.faces {
                 out.append(MultimodalPIIInspector.Finding(
                     imagePath: [], contentBlockPath: [],
                     mediaType: mediaType, provider: .unknown,
-                    category: .face(confidence: face.confidence), value: "face"
+                    category: .face(confidence: face.confidence), cleartextValue: "face"
                 ))
             }
             return out
@@ -269,7 +269,7 @@ enum MultipartMediaScanner {
                 return [MultimodalPIIInspector.Finding(
                     imagePath: [], contentBlockPath: [],
                     mediaType: mediaType, provider: .unknown,
-                    category: .unscannable(reason: reason), value: reason.rawValue
+                    category: .unscannable(reason: reason), cleartextValue: reason.rawValue
                 )]
             }
             var out: [MultimodalPIIInspector.Finding] = []
@@ -277,14 +277,14 @@ enum MultipartMediaScanner {
                 out.append(MultimodalPIIInspector.Finding(
                     imagePath: [], contentBlockPath: [],
                     mediaType: mediaType, provider: .unknown,
-                    category: .textPII(type: det.type), value: det.value
+                    category: .textPII(type: det.type), cleartextValue: det.value
                 ))
             }
             for face in result.faces {
                 out.append(MultimodalPIIInspector.Finding(
                     imagePath: [], contentBlockPath: [],
                     mediaType: mediaType, provider: .unknown,
-                    category: .face(confidence: face.confidence), value: "face"
+                    category: .face(confidence: face.confidence), cleartextValue: "face"
                 ))
             }
             return out
@@ -294,14 +294,14 @@ enum MultipartMediaScanner {
                 return [MultimodalPIIInspector.Finding(
                     imagePath: [], contentBlockPath: [],
                     mediaType: mediaType, provider: .unknown,
-                    category: .unscannableAudio(reason: reason), value: reason.rawValue
+                    category: .unscannableAudio(reason: reason), cleartextValue: reason.rawValue
                 )]
             }
             return result.piiDetections.map { det in
                 MultimodalPIIInspector.Finding(
                     imagePath: [], contentBlockPath: [],
                     mediaType: mediaType, provider: .unknown,
-                    category: .textPII(type: det.type), value: det.value
+                    category: .textPII(type: det.type), cleartextValue: det.value
                 )
             }
         }
@@ -309,13 +309,19 @@ enum MultipartMediaScanner {
 
     /// Build the placeholder text content that replaces a stripped
     /// file part's bytes. Mirrors `MultimodalRewriter.summarize` in
-    /// shape so the user experience is consistent between inline-JSON
-    /// and multipart paths.
+    /// shape AND the JSON-path placeholder's media-type labelling
+    /// (so a stripped PDF says "PDF", not the generic "attachment"
+    /// that earlier multipart placeholders used).
     private static func placeholder(for findings: [MultimodalPIIInspector.Finding]) -> String {
-        // Reuse the shared summariser by constructing a one-element
-        // findings group on the same synthetic path.
         let summary = MultimodalRewriter.summarizePublic(findings)
-        return "[Bouclier blocked an attachment — \(summary)]"
+        let allPDF = findings.allSatisfy { $0.mediaType.lowercased().hasPrefix("application/pdf") }
+        let allImage = findings.allSatisfy { $0.mediaType.lowercased().hasPrefix("image/") }
+        let allAudio = findings.allSatisfy { $0.mediaType.lowercased().hasPrefix("audio/") }
+        let label = allPDF ? "PDF"
+            : allImage ? "image"
+            : allAudio ? "audio clip"
+            : "attachment"
+        return "[Bouclier blocked an uploaded \(label) — \(summary)]"
     }
 
     /// Reassemble the multipart body, replacing flagged file parts

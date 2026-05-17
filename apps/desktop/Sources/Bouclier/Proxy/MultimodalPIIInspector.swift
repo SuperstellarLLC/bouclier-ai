@@ -11,7 +11,15 @@ import Foundation
 /// each image's findings under its own header.
 enum MultimodalPIIInspector {
     /// One PII finding tied back to a specific image inside the body.
-    struct Finding: Sendable {
+    ///
+    /// **`cleartextValue` invariant** — for `textPII` findings this
+    /// carries the raw matched string (e.g. an email address or an
+    /// IBAN). It MUST NOT be logged, persisted, surfaced via
+    /// `os_log`, or included in any string interpolation that
+    /// crosses a process boundary. The audit log table records
+    /// only the entity type and a SHA-256 hash prefix, never this
+    /// value. Renamed from `value` to make the contract explicit.
+    struct Finding: Sendable, CustomStringConvertible {
         /// JSON path to the base64 *leaf* field inside the image
         /// shape (`image_url.url`, `source.data`, `inlineData.data`).
         /// Used by audit logs.
@@ -24,7 +32,15 @@ enum MultimodalPIIInspector {
         let mediaType: String
         let provider: MultimodalImageExtractor.Image.Provider
         let category: Category
-        let value: String
+        /// Cleartext of the detected entity — see invariant above.
+        let cleartextValue: String
+
+        /// Render the finding without the cleartext. Anyone who
+        /// `print`s or `os_log`s a Finding gets a redacted summary,
+        /// not the raw value.
+        var description: String {
+            "Finding(category: \(category), mediaType: \(mediaType), provider: \(provider))"
+        }
 
         enum Category: Sendable, Equatable {
             case textPII(type: String)
@@ -66,7 +82,7 @@ enum MultimodalPIIInspector {
                 mediaType: image.mediaType,
                 provider: image.provider,
                 category: .unscannableAudio(reason: reason),
-                value: reason.rawValue
+                cleartextValue: reason.rawValue
             ))
             return out
         }
@@ -77,7 +93,7 @@ enum MultimodalPIIInspector {
                 mediaType: image.mediaType,
                 provider: image.provider,
                 category: .textPII(type: det.type),
-                value: det.value
+                cleartextValue: det.value
             ))
         }
         return out
@@ -182,7 +198,7 @@ enum MultimodalPIIInspector {
                     mediaType: image.mediaType,
                     provider: image.provider,
                     category: .unscannable(reason: reason),
-                    value: reason.rawValue
+                    cleartextValue: reason.rawValue
                 ))
                 return out
             }
@@ -193,7 +209,7 @@ enum MultimodalPIIInspector {
                     mediaType: image.mediaType,
                     provider: image.provider,
                     category: .textPII(type: det.type),
-                    value: det.value
+                    cleartextValue: det.value
                 ))
             }
             for face in pdfResult.faces {
@@ -203,7 +219,7 @@ enum MultimodalPIIInspector {
                     mediaType: image.mediaType,
                     provider: image.provider,
                     category: .face(confidence: face.confidence),
-                    value: "face"
+                    cleartextValue: "face"
                 ))
             }
             return out
@@ -219,7 +235,7 @@ enum MultimodalPIIInspector {
                 mediaType: image.mediaType,
                 provider: image.provider,
                 category: .textPII(type: det.type),
-                value: det.value
+                cleartextValue: det.value
             ))
         }
         for face in result.faces {
@@ -234,7 +250,7 @@ enum MultimodalPIIInspector {
                 mediaType: image.mediaType,
                 provider: image.provider,
                 category: .face(confidence: face.confidence),
-                value: "face"
+                cleartextValue: "face"
             ))
         }
         return out

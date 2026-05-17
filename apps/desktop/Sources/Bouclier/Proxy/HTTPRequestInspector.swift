@@ -53,6 +53,15 @@ enum HTTPRequestInspector {
         /// True if the body was skipped because its content type is not
         /// scannable (binary upload, multipart form, etc.).
         let bodyScanSkipped: Bool
+        /// True iff the body bytes were actually rewritten by the
+        /// injection scanner (i.e. an injection pattern matched inside
+        /// the body and the placeholder substitution ran). This is
+        /// strictly narrower than `detected`, which also fires on
+        /// URI-only matches that don't touch body bytes. Downstream
+        /// passes (PII redaction, multimodal inspection) gate on this
+        /// rather than on `detected` so URI-injection requests don't
+        /// silently bypass body scanning.
+        let bodyRewritten: Bool
         /// True if the request was rejected for exceeding `maxBodyBytes`.
         let rejectedOversize: Bool
         /// Highest ML maliciousness score across URI + body scans, or
@@ -95,6 +104,15 @@ enum HTTPRequestInspector {
         let report: MultimodalPIIInspector.Report
     }
 
+    /// Wall-clock ceiling on `applyMultimodalInspection`. Beyond this
+    /// the inspector is cancelled and the original body is forwarded
+    /// with an `unscannable.timedOut`-style audit entry. Bounded so
+    /// a single pathological request (50-page scanned PDF + 60-second
+    /// audio + 18 images) can't blow past LLM-client read timeouts
+    /// (Anthropic / OpenAI SDKs default to 60-120 s, beyond which the
+    /// client times out and the user sees a confusing error).
+    static let multimodalInspectionBudgetSeconds: Double = 30
+
     /// Run the multimodal inspector over a request body. Composed by
     /// the TLS handler after `inspect()` and the text PII pass.
     /// Idempotent and safe to call when
@@ -126,32 +144,65 @@ enum HTTPRequestInspector {
         }
         let bodyData = Data(bytes)
 
-        // Route on Content-Type. multipart/form-data needs its own
-        // scanner that parses parts and rewrites them in place;
-        // JSON-shaped bodies (chat completions) ride the existing
-        // MultimodalPIIInspector path.
+        // Race the inspector against the wall-clock budget. If
+        // inspection takes too long (pathological PDF / audio) we
+        // forward the original body untouched rather than holding
+        // the client connection open past its read timeout — failing
+        // open with a loud log line is better UX than failing
+        // closed-with-timeout in the v0.4.x band. A future MDM key
+        // can flip this to fail-closed for regulated deployments.
         let ct = contentType.lowercased()
-        if ct.hasPrefix("multipart/") {
-            if let result = await MultipartMediaScanner.inspect(body: bodyData, contentType: contentType) {
-                if result.report.findings.isEmpty {
-                    return MultimodalPass(body: body, report: result.report)
+        return await withTimeoutOrFallback(seconds: multimodalInspectionBudgetSeconds, fallback: empty) {
+            if ct.hasPrefix("multipart/") {
+                if let result = await MultipartMediaScanner.inspect(body: bodyData, contentType: contentType) {
+                    if result.report.findings.isEmpty {
+                        return MultimodalPass(body: body, report: result.report)
+                    }
+                    var buf = allocator.buffer(capacity: result.body.count)
+                    buf.writeBytes(result.body)
+                    return MultimodalPass(body: buf, report: result.report)
                 }
-                var buf = allocator.buffer(capacity: result.body.count)
-                buf.writeBytes(result.body)
-                return MultimodalPass(body: buf, report: result.report)
+                return empty
             }
-            return empty
+            guard shouldScanBody(contentType: contentType, method: method) else { return empty }
+            let report = await MultimodalPIIInspector.inspect(body: bodyData)
+            guard !report.findings.isEmpty else {
+                return MultimodalPass(body: body, report: report)
+            }
+            let rewritten = MultimodalRewriter.stripFlaggedImages(from: bodyData, report: report)
+            var buf = allocator.buffer(capacity: rewritten.count)
+            buf.writeBytes(rewritten)
+            return MultimodalPass(body: buf, report: report)
         }
+    }
 
-        guard shouldScanBody(contentType: contentType, method: method) else { return empty }
-        let report = await MultimodalPIIInspector.inspect(body: bodyData)
-        guard !report.findings.isEmpty else {
-            return MultimodalPass(body: body, report: report)
+    /// Race an async operation against a wall-clock deadline. Returns
+    /// the fallback value when the deadline expires before the work
+    /// finishes; the work's task is cancelled so any Vision / Speech /
+    /// PDFKit task in flight propagates `Task.isCancelled` and bails
+    /// out. Logs a single line on timeout so an operator can see the
+    /// drop in the proxy log without parsing the stats.
+    private static func withTimeoutOrFallback<T: Sendable>(
+        seconds: Double,
+        fallback: T,
+        operation: @escaping @Sendable () async -> T
+    ) async -> T {
+        await withTaskGroup(of: T?.self) { group in
+            group.addTask {
+                await operation()
+            }
+            group.addTask {
+                try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+                return nil  // sentinel: deadline expired
+            }
+            defer { group.cancelAll() }
+            guard let first = await group.next() else { return fallback }
+            if let value = first {
+                return value
+            }
+            print("[bouclier.ai] multimodal inspection exceeded \(seconds)s budget — forwarding unchanged")
+            return fallback
         }
-        let rewritten = MultimodalRewriter.stripFlaggedImages(from: bodyData, report: report)
-        var buf = allocator.buffer(capacity: rewritten.count)
-        buf.writeBytes(rewritten)
-        return MultimodalPass(body: buf, report: report)
     }
 
     /// Run the PII redactor over a sanitized request body. Composed by
@@ -203,6 +254,7 @@ enum HTTPRequestInspector {
                 severities: [],
                 sanitizedBody: body,
                 bodyScanSkipped: true,
+                bodyRewritten: false,
                 rejectedOversize: true,
                 mlScore: nil,
                 entropyAnomaly: 0,
@@ -237,6 +289,7 @@ enum HTTPRequestInspector {
                 severities: uriScan.severities,
                 sanitizedBody: body,
                 bodyScanSkipped: !scannable,
+                bodyRewritten: false,
                 rejectedOversize: false,
                 mlScore: uriScan.mlScore,
                 entropyAnomaly: uriScan.entropyAnomaly,
@@ -278,6 +331,7 @@ enum HTTPRequestInspector {
             severities: severities,
             sanitizedBody: sanitized,
             bodyScanSkipped: false,
+            bodyRewritten: bodyScan.detected,
             rejectedOversize: false,
             mlScore: mlScore,
             entropyAnomaly: entropyAnomaly,
