@@ -52,7 +52,7 @@ final class ProxyManager: ObservableObject {
     let ca = CertificateAuthority()
     let extensionManager = ExtensionManager()
     private var patternManager: PatternManager!
-    private var storage: StorageManager?
+    private(set) var storage: StorageManager?
 
     init() {
         // PatternManager's onChange fires both for patterns hot-reload
@@ -290,6 +290,15 @@ final class ProxyManager: ObservableObject {
             )
         }
 
+        if !requestLog.piiAudit.isEmpty {
+            stats.piiRedacted += requestLog.piiAudit.count
+            let types = requestLog.piiAudit.map(\.type).joined(separator: ", ")
+            log(
+                "Redacted \(requestLog.piiAudit.count) PII item(s) → \(requestLog.targetHost): \(types)",
+                blocked: false
+            )
+        }
+
         storage?.recordScan(
             source: "tls-proxy",
             targetHost: requestLog.targetHost,
@@ -303,6 +312,21 @@ final class ProxyManager: ObservableObject {
             fusedScore: requestLog.fusedScore,
             mlAvailable: requestLog.mlAvailable
         )
+
+        // Per-entity audit rows. Stored after the parent scan_logs
+        // insert so the cascade FK is satisfied. Each call writes a
+        // row with type + offsets + hash-prefix; cleartext is never
+        // touched.
+        for entry in requestLog.piiAudit {
+            storage?.recordPIIRedaction(
+                targetHost: requestLog.targetHost,
+                entityType: entry.type,
+                startOffset: entry.start,
+                endOffset: entry.end,
+                valueHashPrefix: entry.valueHashPrefix,
+                scanLogId: nil
+            )
+        }
     }
 
     private func log(_ message: String, blocked: Bool) {
@@ -341,7 +365,11 @@ final class ProxyManager: ObservableObject {
 struct ProxyStats {
     var requestsScanned: Int = 0
     var injectionsBlocked: Int = 0
-    mutating func reset() { requestsScanned = 0; injectionsBlocked = 0 }
+    /// Cumulative count of PII entities redacted on outbound traffic
+    /// during this session. Surfaced in the menu bar as the "Redacted"
+    /// StatBadge — every demo needs this number visible.
+    var piiRedacted: Int = 0
+    mutating func reset() { requestsScanned = 0; injectionsBlocked = 0; piiRedacted = 0 }
 }
 
 struct LogEntry: Identifiable {

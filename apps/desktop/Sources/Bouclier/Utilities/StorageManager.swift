@@ -78,7 +78,133 @@ final class StorageManager: Sendable {
             }
         }
 
+        // v3 — PII redaction audit log. Each row records ONE substituted
+        // entity. Stores entity type and char offsets only; NEVER stores
+        // cleartext. The valueHashPrefix is the first 4 bytes of SHA-256
+        // of the cleartext — enough to recognize the same value reused
+        // in a session, useless to anyone scraping the DB.
+        migrator.registerMigration("v3_pii_redactions") { db in
+            try db.create(table: "pii_redactions") { t in
+                t.autoIncrementedPrimaryKey("id")
+                t.column("timestamp", .text).notNull().defaults(sql: "datetime('now')")
+                t.column("targetHost", .text)
+                t.column("entityType", .text).notNull()    // EMAIL, IBAN, FR_NIR, etc.
+                t.column("startOffset", .integer).notNull()
+                t.column("endOffset", .integer).notNull()
+                t.column("valueHashPrefix", .text).notNull()
+                t.column("scanLogId", .integer)
+                    .references("scan_logs", onDelete: .cascade)
+            }
+            try db.create(indexOn: "pii_redactions", columns: ["timestamp"])
+            try db.create(indexOn: "pii_redactions", columns: ["entityType"])
+        }
+
         try migrator.migrate(dbPool)
+    }
+
+    // MARK: - PII audit
+
+    /// Record one PII redaction event. Called once per substituted
+    /// entity. Receives the per-redactor audit entry and the parent
+    /// scan-log row id so the redaction can be joined back to the
+    /// request that produced it.
+    func recordPIIRedaction(
+        targetHost: String?,
+        entityType: String,
+        startOffset: Int,
+        endOffset: Int,
+        valueHashPrefix: String,
+        scanLogId: Int64?
+    ) {
+        do {
+            try dbPool.write { db in
+                try db.execute(
+                    sql: """
+                        INSERT INTO pii_redactions
+                            (targetHost, entityType, startOffset, endOffset, valueHashPrefix, scanLogId)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                        """,
+                    arguments: [
+                        targetHost, entityType, startOffset, endOffset,
+                        valueHashPrefix, scanLogId,
+                    ]
+                )
+            }
+        } catch {
+            print("[bouclier.ai-storage] PII audit write error: \(error.localizedDescription)")
+        }
+    }
+
+    /// Aggregate counts of PII redactions by entity type within the
+    /// given window. Powers the audit-log row in Settings without
+    /// exposing per-event details.
+    func piiRedactionCounts(days: Int = 30) -> [String: Int] {
+        let rows = (try? dbPool.read { db -> [Row] in
+            try Row.fetchAll(
+                db,
+                sql: """
+                    SELECT entityType, COUNT(*) as count
+                    FROM pii_redactions
+                    WHERE timestamp >= datetime('now', ?)
+                    GROUP BY entityType
+                    """,
+                arguments: ["-\(days) days"]
+            )
+        }) ?? []
+        var out: [String: Int] = [:]
+        for row in rows {
+            if let type: String = row["entityType"], let count: Int = row["count"] {
+                out[type] = count
+            }
+        }
+        return out
+    }
+
+    /// Aggregate counts of PII redactions by destination host within
+    /// the given window. Used by the redaction report so a compliance
+    /// officer can see which upstream provider received how many
+    /// redacted prompts.
+    func piiRedactionCountsByHost(days: Int = 30) -> [String: Int] {
+        let rows = (try? dbPool.read { db -> [Row] in
+            try Row.fetchAll(
+                db,
+                sql: """
+                    SELECT targetHost, COUNT(*) as count
+                    FROM pii_redactions
+                    WHERE timestamp >= datetime('now', ?)
+                    GROUP BY targetHost
+                    """,
+                arguments: ["-\(days) days"]
+            )
+        }) ?? []
+        var out: [String: Int] = [:]
+        for row in rows {
+            if let host: String = row["targetHost"], let count: Int = row["count"] {
+                out[host] = count
+            }
+        }
+        return out
+    }
+
+    /// Total count of PII redaction events in the window, plus the
+    /// total count of prompts scanned (across all detection types) so
+    /// the report can compute a "X redactions across Y prompts" ratio.
+    func piiRedactionTotals(days: Int = 30) -> (redactions: Int, prompts: Int) {
+        let red = (try? dbPool.read { db -> Int in
+            try Int.fetchOne(
+                db,
+                sql: "SELECT COUNT(*) FROM pii_redactions WHERE timestamp >= datetime('now', ?)",
+                arguments: ["-\(days) days"]
+            ) ?? 0
+        }) ?? 0
+        let prompts = (try? dbPool.read { db -> Int in
+            try Int.fetchOne(
+                db,
+                sql: "SELECT COUNT(*) FROM scan_logs WHERE timestamp >= datetime('now', ?)",
+                arguments: ["-\(days) days"]
+            ) ?? 0
+        }) ?? 0
+        return (red, prompts)
     }
 
     // MARK: - Write
@@ -178,11 +304,18 @@ final class StorageManager: Sendable {
 
     // MARK: - Cleanup
 
-    /// Remove logs older than 30 days, stats older than 365 days.
+    /// Remove logs older than 30 days, stats older than 365 days. PII
+    /// redaction audit retained for 30 days (configurable later via MDM);
+    /// shorter than scan logs so PII fingerprints don't outlive their
+    /// useful debugging window.
     private func cleanup() throws {
         try dbPool.write { db in
             try db.execute(sql: "DELETE FROM scan_logs WHERE timestamp < datetime('now', '-30 days')")
             try db.execute(sql: "DELETE FROM daily_stats WHERE date < date('now', '-365 days')")
+            // pii_redactions cascades from scan_logs but also has an
+            // explicit retention so events without a parent scan
+            // (proxy-bypassed paths) are cleaned up too.
+            try db.execute(sql: "DELETE FROM pii_redactions WHERE timestamp < datetime('now', '-30 days')")
         }
     }
 
