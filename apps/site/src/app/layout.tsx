@@ -5,17 +5,17 @@ import { APP_NAME, APP_URL } from "@/lib/constants";
 import "./globals.css";
 
 const DESCRIPTION =
-  "Local prompt injection firewall for macOS. Scans AI API traffic, MCP tool results, and streaming responses. No data leaves your machine.";
+  "Stop prompt injections. Stop PII from leaking to LLMs. Local-only macOS app. Experimental beta — not for production.";
 
 export const metadata: Metadata = {
   title: {
-    default: `${APP_NAME} — Prompt Injection Firewall`,
-    template: `%s | ${APP_NAME}`,
+    default: `${APP_NAME} (Beta) — Stop PII from leaking to LLMs`,
+    template: `%s | ${APP_NAME} (Beta)`,
   },
   description: DESCRIPTION,
   metadataBase: new URL(APP_URL),
   openGraph: {
-    title: `${APP_NAME} — Prompt Injection Firewall`,
+    title: `${APP_NAME} (Beta) — Stop PII from leaking to LLMs`,
     description: DESCRIPTION,
     siteName: APP_NAME,
     locale: "en_US",

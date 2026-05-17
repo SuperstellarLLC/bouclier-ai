@@ -1,6 +1,8 @@
-# Bouclier.ai
+# Bouclier.ai (Beta)
 
-Network middleware that strips prompt injections from content before it reaches LLMs.
+Stop prompt injections. Stop PII from leaking to LLMs. A local-only macOS app that sits between your apps and AI providers, scrubs prompts before they leave your Mac, and reverses the model's response so you still read normal text.
+
+> **Experimental, pre-1.0 software.** Bouclier.ai is a prototype intended for evaluation, research, and personal experimentation. Detection is best-effort and probabilistic — false positives and false negatives will occur. **Not** intended for production, regulated workloads, or any environment where a detection failure could cause harm. See [Terms](https://www.bouclier.ai/terms) before installing.
 
 ## Architecture
 
