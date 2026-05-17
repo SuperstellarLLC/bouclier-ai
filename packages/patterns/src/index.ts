@@ -15,3 +15,23 @@ export type {
   Severity,
   ThreatScore,
 } from "./types.js";
+
+export {
+  PII_DETECTORS,
+  applyRedactions,
+  ibanMod97,
+  isPlausibleIPv4,
+  isPlausibleIPv6,
+  isPlausibleJWT,
+  isPlausibleNHS,
+  isPlausibleNINO,
+  isPlausibleNIR,
+  isPlausibleNPI,
+  isPlausibleSIREN,
+  isPlausibleSIRET,
+  isPlausibleSSN,
+  isPlausibleUKPostcode,
+  luhn,
+  scanPII,
+} from "./pii/index.js";
+export type { PIIDetection, PIIDetector, PIIEntityType, PIIScanOptions } from "./pii/index.js";
