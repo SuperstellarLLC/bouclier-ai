@@ -67,6 +67,13 @@ struct MenuBarView: View {
                         icon: "eye.slash.fill",
                         color: proxyManager.stats.piiRedacted > 0 ? .purple : .secondary
                     )
+                    Spacer()
+                    StatBadge(
+                        value: "\(proxyManager.stats.mediaBlocked)",
+                        label: "Media",
+                        icon: "photo.fill",
+                        color: proxyManager.stats.mediaBlocked > 0 ? .purple : .secondary
+                    )
                 }
 
                 PIIRedactionRow(proxyManager: proxyManager)
