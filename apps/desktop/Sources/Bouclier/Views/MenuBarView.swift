@@ -16,6 +16,14 @@ struct MenuBarView: View {
                     .accessibilityLabel(statusAccessibilityLabel)
                 Text("Bouclier.ai")
                     .font(.headline)
+                Text("BETA")
+                    .font(.system(size: 9, weight: .semibold))
+                    .tracking(0.5)
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 2)
+                    .background(Color.orange.opacity(0.15), in: RoundedRectangle(cornerRadius: 4))
+                    .foregroundStyle(.orange)
+                    .accessibilityLabel("Beta release")
                 Spacer()
                 Text(statusText)
                     .font(.caption)
@@ -52,7 +60,16 @@ struct MenuBarView: View {
                         icon: "shield.slash",
                         color: proxyManager.stats.injectionsBlocked > 0 ? .red : .green
                     )
+                    Spacer()
+                    StatBadge(
+                        value: "\(proxyManager.stats.piiRedacted)",
+                        label: "Redacted",
+                        icon: "eye.slash.fill",
+                        color: proxyManager.stats.piiRedacted > 0 ? .purple : .secondary
+                    )
                 }
+
+                PIIRedactionRow(proxyManager: proxyManager)
 
                 // ML classifier status — small inline badge so users
                 // can see whether the on-device fused detection layer

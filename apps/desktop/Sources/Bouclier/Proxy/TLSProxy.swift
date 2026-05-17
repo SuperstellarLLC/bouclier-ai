@@ -213,7 +213,12 @@ private final class HandshakeWaiter: ChannelInboundHandler, RemovableChannelHand
 
 /// Parses HTTP requests, accumulates the body, scans for injections,
 /// adjusts Content-Length, and forwards the complete request to upstream.
-private final class HTTPInspectionHandler: ChannelInboundHandler, RemovableChannelHandler {
+// NIO ensures every ChannelHandler instance is invoked from a single
+// event loop, so capturing `self` into Task/EL closures is safe in
+// practice even though the type isn't structurally Sendable. The
+// `@unchecked Sendable` conformance documents that invariant for the
+// Swift 6 region-isolation checker.
+private final class HTTPInspectionHandler: ChannelInboundHandler, RemovableChannelHandler, @unchecked Sendable {
     typealias InboundIn = HTTPServerRequestPart
 
     private let host: String
@@ -221,6 +226,15 @@ private final class HTTPInspectionHandler: ChannelInboundHandler, RemovableChann
     private let filter: InjectionFilter
     private let onRequest: @Sendable (RequestLog) -> Void
     private let eventLoop: EventLoop
+
+    /// Stateless redactor (compiled regexes only). Shared across all
+    /// connections — see `PIIRedactor` for the rationale.
+    private let piiRedactor = PIIRedactor()
+    /// Per-connection session. One per HTTPInspectionHandler instance
+    /// so each TLS connection has an independent token-mint domain.
+    /// The session is plumbed into `UpstreamRelayHandler` at upstream
+    /// connect so the response path can reverse tokens by exact match.
+    private let piiSession = PIISession()
 
     private var upstreamChannel: Channel?
     private var requestHead: HTTPRequestHead?
@@ -305,6 +319,67 @@ private final class HTTPInspectionHandler: ChannelInboundHandler, RemovableChann
             )
         }
 
+        let finalBody = inspection.sanitizedBody
+
+        // Run the PII redactor on injection-clean bodies. Injection-blocked
+        // bodies already carry the redaction message; sending them through
+        // PII redaction wastes a CoreML/regex pass on a known-replacement.
+        // Per-domain policy short-circuits redaction when the host is on
+        // the deny list (so internal LLM gateways can opt out without
+        // disabling the feature globally).
+        let piiEligible = FeatureFlags.piiRedaction
+            && PIIPolicy.shared.shouldRedact(host: host)
+            && !inspection.detected
+            && !inspection.bodyScanSkipped
+
+        if piiEligible {
+            let contentType = head.headers.first(name: "Content-Type") ?? ""
+            let method = head.method
+            let allocator = context.channel.allocator
+            let redactor = piiRedactor
+            let session = piiSession
+            let eventLoop = context.eventLoop
+            let headRef = head
+            let baseBody = finalBody
+            let inspectionRef = inspection
+            let hostRef = host
+            let sizeRef = bodySize
+            Task {
+                let pass = await HTTPRequestInspector.applyPIIRedaction(
+                    body: baseBody,
+                    contentType: contentType,
+                    method: method,
+                    redactor: redactor,
+                    session: session,
+                    allocator: allocator
+                )
+                eventLoop.execute { [weak self] in
+                    guard let self else { return }
+                    self.emitRequestLog(
+                        host: hostRef,
+                        bodySize: sizeRef,
+                        inspection: inspectionRef,
+                        piiAudit: pass.audit
+                    )
+                    self.forwardUpstream(head: headRef, body: pass.body, allocator: allocator)
+                }
+            }
+        } else {
+            emitRequestLog(host: host, bodySize: bodySize, inspection: inspection, piiAudit: [])
+            forwardUpstream(head: head, body: finalBody, allocator: context.channel.allocator)
+        }
+    }
+
+    /// Combine the injection inspection + the (optional) PII audit into
+    /// one RequestLog and emit it. The menu bar's PII-redacted badge
+    /// counts these audit entries; the audit log table joins them to
+    /// the parent scan_logs row.
+    private func emitRequestLog(
+        host: String,
+        bodySize: Int,
+        inspection: HTTPRequestInspector.InspectionResult,
+        piiAudit: [PIIRedactor.AuditEntry]
+    ) {
         onRequest(RequestLog(
             timestamp: Date(),
             targetHost: host,
@@ -315,25 +390,29 @@ private final class HTTPInspectionHandler: ChannelInboundHandler, RemovableChann
             mlScore: inspection.mlScore,
             entropyAnomaly: inspection.entropyAnomaly,
             fusedScore: inspection.fusedScore,
-            mlAvailable: inspection.mlAvailable
+            mlAvailable: inspection.mlAvailable,
+            piiAudit: piiAudit
         ))
+    }
 
-        var finalBody = inspection.sanitizedBody
+    /// Build the raw HTTP request bytes (head + headers + body) and queue
+    /// them upstream. Factored out so the sync (no PII) and async (PII)
+    /// paths share the same wire-format step.
+    private func forwardUpstream(head: HTTPRequestHead, body: ByteBuffer, allocator: ByteBufferAllocator) {
+        var mutableBody = body
         var headers = head.headers
+        // Always re-derive Content-Length from the final body, not the
+        // header. Redaction (injection or PII) may have changed the size,
+        // and the upstream rejects mismatches with a 400.
+        headers.replaceOrAdd(name: "Content-Length", value: "\(mutableBody.readableBytes)")
 
-        if inspection.detected && !inspection.bodyScanSkipped {
-            // Update Content-Length to match the (possibly rewritten) body.
-            headers.replaceOrAdd(name: "Content-Length", value: "\(finalBody.readableBytes)")
-        }
-
-        // Serialize the HTTP request as raw bytes for upstream
-        var raw = context.channel.allocator.buffer(capacity: 1024 + finalBody.readableBytes)
+        var raw = allocator.buffer(capacity: 1024 + mutableBody.readableBytes)
         raw.writeString("\(head.method) \(head.uri) HTTP/1.1\r\n")
         for (name, value) in headers {
             raw.writeString("\(name): \(value)\r\n")
         }
         raw.writeString("\r\n")
-        raw.writeBuffer(&finalBody)
+        raw.writeBuffer(&mutableBody)
 
         sendToUpstream(raw)
 
@@ -373,7 +452,11 @@ private final class HTTPInspectionHandler: ChannelInboundHandler, RemovableChann
                         let sslHandler = try NIOSSLClientHandler(context: sslContext, serverHostname: self.host)
                         return channel.pipeline.addHandlers([
                             sslHandler,
-                            UpstreamRelayHandler(clientChannel: context.channel, filter: self.filter),
+                            UpstreamRelayHandler(
+                                clientChannel: context.channel,
+                                filter: self.filter,
+                                piiSession: self.piiSession
+                            ),
                         ])
                     } catch {
                         return channel.eventLoop.makeFailedFuture(error)
@@ -410,6 +493,13 @@ private final class HTTPInspectionHandler: ChannelInboundHandler, RemovableChann
     }
 
     func channelInactive(context: ChannelHandlerContext) {
+        // Force-zeroize the session map. Released map memory is otherwise
+        // dropped by ARC without bytes being overwritten — explicit close
+        // ensures `memset_s` runs on every cleartext buffer before the
+        // actor goes out of scope.
+        let session = piiSession
+        Task { await session.close() }
+
         upstreamChannel?.close(promise: nil)
         context.fireChannelInactive()
     }
@@ -429,26 +519,51 @@ private final class HTTPInspectionHandler: ChannelInboundHandler, RemovableChann
 ///
 /// Non-SSE responses (plain JSON, binary) are forwarded verbatim —
 /// request-side scanning already covers those.
-private final class UpstreamRelayHandler: ChannelInboundHandler {
+private final class UpstreamRelayHandler: ChannelInboundHandler, @unchecked Sendable {
     typealias InboundIn = ByteBuffer
 
     private let clientChannel: Channel
     private let sseInspector: SSEStreamInspector
+    private let piiSession: PIISession
     private var headersParsed = false
     private var isEventStream = false
+    private var isJSON = false
     private var headerBuffer = ""
 
-    init(clientChannel: Channel, filter: InjectionFilter) {
+    /// Buffered response body when PII reversal is active. We accumulate
+    /// the entire JSON body, reverse tokens, then emit. Capped at 1 MiB
+    /// so a chunked / streaming-without-SSE response can't blow up
+    /// memory; bodies beyond the cap fall back to raw forwarding (no
+    /// reversal — the model output still leaves the LLM safely, the user
+    /// just sees raw tokens in their client).
+    private var jsonResponseBuffer = ""
+    private var jsonContentLength: Int? = nil
+    private var headerBytesForClient: ByteBuffer? = nil
+    private static let maxBufferedJSON = 1 * 1024 * 1024
+
+    init(clientChannel: Channel, filter: InjectionFilter, piiSession: PIISession) {
         self.clientChannel = clientChannel
         self.sseInspector = SSEStreamInspector(filter: filter)
+        self.piiSession = piiSession
     }
+
+    /// Holds the parsed-but-not-yet-forwarded response header block when
+    /// we're in JSON-reversal mode. We delay emission so we can rewrite
+    /// Content-Length after reversal (cleartext is usually longer than
+    /// the placeholder token, so the body size changes).
+    private var pendingHeaderBlock: String? = nil
+    /// True while we're accumulating a JSON body that will be reversed.
+    private var jsonReversalActive = false
+    /// True once a JSON body has been emitted (so we ignore late bytes
+    /// without re-buffering).
+    private var jsonReversalCompleted = false
 
     func channelRead(context: ChannelHandlerContext, data: NIOAny) {
         let buf = unwrapInboundIn(data)
 
-        // Fast path: once we've decided the response isn't SSE, relay raw
-        // bytes with zero String conversion overhead.
-        if headersParsed && !isEventStream {
+        // Fast path: once headers are forwarded and we know there's no
+        // JSON reversal in progress, relay raw bytes with zero conversion.
+        if headersParsed && !isEventStream && !jsonReversalActive {
             clientChannel.writeAndFlush(NIOAny(buf), promise: nil)
             return
         }
@@ -461,35 +576,162 @@ private final class UpstreamRelayHandler: ChannelInboundHandler {
         }
 
         // Parse the status line + headers incrementally to learn whether
-        // the upstream is sending text/event-stream. This is a minimal
-        // HTTP/1.1 response parser sufficient for proxied responses.
+        // the upstream is sending text/event-stream or a reversable JSON.
         if !headersParsed {
             headerBuffer += chunk
             if let headerEnd = headerBuffer.range(of: "\r\n\r\n") {
                 let headerBlock = String(headerBuffer[..<headerEnd.lowerBound])
                 let bodyStart = String(headerBuffer[headerEnd.upperBound...])
                 headersParsed = true
-                isEventStream = headerBlock
-                    .lowercased()
-                    .contains("content-type: text/event-stream")
+                let lowered = headerBlock.lowercased()
+                isEventStream = lowered.contains("content-type: text/event-stream")
+                isJSON = lowered.contains("content-type: application/json")
+                jsonContentLength = parseContentLength(lowered)
+                let isChunked = lowered.contains("transfer-encoding: chunked")
 
-                // Forward headers as-is.
-                var headBuf = context.channel.allocator.buffer(capacity: headerBlock.utf8.count + 4)
-                headBuf.writeString(headerBlock)
-                headBuf.writeString("\r\n\r\n")
-                clientChannel.writeAndFlush(NIOAny(headBuf), promise: nil)
-                headerBuffer = ""
+                let canReverse = FeatureFlags.piiRedaction
+                    && isJSON
+                    && !isEventStream
+                    && !isChunked
+                    && (jsonContentLength ?? Int.max) <= Self.maxBufferedJSON
 
-                // If any body bytes came along in the same TCP frame,
-                // route them through the appropriate path.
-                if !bodyStart.isEmpty {
-                    forwardBody(bodyStart, context: context)
+                if canReverse {
+                    // Hold headers until reversal is done — body size will
+                    // change so Content-Length must be rewritten.
+                    jsonReversalActive = true
+                    pendingHeaderBlock = headerBlock
+                    headerBuffer = ""
+                    if !bodyStart.isEmpty {
+                        ingestJSONBody(bodyStart, context: context)
+                    }
+                } else {
+                    // Forward headers as-is.
+                    var headBuf = context.channel.allocator.buffer(capacity: headerBlock.utf8.count + 4)
+                    headBuf.writeString(headerBlock)
+                    headBuf.writeString("\r\n\r\n")
+                    clientChannel.writeAndFlush(NIOAny(headBuf), promise: nil)
+                    headerBuffer = ""
+                    if !bodyStart.isEmpty {
+                        forwardBody(bodyStart, context: context)
+                    }
                 }
             }
             return
         }
 
+        if jsonReversalActive {
+            ingestJSONBody(chunk, context: context)
+            return
+        }
+
         forwardBody(chunk, context: context)
+    }
+
+    /// Buffer bytes belonging to a JSON response that will be reversed.
+    /// When the buffer reaches Content-Length, reverse and emit; if it
+    /// exceeds the cap or upstream sends more than Content-Length bytes,
+    /// abort reversal and fall back to forwarding everything raw.
+    private func ingestJSONBody(_ chunk: String, context: ChannelHandlerContext) {
+        if jsonReversalCompleted { return }
+        jsonResponseBuffer += chunk
+
+        if jsonResponseBuffer.utf8.count > Self.maxBufferedJSON {
+            // Abort: too large. Flush headers + buffer raw, switch off
+            // reversal, and let subsequent bytes ride the fast path.
+            abortReversalAndFlushRaw(context: context)
+            return
+        }
+
+        if let expected = jsonContentLength,
+           jsonResponseBuffer.utf8.count >= expected {
+            emitReversedJSON(context: context)
+        }
+    }
+
+    private func emitReversedJSON(context: ChannelHandlerContext) {
+        jsonReversalCompleted = true
+        guard let header = pendingHeaderBlock else { return }
+        let body = jsonResponseBuffer
+        let session = piiSession
+        let channel = clientChannel
+        let allocator = context.channel.allocator
+        jsonResponseBuffer = ""
+        pendingHeaderBlock = nil
+        jsonReversalActive = false
+        Task {
+            await UpstreamRelayHandler.performReversalAndEmit(
+                body: body,
+                header: header,
+                session: session,
+                channel: channel,
+                allocator: allocator
+            )
+        }
+    }
+
+    /// Pure-async helper: takes everything by value (Sendable), does the
+    /// reversal off the event loop, then hops back onto the channel's
+    /// loop to write the response. Static so the Swift 6 region-isolation
+    /// checker doesn't have to reason about a nested closure that
+    /// captures `self`.
+    private static func performReversalAndEmit(
+        body: String,
+        header: String,
+        session: PIISession,
+        channel: Channel,
+        allocator: ByteBufferAllocator
+    ) async {
+        let reversed = await PIIReverser.reverseString(body, with: session)
+        let newLength = reversed.utf8.count
+        let rewrittenHeader = replaceContentLength(in: header, with: newLength)
+        let combined = rewrittenHeader + "\r\n\r\n" + reversed
+        var buf = allocator.buffer(capacity: combined.utf8.count)
+        buf.writeString(combined)
+        let finalBuf = buf
+        channel.eventLoop.execute {
+            channel.writeAndFlush(NIOAny(finalBuf), promise: nil)
+        }
+    }
+
+    /// Best-effort fallback when we couldn't complete reversal. Flush
+    /// the original header block + whatever we've buffered, then ride
+    /// the raw fast path for subsequent bytes.
+    private func abortReversalAndFlushRaw(context: ChannelHandlerContext) {
+        guard let header = pendingHeaderBlock else { return }
+        let body = jsonResponseBuffer
+        let allocator = context.channel.allocator
+        var buf = allocator.buffer(capacity: header.utf8.count + 4 + body.utf8.count)
+        buf.writeString(header)
+        buf.writeString("\r\n\r\n")
+        buf.writeString(body)
+        clientChannel.writeAndFlush(NIOAny(buf), promise: nil)
+        jsonResponseBuffer = ""
+        pendingHeaderBlock = nil
+        jsonReversalActive = false
+        jsonReversalCompleted = true
+    }
+
+    private func parseContentLength(_ headersLower: String) -> Int? {
+        // Header block is already lowercased here.
+        guard let range = headersLower.range(of: "content-length:") else { return nil }
+        let after = headersLower[range.upperBound...]
+        let line = after.split(separator: "\r\n", maxSplits: 1).first ?? after[..<after.endIndex]
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        return Int(trimmed)
+    }
+
+    static func replaceContentLength(in headerBlock: String, with newLength: Int) -> String {
+        // Case-insensitive replace of the Content-Length value; preserve
+        // the original casing of the header name.
+        let pattern = #"(?im)^(content-length\s*:\s*)\d+"#
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return headerBlock }
+        let nsHeader = headerBlock as NSString
+        let range = NSRange(location: 0, length: nsHeader.length)
+        return regex.stringByReplacingMatches(
+            in: headerBlock,
+            range: range,
+            withTemplate: "$1\(newLength)"
+        )
     }
 
     private func forwardBody(_ chunk: String, context: ChannelHandlerContext) {
@@ -576,4 +818,34 @@ struct RequestLog: Sendable {
     let entropyAnomaly: Double
     let fusedScore: Double
     let mlAvailable: Bool
+    /// PII redaction audit for this request. Empty when the redactor
+    /// didn't run (feature off, domain on deny list, body not scanned).
+    /// Carries type + offsets + hash prefix per entry; never cleartext.
+    let piiAudit: [PIIRedactor.AuditEntry]
+
+    init(
+        timestamp: Date,
+        targetHost: String,
+        detected: Bool,
+        matchCount: Int,
+        patternNames: [String],
+        bodySize: Int,
+        mlScore: Float?,
+        entropyAnomaly: Double,
+        fusedScore: Double,
+        mlAvailable: Bool,
+        piiAudit: [PIIRedactor.AuditEntry] = []
+    ) {
+        self.timestamp = timestamp
+        self.targetHost = targetHost
+        self.detected = detected
+        self.matchCount = matchCount
+        self.patternNames = patternNames
+        self.bodySize = bodySize
+        self.mlScore = mlScore
+        self.entropyAnomaly = entropyAnomaly
+        self.fusedScore = fusedScore
+        self.mlAvailable = mlAvailable
+        self.piiAudit = piiAudit
+    }
 }

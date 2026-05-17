@@ -52,6 +52,21 @@ enum FeatureFlags {
         #endif
     }
 
+    /// Whether the PII redactor runs on outbound chat-completion bodies.
+    /// Ships off in v0.2.13 so users have to opt in explicitly while the
+    /// detector set matures; MDM admins can flip it on for the whole org.
+    /// Once Phase 2 (Piiranha CoreML) and Phase 3 (streaming reversal)
+    /// land we flip the default to on.
+    ///
+    /// The user-facing pause button (RedactionPause) layers on top of
+    /// this: even when the flag is on, an active pause short-circuits
+    /// the resolver to false. Per-domain policy adds a second gate at
+    /// the call site (`PIIPolicy.shouldRedact(host:)`).
+    static var piiRedaction: Bool {
+        if RedactionPause.isPaused() { return false }
+        return resolve(key: "piiRedaction", default: false)
+    }
+
     // MARK: - Resolution
 
     /// Test-only override: set a value here to force a flag regardless

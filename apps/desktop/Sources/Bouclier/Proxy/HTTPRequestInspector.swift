@@ -66,6 +66,48 @@ enum HTTPRequestInspector {
         let mlAvailable: Bool
     }
 
+    /// Result of a PII redaction pass on the post-injection-sanitized body.
+    /// Returned separately from `InspectionResult` so the TLS handler can
+    /// retain the per-connection session and apply reversal on the
+    /// response without threading it through the inspection contract.
+    struct PIIPass: Sendable {
+        /// Body after PII tokens have been substituted in. Equal to the
+        /// input when no PII was detected or when redaction is disabled.
+        let body: ByteBuffer
+        /// Per-redaction audit entries (type + offsets, never cleartext).
+        let audit: [PIIRedactor.AuditEntry]
+    }
+
+    /// Run the PII redactor over a sanitized request body. Composed by
+    /// the TLS handler *after* `inspect()` so injection-blocked bodies
+    /// never reach the PII pass. Idempotent and safe to call when
+    /// `FeatureFlags.piiRedaction` is off (returns the input unchanged).
+    static func applyPIIRedaction(
+        body: ByteBuffer,
+        contentType: String,
+        method: HTTPMethod,
+        redactor: PIIRedactor,
+        session: PIISession,
+        allocator: ByteBufferAllocator
+    ) async -> PIIPass {
+        guard FeatureFlags.piiRedaction else {
+            return PIIPass(body: body, audit: [])
+        }
+        guard shouldScanBody(contentType: contentType, method: method),
+              body.readableBytes > 0,
+              let text = body.getString(at: body.readerIndex, length: body.readableBytes)
+        else {
+            return PIIPass(body: body, audit: [])
+        }
+        let (redacted, audit) = await redactor.redact(text, with: session)
+        if audit.isEmpty {
+            return PIIPass(body: body, audit: [])
+        }
+        var buf = allocator.buffer(capacity: redacted.utf8.count)
+        buf.writeString(redacted)
+        return PIIPass(body: buf, audit: audit)
+    }
+
     /// Inspect a complete HTTP request. Returns nil only if the request
     /// must be dropped entirely (oversized body).
     static func inspect(
