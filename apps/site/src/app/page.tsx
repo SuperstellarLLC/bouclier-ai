@@ -73,6 +73,12 @@ export default function Home() {
               PII redaction
             </a>
             <a
+              href="#multimodal"
+              className="text-text-secondary hover:text-text text-sm transition-colors"
+            >
+              Multimodal
+            </a>
+            <a
               href="#how"
               className="text-text-secondary hover:text-text text-sm transition-colors"
             >
@@ -136,8 +142,9 @@ export default function Home() {
             <p className="text-text-secondary mx-auto mt-6 max-w-2xl text-lg leading-relaxed">
               Bouclier.ai sits between your apps and AI providers and inspects every prompt before
               it leaves your Mac. Prompt injections get stripped; emails, IBANs, NHS numbers and
-              other PII get replaced with reversible placeholders so the model still answers
-              correctly. Runs locally — your prompts never leave your Mac.
+              other PII get replaced with reversible placeholders. New in v0.4 — images, PDFs and
+              audio clips are inspected too, with flagged attachments blocked before they leave your
+              Mac. Runs locally — your prompts never leave your Mac.
             </p>
 
             <p className="mt-3 inline-flex items-center gap-2 rounded-full border border-amber-300 bg-amber-50 px-3 py-1 text-xs font-medium text-amber-900">
@@ -218,6 +225,52 @@ export default function Home() {
                 Terms
               </Link>{" "}
               for the limits.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      {/* ── Multimodal inspection ────────────────── */}
+      <section id="multimodal" className="border-border border-t bg-white py-24">
+        <div className="mx-auto max-w-5xl px-6">
+          <div className="reveal">
+            <SectionLabel>Multimodal — new in v0.4</SectionLabel>
+            <h2 className="mt-3 text-3xl font-bold tracking-tight">
+              PII hides in attachments too.
+            </h2>
+            <p className="text-text-secondary mt-4 max-w-2xl">
+              A screenshot of an invoice, a scanned NDA, a 30-second voice memo — modern LLM clients
+              accept all of it, and a regex pass over the JSON body sees none of it. Bouclier.ai
+              opens images, PDFs and audio clips on the way out, scans them with Apple&apos;s
+              on-device Vision, PDFKit and Speech frameworks, and replaces flagged attachments with
+              a short text placeholder so the model still gets the gist without the leak.
+            </p>
+          </div>
+
+          <div className="reveal-stagger reveal-stagger-3 mt-12 grid gap-6 md:grid-cols-3">
+            <FlowCard
+              step="01"
+              title="Images"
+              description="Vision OCR + face detection on every image in OpenAI / Anthropic / Gemini multimodal shapes. EXIF orientation honored, 2000 px downscale, 4-concurrency throttle."
+            />
+            <FlowCard
+              step="02"
+              title="PDFs"
+              description="PDFKit text-layer extraction with Vision OCR fallback for scanned pages. Encrypted or oversized PDFs surface as unscannable and get stripped — never silently forwarded."
+            />
+            <FlowCard
+              step="03"
+              title="Audio"
+              description="On-device Apple Speech transcription up to 60 seconds. No audio leaves your Mac. Unsupported formats get blocked rather than passed through."
+            />
+          </div>
+
+          <div className="reveal border-border mt-12 rounded-2xl border bg-white p-6">
+            <p className="text-text-secondary text-sm">
+              Multimodal inspection ships <strong>off by default</strong> and is opt-in from
+              Settings → Privacy. Multipart file uploads to the OpenAI Files API and Anthropic
+              messages with PDF / image / audio blocks are all supported. Detection runs entirely on
+              your Mac — no cloud OCR, no cloud transcription, no telemetry.
             </p>
           </div>
         </div>

@@ -1,11 +1,23 @@
 import Testing
 @testable import Bouclier
 
-@Suite("FeatureFlags")
+/// Per-key reset rather than a blanket `clearTestOverrides()`, so this
+/// suite doesn't wipe overrides set concurrently by other serialized
+/// suites (notably MultimodalIntegrationTests which holds the
+/// `multimodalInspection` flag for the duration of its tests). The
+/// `clearAll` test below still exercises the global wipe explicitly —
+/// it's `.serialized` with this suite to keep the wipe atomic for its
+/// own assertions.
+@Suite("FeatureFlags", .serialized)
 struct FeatureFlagsTests {
+    private static let keysOwned = ["sseInspection", "uriScanning", "telemetryEnabled"]
+    private static func resetOwnedKeys() {
+        for key in keysOwned { FeatureFlags.setTestOverride(key, nil) }
+    }
+
     @Test("Default values in the absence of overrides")
     func defaults() {
-        FeatureFlags.clearTestOverrides()
+        Self.resetOwnedKeys()
         #expect(FeatureFlags.sseInspection)
         #expect(FeatureFlags.uriScanning)
         #expect(FeatureFlags.telemetryEnabled)
@@ -13,8 +25,8 @@ struct FeatureFlagsTests {
 
     @Test("Test overrides take precedence over defaults")
     func overridesWin() {
-        FeatureFlags.clearTestOverrides()
-        defer { FeatureFlags.clearTestOverrides() }
+        Self.resetOwnedKeys()
+        defer { Self.resetOwnedKeys() }
 
         FeatureFlags.setTestOverride("sseInspection", false)
         #expect(!FeatureFlags.sseInspection)
@@ -28,6 +40,9 @@ struct FeatureFlagsTests {
 
     @Test("Clearing all overrides restores defaults")
     func clearAll() {
+        // Deliberately exercises the global wipe API. Serialized at the
+        // suite level so cross-suite interleaving doesn't observe the
+        // wipe at an inconvenient moment.
         FeatureFlags.setTestOverride("uriScanning", false)
         FeatureFlags.setTestOverride("telemetryEnabled", false)
         FeatureFlags.clearTestOverrides()
@@ -37,8 +52,8 @@ struct FeatureFlagsTests {
 
     @Test("Disabling uriScanning skips URI matches in inspector")
     func uriScanningDisabled() {
-        FeatureFlags.clearTestOverrides()
-        defer { FeatureFlags.clearTestOverrides() }
+        FeatureFlags.setTestOverride("uriScanning", nil)
+        defer { FeatureFlags.setTestOverride("uriScanning", nil) }
 
         let filter = InjectionFilter()
         let allocator = NIOCore.ByteBufferAllocator()

@@ -182,7 +182,7 @@ struct PIIPipelineTests {
     @Test("applyPIIRedaction is a no-op when the feature flag is off")
     func applyDisabledByDefault() async {
         FeatureFlags.setTestOverride("piiRedaction", false)
-        defer { FeatureFlags.clearTestOverrides() }
+        defer { FeatureFlags.setTestOverride("piiRedaction", nil) }
 
         let allocator = ByteBufferAllocator()
         var body = allocator.buffer(capacity: 64)
@@ -203,7 +203,7 @@ struct PIIPipelineTests {
     @Test("applyPIIRedaction substitutes tokens and emits audit entries when enabled")
     func applyEnabled() async {
         FeatureFlags.setTestOverride("piiRedaction", true)
-        defer { FeatureFlags.clearTestOverrides() }
+        defer { FeatureFlags.setTestOverride("piiRedaction", nil) }
 
         let allocator = ByteBufferAllocator()
         var body = allocator.buffer(capacity: 256)
@@ -229,7 +229,7 @@ struct PIIPipelineTests {
     @Test("applyPIIRedaction skips binary/multipart bodies")
     func skipsBinary() async {
         FeatureFlags.setTestOverride("piiRedaction", true)
-        defer { FeatureFlags.clearTestOverrides() }
+        defer { FeatureFlags.setTestOverride("piiRedaction", nil) }
 
         let allocator = ByteBufferAllocator()
         var body = allocator.buffer(capacity: 32)
@@ -250,7 +250,7 @@ struct PIIPipelineTests {
     @Test("End-to-end: outbound redact + inbound reverse restore the prompt across a fake LLM hop")
     func endToEndRoundTrip() async {
         FeatureFlags.setTestOverride("piiRedaction", true)
-        defer { FeatureFlags.clearTestOverrides() }
+        defer { FeatureFlags.setTestOverride("piiRedaction", nil) }
 
         let allocator = ByteBufferAllocator()
         let redactor = PIIRedactor()

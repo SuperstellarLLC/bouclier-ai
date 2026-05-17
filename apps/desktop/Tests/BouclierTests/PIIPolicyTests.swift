@@ -101,7 +101,7 @@ struct RedactionPauseTests {
     @Test("FeatureFlags.piiRedaction returns false while paused (panic short-circuit)")
     func featureFlagShortCircuit() {
         FeatureFlags.setTestOverride("piiRedaction", true)
-        defer { FeatureFlags.clearTestOverrides() }
+        defer { FeatureFlags.setTestOverride("piiRedaction", nil) }
         #expect(FeatureFlags.piiRedaction == true)
         RedactionPause.pause(for: 60)
         defer { RedactionPause.resume() }
@@ -110,10 +110,12 @@ struct RedactionPauseTests {
 
     @Test("User UserDefaults <flag>Enabled overrides the compile-time default")
     func userDefaultsBridge() {
-        // Clean slate.
+        // Clean slate — per-key so we don't wipe overrides held by
+        // serialized siblings (e.g. MultimodalIntegrationTests).
         UserDefaults.standard.removeObject(forKey: "piiRedactionEnabled")
         UserDefaults.standard.removeObject(forKey: "multimodalInspectionEnabled")
-        FeatureFlags.clearTestOverrides()
+        FeatureFlags.setTestOverride("piiRedaction", nil)
+        FeatureFlags.setTestOverride("multimodalInspection", nil)
         // Default posture: both off.
         #expect(FeatureFlags.piiRedaction == false)
         #expect(FeatureFlags.multimodalInspection == false)
