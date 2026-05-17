@@ -7,10 +7,18 @@ import Foundation
 /// regexes once). One *session* per TLS connection — the redactor takes
 /// the session as a parameter to every call.
 final class PIIRedactor: @unchecked Sendable {
-    private let scanner: PIIScanner
+    /// Scanner override for tests. When nil (the default), the redactor
+    /// reads `PIIScanner.active.current()` lazily on every `redact`
+    /// call so the ML tier becomes available the moment PatternManager
+    /// finishes loading Piiranha — without rebuilding the redactor.
+    private let scannerOverride: PIIScanner?
 
-    init(scanner: PIIScanner = PIIScanner()) {
-        self.scanner = scanner
+    init(scanner: PIIScanner? = nil) {
+        self.scannerOverride = scanner
+    }
+
+    private var scanner: PIIScanner {
+        scannerOverride ?? PIIScanner.active.current()
     }
 
     /// Single PII redaction event for the audit log.
@@ -32,7 +40,11 @@ final class PIIRedactor: @unchecked Sendable {
         redacted: String,
         audit: [AuditEntry]
     ) {
-        let detections = scanner.scan(content)
+        // `scanWithML` falls back to regex+native when the ML tier
+        // isn't loaded yet, so this path is correct on both the
+        // pre-Piiranha (regex+native only) and post-Piiranha (fused)
+        // sides of the classifier's async load.
+        let detections = await scanner.scanWithML(content)
         if detections.isEmpty {
             return (content, [])
         }

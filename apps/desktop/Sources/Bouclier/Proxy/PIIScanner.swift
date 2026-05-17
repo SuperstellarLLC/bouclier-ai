@@ -11,7 +11,41 @@ import Foundation
 /// Phase 2 (Piiranha mDeBERTa on CoreML) will plug into this scanner as
 /// an optional second signal, mirroring `MLClassifier`'s relationship
 /// to `InjectionFilter`.
+/// Process-wide registry for the active PIIScanner.
+///
+/// The scanner is mutable across the app's lifetime because the ML
+/// tier (Piiranha) loads asynchronously after startup. We can't bake
+/// the classifier into the TLS handler chain at construction time
+/// because by then no model has loaded yet; threading a provider
+/// closure through ConnectHandler → HandshakeWaiter → HTTPInspectionHandler
+/// would be three handlers of boilerplate for a single swap that
+/// happens exactly once per process.
+///
+/// Instead PatternManager owns the lifecycle and calls
+/// `PIIScanner.active.install(_:)` when the classifier is ready. Every
+/// `PIIRedactor.redact` call reads `PIIScanner.active.current()` lazily,
+/// so connections opened before the swap automatically pick up the
+/// ML tier on their next prompt.
+final class ActivePIIScannerRegistry: @unchecked Sendable {
+    private let lock = NSLock()
+    private var scanner = PIIScanner()
+
+    func current() -> PIIScanner {
+        lock.lock(); defer { lock.unlock() }
+        return scanner
+    }
+
+    func install(_ new: PIIScanner) {
+        lock.lock(); defer { lock.unlock() }
+        scanner = new
+    }
+}
+
 final class PIIScanner: @unchecked Sendable {
+    /// The process-wide active scanner. See `ActivePIIScannerRegistry`
+    /// for the rationale.
+    static let active = ActivePIIScannerRegistry()
+
     /// A single PII span found in the input.
     struct Detection: Sendable, Equatable {
         let type: String
@@ -30,21 +64,84 @@ final class PIIScanner: @unchecked Sendable {
 
     private let detectors: [Detector]
 
-    init() {
+    /// Native NSDataDetector pass — PHONE + ADDRESS. Always-on, free.
+    private let nativeDetector: PIINativeDetector
+
+    /// Optional ML classifier (Piiranha). Nil until the bundled
+    /// `.mlpackage` is converted and loaded; managed by PatternManager,
+    /// then handed back via `withMLClassifier(_:)` so the scanner can
+    /// stay value-typey at construction.
+    private let mlClassifier: PIIClassifier?
+
+    /// Whether the ML tier is currently active. Diagnostic surface for
+    /// the menu bar / settings.
+    var hasMLClassifier: Bool { mlClassifier != nil }
+
+    init(mlClassifier: PIIClassifier? = nil, nativeDetector: PIINativeDetector = .shared) {
         self.detectors = Self.buildDetectors()
+        self.nativeDetector = nativeDetector
+        self.mlClassifier = mlClassifier
     }
 
-    /// Scan a string for PII. Returns non-overlapping detections in
-    /// input order.
+    /// Return a copy of this scanner with the ML classifier attached.
+    /// Lets PatternManager swap classifiers in once the async load
+    /// completes without rebuilding the regex list each time.
+    func withMLClassifier(_ classifier: PIIClassifier?) -> PIIScanner {
+        PIIScanner(mlClassifier: classifier, nativeDetector: nativeDetector)
+    }
+
+    /// Synchronous scan — regex + native only. ML is excluded from this
+    /// path because CoreML inference is async; callers that need ML
+    /// recall should use `scanWithML(_:)`. Used everywhere the proxy
+    /// is on a sync code path (most of v0.3.x).
     func scan(_ content: String) -> [Detection] {
         guard !content.isEmpty else { return [] }
+        let raw = collectRegexDetections(content)
+        let native = nativeDetector.scan(content)
+        let nativeRank = detectors.count
+        var all = raw
+        all.append(contentsOf: native.map { Raw(d: $0, rank: nativeRank) })
+        return resolveOverlaps(all)
+    }
+
+    /// Async scan that includes the ML classifier when loaded. Falls
+    /// back to the regex+native result if the ML pass throws — a
+    /// per-request failure must never block a redaction.
+    func scanWithML(_ content: String) async -> [Detection] {
+        guard !content.isEmpty else { return [] }
+        let regexRaw = collectRegexDetections(content)
+        let native = nativeDetector.scan(content)
+        let nativeRank = detectors.count
+
+        var all = regexRaw
+        all.append(contentsOf: native.map { Raw(d: $0, rank: nativeRank) })
+
+        if let classifier = mlClassifier {
+            do {
+                let mlHits = try await classifier.classify(content)
+                let mlRank = detectors.count + 1
+                all.append(contentsOf: mlHits.map { Raw(d: $0, rank: mlRank) })
+            } catch {
+                // Per-request ML failure is non-fatal: regex+native
+                // already gave us a useful result; the upstream relay
+                // sees the same redacted body it would have without ML.
+            }
+        }
+        return resolveOverlaps(all)
+    }
+
+    // MARK: - Internals
+
+    private struct Raw {
+        let d: Detection
+        let rank: Int
+    }
+
+    /// Run the full regex detector list. Same logic as before — kept
+    /// in a helper so both the sync and async public APIs share it.
+    private func collectRegexDetections(_ content: String) -> [Raw] {
         let nsContent = content as NSString
         let fullRange = NSRange(location: 0, length: nsContent.length)
-
-        struct Raw {
-            let d: Detection
-            let rank: Int
-        }
         var raw: [Raw] = []
         for (rank, det) in detectors.enumerated() {
             det.regex.enumerateMatches(in: content, range: fullRange) { result, _, _ in
@@ -61,16 +158,19 @@ final class PIIScanner: @unchecked Sendable {
                 raw.append(Raw(d: det, rank: rank))
             }
         }
+        return raw
+    }
 
+    /// Sort + dedupe overlapping spans. Ordering rule: earliest start
+    /// wins; on ties, lower rank wins; on further ties, longer span
+    /// wins so we never leave a PII residue in the tail.
+    private func resolveOverlaps(_ raw: [Raw]) -> [Detection] {
+        var raw = raw
         raw.sort { a, b in
             if a.d.start != b.d.start { return a.d.start < b.d.start }
             if a.rank != b.rank { return a.rank < b.rank }
-            // Longest span at the same start/rank wins so we don't leak
-            // an un-redacted tail. Documented invariant — see R1 in the
-            // S-tier review (scanner.ts:45 dead-code fix).
             return a.d.end > b.d.end
         }
-
         var out: [Detection] = []
         var lastEnd = -1
         for item in raw where item.d.start >= lastEnd {
