@@ -40,10 +40,30 @@ extract_changelog_section() {
 # Sparkle renders in its update dialog: `### Heading` → <h4>, `- item`
 # → <li> grouped in <ul>, two-space-indented continuation lines append
 # to the previous <li>, blank lines split blocks.
+#
+# Inline markdown is reduced to safe HTML: `**bold**` → <strong>, and
+# `` `code` `` → <code>. Without this, Sparkle's dialog renders the
+# literal asterisks and backticks — which looks unfinished.
 markdown_to_sparkle_html() {
   awk '
+    function inline_md(s,    out) {
+      out = s
+      # **bold** → <strong>...</strong>. Repeat until no pairs remain.
+      while (match(out, /\*\*[^*]+\*\*/)) {
+        out = substr(out, 1, RSTART - 1) "<strong>" \
+              substr(out, RSTART + 2, RLENGTH - 4) "</strong>" \
+              substr(out, RSTART + RLENGTH)
+      }
+      # `code` → <code>...</code>. Same idea.
+      while (match(out, /`[^`]+`/)) {
+        out = substr(out, 1, RSTART - 1) "<code>" \
+              substr(out, RSTART + 1, RLENGTH - 2) "</code>" \
+              substr(out, RSTART + RLENGTH)
+      }
+      return out
+    }
     function flush_item() {
-      if (buf != "") { print "<li>" buf "</li>"; buf = "" }
+      if (buf != "") { print "<li>" inline_md(buf) "</li>"; buf = "" }
     }
     function flush_list() {
       flush_item()
@@ -54,7 +74,7 @@ markdown_to_sparkle_html() {
     /^### / {
       flush_list()
       sub(/^### /, "")
-      print "<h4>" $0 "</h4>"
+      print "<h4>" inline_md($0) "</h4>"
       next
     }
     /^- / {
@@ -66,10 +86,10 @@ markdown_to_sparkle_html() {
     }
     /^  / {
       sub(/^ +/, " ")
-      if (in_list && buf != "") { buf = buf $0 } else { print "<p>" $0 "</p>" }
+      if (in_list && buf != "") { buf = buf $0 } else { print "<p>" inline_md($0) "</p>" }
       next
     }
-    { flush_list(); print "<p>" $0 "</p>" }
+    { flush_list(); print "<p>" inline_md($0) "</p>" }
     END { flush_list() }
   '
 }
