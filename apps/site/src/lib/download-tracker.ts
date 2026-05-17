@@ -30,7 +30,7 @@ const ALLOWED_CHANNELS = new Set(["site", "github", "homebrew", "direct", "other
 export interface DownloadEvent {
   /** ISO 8601 UTC timestamp at server-receive time. */
   ts: string;
-  /** App version requested (e.g. "0.2.12"). */
+  /** App version requested (e.g. "0.3.0"). */
   version: string;
   /**
    * High-level surface that initiated the download — distinguishes a
