@@ -95,7 +95,15 @@ export type PIIEntityType =
   // Native (NSDataDetector on macOS, regex elsewhere)
   | "PHONE"
   | "ADDRESS"
-  | "DATE_OF_BIRTH";
+  | "DATE_OF_BIRTH"
+  // ML-only labels (Piiranha mDeBERTa-v3 token classification, Phase 2)
+  | "PERSON"
+  | "USERNAME"
+  | "ID_NUM"
+  | "DRIVER_LICENSE"
+  | "MEDICAL_LICENSE"
+  | "BANK_ACCOUNT"
+  | "TAX_NUM";
 
 /** A single detected PII span. Offsets are into the original (un-normalized) input. */
 export interface PIIDetection {

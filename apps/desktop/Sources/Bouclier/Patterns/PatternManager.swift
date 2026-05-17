@@ -23,17 +23,33 @@ final class PatternManager: @unchecked Sendable {
     private var _patterns: [FilterPattern]
     private var _classifier: MLClassifier?
     private var _classifierLoadError: String?
+    private var _piiClassifier: PIIClassifier?
+    private var _piiClassifierLoadError: String?
     private var fileMonitor: DispatchSourceFileSystemObject?
     private var monitorFD: Int32 = -1
     private var onChange: (() -> Void)?
 
-    /// Reason the classifier failed to load (nil while loading or after
-    /// successful load). Surfaced to the UI so the menu bar can distinguish
-    /// "still warming up" from "not coming, here's why".
+    /// Reason the injection classifier (Prompt Guard 2) failed to load.
     var classifierLoadError: String? {
         lock.lock()
         defer { lock.unlock() }
         return _classifierLoadError
+    }
+
+    /// Reason the PII classifier (Piiranha) failed to load. Nil while
+    /// loading or on success. Distinct from `classifierLoadError` —
+    /// users can have one tier active without the other.
+    var piiClassifierLoadError: String? {
+        lock.lock()
+        defer { lock.unlock() }
+        return _piiClassifierLoadError
+    }
+
+    /// Whether the PII ML tier (Piiranha) is currently active.
+    var hasPIIClassifier: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return _piiClassifier != nil
     }
 
     static let userPatternsDir: URL = {
@@ -70,6 +86,44 @@ final class PatternManager: @unchecked Sendable {
         Task.detached(priority: .utility) { [weak self] in
             await self?.loadClassifierAsync()
         }
+        Task.detached(priority: .utility) { [weak self] in
+            await self?.loadPIIClassifierAsync()
+        }
+    }
+
+    /// Load the PII NER classifier (Piiranha mDeBERTa-v3) on a
+    /// background task and swap the process-wide active PII scanner
+    /// when ready. Failure is non-fatal — the redactor stays on
+    /// regex+native for the rest of the process. Mirrors
+    /// `loadClassifierAsync()` line-for-line.
+    private func loadPIIClassifierAsync() async {
+        do {
+            let classifier = try await PIIClassifier()
+            installPIIClassifier(classifier)
+        } catch {
+            recordPIIClassifierLoadFailure(error)
+        }
+    }
+
+    private func recordPIIClassifierLoadFailure(_ error: Error) {
+        let reason = "\(error)"
+        lock.lock()
+        _piiClassifierLoadError = reason
+        lock.unlock()
+        print("[bouclier.ai] PII ML classifier unavailable, staying on regex+native: \(reason)")
+        onChange?()
+    }
+
+    private func installPIIClassifier(_ classifier: PIIClassifier) {
+        lock.lock()
+        _piiClassifier = classifier
+        let scanner = PIIScanner(mlClassifier: classifier)
+        lock.unlock()
+        // Swap the process-wide active scanner so new and existing
+        // PIIRedactor calls pick up the ML tier on their next prompt.
+        PIIScanner.active.install(scanner)
+        print("[bouclier.ai] PII ML classifier loaded — fused PII detection active (regex + native + Piiranha)")
+        onChange?()
     }
 
     /// Load the on-device CoreML classifier on a background task and
