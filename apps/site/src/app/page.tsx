@@ -55,6 +55,9 @@ export default function Home() {
               className="rounded-[5px]"
             />
             <span className="text-text text-[15px] font-semibold tracking-tight">Bouclier.ai</span>
+            <span className="rounded-md border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-amber-800">
+              Beta
+            </span>
           </Link>
           <div className="hidden items-center gap-6 sm:flex">
             <a
@@ -62,6 +65,12 @@ export default function Home() {
               className="text-text-secondary hover:text-text text-sm transition-colors"
             >
               Try it
+            </a>
+            <a
+              href="#pii"
+              className="text-text-secondary hover:text-text text-sm transition-colors"
+            >
+              PII redaction
             </a>
             <a
               href="#how"
@@ -80,6 +89,12 @@ export default function Home() {
               className="text-text-secondary hover:text-text text-sm transition-colors"
             >
               Privacy
+            </Link>
+            <Link
+              href="/terms"
+              className="text-text-secondary hover:text-text text-sm transition-colors"
+            >
+              Terms
             </Link>
             <a
               href={DOWNLOAD_URL}
@@ -105,20 +120,29 @@ export default function Home() {
 
           <div className="hero-recede relative">
             <div className="border-bouclier/20 text-bouclier mb-6 inline-flex items-center gap-2 rounded-full border bg-white px-4 py-1.5 text-sm font-medium shadow-sm">
-              <span className="bg-accent-green h-1.5 w-1.5 rounded-full" />v{APP_VERSION} —{" "}
-              {PATTERN_COUNT} patterns across {CATEGORY_COUNT} categories
+              <span className="bg-accent-green h-1.5 w-1.5 rounded-full" />
+              <span className="rounded-sm bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-amber-800">
+                Beta
+              </span>
+              v{APP_VERSION} — {PATTERN_COUNT} patterns across {CATEGORY_COUNT} categories
             </div>
 
             <h1 className="text-text mx-auto max-w-3xl text-5xl font-bold leading-[1.1] tracking-tight sm:text-6xl">
-              Your AI traffic deserves
+              Stop prompt injections.
               <br />
-              <span className="text-bouclier">a local firewall.</span>
+              <span className="text-bouclier">Stop PII from leaking to LLMs.</span>
             </h1>
 
             <p className="text-text-secondary mx-auto mt-6 max-w-2xl text-lg leading-relaxed">
-              Bouclier.ai scans every request and streaming response to AI providers for prompt
-              injection — before they reach the model. Runs entirely on your Mac. No data ever
-              leaves your machine.
+              Bouclier.ai sits between your apps and AI providers and inspects every prompt before
+              it leaves your Mac. Prompt injections get stripped; emails, IBANs, NHS numbers and
+              other PII get replaced with reversible placeholders so the model still answers
+              correctly. Runs locally — no data leaves your machine.
+            </p>
+
+            <p className="mt-3 inline-flex items-center gap-2 rounded-full border border-amber-300 bg-amber-50 px-3 py-1 text-xs font-medium text-amber-900">
+              <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+              Experimental software — not intended for production use
             </p>
 
             <div className="mt-10 flex items-center justify-center gap-4">
@@ -148,6 +172,56 @@ export default function Home() {
 
       {/* ── Live playground ──────────────────────── */}
       <Playground />
+
+      {/* ── PII redaction ─────────────────────────── */}
+      <section id="pii" className="border-border bg-surface border-t py-24">
+        <div className="mx-auto max-w-5xl px-6">
+          <div className="reveal">
+            <SectionLabel>PII redaction</SectionLabel>
+            <h2 className="mt-3 text-3xl font-bold tracking-tight">
+              Keep your data out of model logs.
+            </h2>
+            <p className="text-text-secondary mt-4 max-w-2xl">
+              Every prompt you paste into Claude, ChatGPT or Cursor is stored by the provider — your
+              customers&apos; emails, your colleagues&apos; SIRETs, your IBANs all sit in their
+              training set or their incident response logs. Bouclier.ai swaps each piece of PII for
+              a reversible placeholder on the way out and restores the original on the way back, so
+              the model never sees the cleartext and you still see normal answers.
+            </p>
+          </div>
+
+          <div className="reveal-stagger reveal-stagger-3 mt-12 grid gap-6 md:grid-cols-3">
+            <FlowCard
+              step="01"
+              title="Detect"
+              description="Regex + structural validators for emails, IBANs, credit cards, SSNs, French SIRET/SIREN/NIR, UK NHS / NINO / postcodes, US NPI, AWS keys, JWTs, IPs."
+            />
+            <FlowCard
+              step="02"
+              title="Tokenize"
+              description="Each value is replaced with an unguessable placeholder keyed to a per-connection HMAC. No central vault. No cloud round-trip."
+            />
+            <FlowCard
+              step="03"
+              title="Reverse"
+              description="On the way back the placeholders are replaced with the original values locally. The model answers naturally; you see your data, not tokens."
+            />
+          </div>
+
+          <div className="reveal border-border mt-12 rounded-2xl border bg-white p-6">
+            <p className="text-text-secondary text-sm">
+              PII redaction ships <strong>off by default</strong> in this release. Enable it from
+              Settings → Privacy when you&apos;re ready. Per-domain allow / deny lists let you
+              bypass internal LLM gateways or embedding endpoints where redaction would break the
+              request. Detection is best-effort and probabilistic — see{" "}
+              <Link href="/terms" className="text-bouclier hover:underline">
+                Terms
+              </Link>{" "}
+              for the limits.
+            </p>
+          </div>
+        </div>
+      </section>
 
       {/* ── How it works ─────────────────────────── */}
       <section id="how" className="border-border bg-surface border-t py-24">
@@ -410,6 +484,9 @@ export default function Home() {
                 className="rounded-[4px]"
               />
               <span className="text-text text-sm font-semibold">Bouclier.ai</span>
+              <span className="rounded-md border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-amber-800">
+                Beta
+              </span>
             </div>
             <div className="text-text-secondary flex gap-6 text-sm">
               <Link href="/blocked" className="hover:text-text transition-colors">
@@ -418,10 +495,21 @@ export default function Home() {
               <Link href="/privacy" className="hover:text-text transition-colors">
                 Privacy
               </Link>
+              <Link href="/terms" className="hover:text-text transition-colors">
+                Terms
+              </Link>
             </div>
           </div>
           <p className="text-text-secondary mt-4 text-xs">
             Built with Llama. Uses Meta Llama Prompt Guard 2 for on-device prompt attack detection.
+          </p>
+          <p className="text-text-secondary mt-1 text-xs">
+            Experimental, pre-1.0 software. Detection is best-effort; false positives and false
+            negatives will occur. Not intended for production or regulated workloads — see{" "}
+            <Link href="/terms" className="hover:text-text underline">
+              Terms
+            </Link>
+            .
           </p>
         </div>
       </footer>

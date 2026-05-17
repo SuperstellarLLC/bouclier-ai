@@ -42,6 +42,12 @@ export function MobileNav({ downloadUrl }: { downloadUrl: string }) {
       {open && (
         <div className="border-border absolute left-0 right-0 top-full border-b bg-white px-6 py-4">
           <div className="flex flex-col gap-3">
+            <div className="flex items-center gap-2">
+              <span className="rounded-md border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-amber-800">
+                Beta
+              </span>
+              <span className="text-text-secondary text-xs">Experimental — not for production</span>
+            </div>
             <a
               href="#playground"
               onClick={() => setOpen(false)}

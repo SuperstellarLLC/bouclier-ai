@@ -6,7 +6,12 @@ import { APP_VERSION, CATEGORY_COUNT, PATTERN_COUNT } from "@/lib/constants";
 describe("Home page", () => {
   it("renders the hero heading", () => {
     render(<Home />);
-    expect(screen.getByText(/a local firewall/i)).toBeInTheDocument();
+    expect(screen.getByText(/stop pii from leaking to llms/i)).toBeInTheDocument();
+  });
+
+  it("flags the product as beta", () => {
+    render(<Home />);
+    expect(screen.getAllByText(/beta/i).length).toBeGreaterThan(0);
   });
 
   it("renders the download button", () => {
@@ -16,7 +21,12 @@ describe("Home page", () => {
 
   it("renders the privacy section", () => {
     render(<Home />);
-    expect(screen.getByText(/nothing leaves your mac/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/no data leaves your machine/i).length).toBeGreaterThan(0);
+  });
+
+  it("surfaces the new PII redaction section", () => {
+    render(<Home />);
+    expect(screen.getByText(/keep your data out of model logs/i)).toBeInTheDocument();
   });
 
   it("advertises the current pattern and category counts", () => {
