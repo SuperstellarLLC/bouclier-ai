@@ -21,14 +21,28 @@ import Testing
 /// artefacts before each release.
 @Suite("PIIClassifier — graceful degradation when model is unbundled")
 struct PIIClassifierTests {
-    @Test("init() throws a documented error when the model is missing")
-    func initThrowsWhenModelMissing() async {
-        // The Piiranha resources aren't committed to the repo (model
-        // weights are ~280 MB). Either the model file is missing
-        // entirely, or the tokenizer / label map is missing — any of
-        // those three is enough to throw at init().
-        await #expect(throws: PIIClassifier.ClassifierError.self) {
+    @Test("init() either loads cleanly or throws a documented error")
+    func initContract() async {
+        // Two valid outcomes here. Both are tested as a single
+        // expectation because the bundle state varies between
+        // environments:
+        //
+        // 1. On CI / fresh checkouts, `Piiranha.mlpackage` is
+        //    gitignored (~280 MB), so init throws `.modelNotFound`
+        //    or one of the other documented errors.
+        // 2. On a contributor's machine after they've run
+        //    `scripts/convert-piiranha.py`, all three artefacts are
+        //    present and init returns a working classifier.
+        //
+        // Either way the contract holds: the proxy never crashes;
+        // failures surface through `ClassifierError.description`.
+        do {
             _ = try await PIIClassifier()
+            // Loaded successfully — that's a valid outcome.
+        } catch let err as PIIClassifier.ClassifierError {
+            #expect(!err.description.isEmpty)
+        } catch {
+            Issue.record("Unexpected error type \(type(of: error)): \(error)")
         }
     }
 

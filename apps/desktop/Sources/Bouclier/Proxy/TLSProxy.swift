@@ -332,7 +332,17 @@ private final class HTTPInspectionHandler: ChannelInboundHandler, RemovableChann
             && !inspection.detected
             && !inspection.bodyScanSkipped
 
-        if piiEligible {
+        // Multimodal inspection is independent of text PII — an image
+        // may carry an IBAN that's invisible to the text scanners.
+        // We run it whenever the feature flag is on AND injection
+        // didn't already block the request. Runs in the same Task as
+        // text PII so both passes share one cooperative hop.
+        let mmEligible = FeatureFlags.multimodalInspection
+            && !inspection.detected
+            && !inspection.bodyScanSkipped
+            && PIIPolicy.shared.shouldRedact(host: host)
+
+        if piiEligible || mmEligible {
             let contentType = head.headers.first(name: "Content-Type") ?? ""
             let method = head.method
             let allocator = context.channel.allocator
@@ -345,40 +355,62 @@ private final class HTTPInspectionHandler: ChannelInboundHandler, RemovableChann
             let hostRef = host
             let sizeRef = bodySize
             Task {
-                let pass = await HTTPRequestInspector.applyPIIRedaction(
-                    body: baseBody,
-                    contentType: contentType,
-                    method: method,
-                    redactor: redactor,
-                    session: session,
-                    allocator: allocator
-                )
+                // Multimodal first so the text-PII pass sees the
+                // post-rewrite body (text placeholders may themselves
+                // contain entity names we still want to redact).
+                let mmPass = mmEligible
+                    ? await HTTPRequestInspector.applyMultimodalInspection(
+                        body: baseBody,
+                        contentType: contentType,
+                        method: method,
+                        allocator: allocator
+                    )
+                    : HTTPRequestInspector.MultimodalPass(
+                        body: baseBody,
+                        report: MultimodalPIIInspector.Report(
+                            imagesScanned: 0, findings: [], latencyMs: 0
+                        )
+                    )
+
+                let pass = piiEligible
+                    ? await HTTPRequestInspector.applyPIIRedaction(
+                        body: mmPass.body,
+                        contentType: contentType,
+                        method: method,
+                        redactor: redactor,
+                        session: session,
+                        allocator: allocator
+                    )
+                    : HTTPRequestInspector.PIIPass(body: mmPass.body, audit: [])
+
                 eventLoop.execute { [weak self] in
                     guard let self else { return }
                     self.emitRequestLog(
                         host: hostRef,
                         bodySize: sizeRef,
                         inspection: inspectionRef,
-                        piiAudit: pass.audit
+                        piiAudit: pass.audit,
+                        multimodal: mmPass.report
                     )
                     self.forwardUpstream(head: headRef, body: pass.body, allocator: allocator)
                 }
             }
         } else {
-            emitRequestLog(host: host, bodySize: bodySize, inspection: inspection, piiAudit: [])
+            emitRequestLog(host: host, bodySize: bodySize, inspection: inspection, piiAudit: [], multimodal: nil)
             forwardUpstream(head: head, body: finalBody, allocator: context.channel.allocator)
         }
     }
 
-    /// Combine the injection inspection + the (optional) PII audit into
-    /// one RequestLog and emit it. The menu bar's PII-redacted badge
-    /// counts these audit entries; the audit log table joins them to
-    /// the parent scan_logs row.
+    /// Combine the injection inspection + the (optional) PII audit +
+    /// the (optional) multimodal report into one RequestLog and emit
+    /// it. The menu bar's counters and the audit-log table consume
+    /// the unified shape.
     private func emitRequestLog(
         host: String,
         bodySize: Int,
         inspection: HTTPRequestInspector.InspectionResult,
-        piiAudit: [PIIRedactor.AuditEntry]
+        piiAudit: [PIIRedactor.AuditEntry],
+        multimodal: MultimodalPIIInspector.Report?
     ) {
         onRequest(RequestLog(
             timestamp: Date(),
@@ -391,7 +423,8 @@ private final class HTTPInspectionHandler: ChannelInboundHandler, RemovableChann
             entropyAnomaly: inspection.entropyAnomaly,
             fusedScore: inspection.fusedScore,
             mlAvailable: inspection.mlAvailable,
-            piiAudit: piiAudit
+            piiAudit: piiAudit,
+            multimodal: multimodal
         ))
     }
 
@@ -822,6 +855,10 @@ struct RequestLog: Sendable {
     /// didn't run (feature off, domain on deny list, body not scanned).
     /// Carries type + offsets + hash prefix per entry; never cleartext.
     let piiAudit: [PIIRedactor.AuditEntry]
+    /// Multimodal scan report. Nil when multimodal inspection didn't
+    /// run for this request (feature off, etc.); empty findings when
+    /// it ran and the images were clean.
+    let multimodal: MultimodalPIIInspector.Report?
 
     init(
         timestamp: Date,
@@ -834,7 +871,8 @@ struct RequestLog: Sendable {
         entropyAnomaly: Double,
         fusedScore: Double,
         mlAvailable: Bool,
-        piiAudit: [PIIRedactor.AuditEntry] = []
+        piiAudit: [PIIRedactor.AuditEntry] = [],
+        multimodal: MultimodalPIIInspector.Report? = nil
     ) {
         self.timestamp = timestamp
         self.targetHost = targetHost
@@ -847,5 +885,6 @@ struct RequestLog: Sendable {
         self.fusedScore = fusedScore
         self.mlAvailable = mlAvailable
         self.piiAudit = piiAudit
+        self.multimodal = multimodal
     }
 }

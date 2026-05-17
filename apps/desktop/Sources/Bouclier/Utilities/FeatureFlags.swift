@@ -67,6 +67,16 @@ enum FeatureFlags {
         return resolve(key: "piiRedaction", default: false)
     }
 
+    /// Whether outbound multimodal requests (images today; PDFs/audio
+    /// in later phases) get inspected for PII via Vision + downstream
+    /// scanners and have flagged media stripped before forwarding.
+    /// Off by default in v0.4.0 so users opt in alongside the
+    /// existing text PII redaction. Subject to the same pause switch.
+    static var multimodalInspection: Bool {
+        if RedactionPause.isPaused() { return false }
+        return resolve(key: "multimodalInspection", default: false)
+    }
+
     // MARK: - Resolution
 
     /// Test-only override: set a value here to force a flag regardless
@@ -83,10 +93,27 @@ enum FeatureFlags {
     }
 
     private static func resolve(key: String, default fallback: Bool) -> Bool {
+        // Resolution order:
+        //   1. Test override — for unit tests that need to flip a flag
+        //      without mutating shared state.
+        //   2. MDM-managed value — enterprise IT has the final say
+        //      because compliance configs must be enforceable.
+        //   3. User-set value via @AppStorage("<key>Enabled") — lets
+        //      a power user opt in to the feature on a non-managed
+        //      Mac without the Settings UI being purely cosmetic.
+        //      AppStorage writes to standard UserDefaults under the
+        //      key `<flag>Enabled` (mirroring the existing convention
+        //      for `piiRedactionEnabled` and `multimodalInspectionEnabled`).
+        //   4. Compile-time default — the conservative posture that
+        //      ships in the public DMG.
         if let override = testOverrides[key] { return override }
         if let dict = ManagedConfig.featureFlagsDict,
            let value = dict[key] as? Bool
         { return value }
+        let userKey = key + "Enabled"
+        if UserDefaults.standard.object(forKey: userKey) != nil {
+            return UserDefaults.standard.bool(forKey: userKey)
+        }
         return fallback
     }
 }

@@ -299,6 +299,18 @@ final class ProxyManager: ObservableObject {
             )
         }
 
+        if let mm = requestLog.multimodal, !mm.findings.isEmpty {
+            // One blocked image counts once per inspected image, not
+            // per finding — a single image with five emails inside is
+            // still one media-block event from the user's perspective.
+            let imagesWithFindings = Set(mm.findings.map { $0.imagePath })
+            stats.mediaBlocked += imagesWithFindings.count
+            log(
+                "Stripped \(imagesWithFindings.count) image(s) with PII → \(requestLog.targetHost): \(mm.findings.count) finding(s)",
+                blocked: false
+            )
+        }
+
         storage?.recordScan(
             source: "tls-proxy",
             targetHost: requestLog.targetHost,
@@ -369,7 +381,16 @@ struct ProxyStats {
     /// during this session. Surfaced in the menu bar as the "Redacted"
     /// StatBadge — every demo needs this number visible.
     var piiRedacted: Int = 0
-    mutating func reset() { requestsScanned = 0; injectionsBlocked = 0; piiRedacted = 0 }
+    /// Cumulative count of multimodal items (images today; PDFs +
+    /// audio + files in later phases) that were inspected and
+    /// stripped of PII before forwarding to the model.
+    var mediaBlocked: Int = 0
+    mutating func reset() {
+        requestsScanned = 0
+        injectionsBlocked = 0
+        piiRedacted = 0
+        mediaBlocked = 0
+    }
 }
 
 struct LogEntry: Identifiable {

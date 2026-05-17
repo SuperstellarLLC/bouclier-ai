@@ -107,4 +107,24 @@ struct RedactionPauseTests {
         defer { RedactionPause.resume() }
         #expect(FeatureFlags.piiRedaction == false)
     }
+
+    @Test("User UserDefaults <flag>Enabled overrides the compile-time default")
+    func userDefaultsBridge() {
+        // Clean slate.
+        UserDefaults.standard.removeObject(forKey: "piiRedactionEnabled")
+        UserDefaults.standard.removeObject(forKey: "multimodalInspectionEnabled")
+        FeatureFlags.clearTestOverrides()
+        // Default posture: both off.
+        #expect(FeatureFlags.piiRedaction == false)
+        #expect(FeatureFlags.multimodalInspection == false)
+        // User toggles → flags read it.
+        UserDefaults.standard.set(true, forKey: "piiRedactionEnabled")
+        UserDefaults.standard.set(true, forKey: "multimodalInspectionEnabled")
+        defer {
+            UserDefaults.standard.removeObject(forKey: "piiRedactionEnabled")
+            UserDefaults.standard.removeObject(forKey: "multimodalInspectionEnabled")
+        }
+        #expect(FeatureFlags.piiRedaction == true)
+        #expect(FeatureFlags.multimodalInspection == true)
+    }
 }

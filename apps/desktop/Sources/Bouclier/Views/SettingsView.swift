@@ -41,6 +41,10 @@ struct PrivacySettingsView: View {
     /// detected PII. Recommended-on for the first sessions so users build
     /// confidence in what gets redacted; can be turned off once trusted.
     @AppStorage("piiPreviewBeforeSend") private var previewBeforeSend: Bool = true
+    /// Whether image attachments in multimodal LLM requests get OCR'd
+    /// for PII before forwarding. Off by default in v0.4.0 to mirror
+    /// the text-PII toggle's opt-in posture.
+    @AppStorage("multimodalInspectionEnabled") private var multimodalInspectionEnabled: Bool = false
     /// Days to retain redaction audit entries. Mirrors the cleanup
     /// window in `StorageManager.cleanup()`; surfaced here so users can
     /// see what the retention is (the value itself is informational).
@@ -65,6 +69,16 @@ struct PrivacySettingsView: View {
                 Text("PII redaction")
             } footer: {
                 Text("Replaces detected PII (emails, IBANs, NHS numbers, etc.) with reversible placeholders before the prompt leaves your Mac. The model's response is reversed locally so you see normal text. All detection runs on-device — nothing about your PII is sent to Bouclier.ai or any third party.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section {
+                Toggle("Inspect images in outbound multimodal prompts", isOn: $multimodalInspectionEnabled)
+            } header: {
+                Text("Media inspection (beta)")
+            } footer: {
+                Text("Runs Apple's Vision OCR on every image attached to an outbound prompt (OpenAI, Anthropic, Gemini). When detected PII or faces appear inside an image, the image leaf is replaced with a descriptive placeholder so the model still answers but never sees the cleartext. PDFs and audio inspection arrive in upcoming releases.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

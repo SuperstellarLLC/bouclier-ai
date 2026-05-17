@@ -78,6 +78,55 @@ enum HTTPRequestInspector {
         let audit: [PIIRedactor.AuditEntry]
     }
 
+    /// Result of a multimodal (image / PDF / audio) inspection pass.
+    /// Returned alongside the text-PII pass so the TLS handler can
+    /// audit + notify per blocked media item.
+    struct MultimodalPass: Sendable {
+        /// Body after flagged media have been replaced with text
+        /// placeholders. Equal to the input when no media was flagged
+        /// or when multimodal inspection is disabled.
+        let body: ByteBuffer
+        /// The full inspector report — surfaces image count and
+        /// per-finding metadata for the audit log + notification UI.
+        let report: MultimodalPIIInspector.Report
+    }
+
+    /// Run the multimodal inspector over a request body. Composed by
+    /// the TLS handler after `inspect()` and the text PII pass.
+    /// Idempotent and safe to call when
+    /// `FeatureFlags.multimodalInspection` is off (returns the input
+    /// unchanged with an empty report).
+    static func applyMultimodalInspection(
+        body: ByteBuffer,
+        contentType: String,
+        method: HTTPMethod,
+        allocator: ByteBufferAllocator
+    ) async -> MultimodalPass {
+        let empty = MultimodalPass(
+            body: body,
+            report: MultimodalPIIInspector.Report(imagesScanned: 0, findings: [], latencyMs: 0)
+        )
+        guard FeatureFlags.multimodalInspection else { return empty }
+        guard shouldScanBody(contentType: contentType, method: method),
+              body.readableBytes > 0
+        else { return empty }
+        // Snapshot the body to a Data so JSONSerialization can chew on
+        // it. ByteBuffer's `getBytes` returns nil only on a malformed
+        // index range, which we never construct.
+        guard let bytes = body.getBytes(at: body.readerIndex, length: body.readableBytes) else {
+            return empty
+        }
+        let bodyData = Data(bytes)
+        let report = await MultimodalPIIInspector.inspect(body: bodyData)
+        guard !report.findings.isEmpty else {
+            return MultimodalPass(body: body, report: report)
+        }
+        let rewritten = MultimodalRewriter.stripFlaggedImages(from: bodyData, report: report)
+        var buf = allocator.buffer(capacity: rewritten.count)
+        buf.writeBytes(rewritten)
+        return MultimodalPass(body: buf, report: report)
+    }
+
     /// Run the PII redactor over a sanitized request body. Composed by
     /// the TLS handler *after* `inspect()` so injection-blocked bodies
     /// never reach the PII pass. Idempotent and safe to call when
