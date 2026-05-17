@@ -2,7 +2,7 @@
  * Download redirect + anonymous timestamp tracker.
  *
  * Flow:
- *   GET /api/download?v=0.2.12&c=site
+ *   GET /api/download?v=0.3.0&c=site
  *     1. Validate `v` against a strict version regex (we never echo
  *        arbitrary user input back as a redirect target).
  *     2. Record `{ts, version, channel}` to Upstash if configured,
