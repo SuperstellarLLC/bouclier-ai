@@ -1,4 +1,23 @@
 /**
+ * Shannon entropy in bits-per-character. Used to distinguish high-entropy
+ * secret-like strings ("ZmGq7tH8K…") from low-entropy English-like strings
+ * ("usernameusernameuser"). A threshold around 3.5–4.0 cleanly separates
+ * real tokens from repetitive or text-like strings of the same length.
+ */
+export function hasShannonEntropy(value: string, minBitsPerChar: number): boolean {
+  if (value.length === 0) return false;
+  const counts = new Map<string, number>();
+  for (const ch of value) counts.set(ch, (counts.get(ch) ?? 0) + 1);
+  let entropy = 0;
+  const n = value.length;
+  for (const c of counts.values()) {
+    const p = c / n;
+    entropy -= p * Math.log2(p);
+  }
+  return entropy >= minBitsPerChar;
+}
+
+/**
  * Length-agnostic Luhn check on a pure-digit string. Used by every
  * Luhn-based validator (card, SIREN, SIRET, NPI-with-prefix).
  */
