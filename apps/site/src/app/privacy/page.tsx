@@ -19,6 +19,9 @@ export default function PrivacyPage() {
               className="rounded-[4px]"
             />
             Bouclier.ai
+            <span className="rounded-md border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-amber-800">
+              Beta
+            </span>
           </Link>
           <div className="text-text-secondary flex gap-6 text-sm">
             <Link href="/" className="hover:text-text transition-colors">
@@ -84,6 +87,30 @@ export default function PrivacyPage() {
               default. Cannot be configured by the user.
             </li>
           </ol>
+        </Section>
+
+        <Section title="Marketing site (bouclier.ai)">
+          <p>
+            When you click the &quot;Download&quot; button on bouclier.ai, the server records a
+            single anonymous event consisting of <strong>(a) the time of the click</strong>,{" "}
+            <strong>(b) the requested app version</strong>, and{" "}
+            <strong>(c) the channel string</strong> (e.g. &quot;site&quot;) that the link carries.
+            That&apos;s it.
+          </p>
+          <p className="mt-3">We do not record, store, or transmit:</p>
+          <ul className="mt-2 list-disc space-y-1 pl-5">
+            <li>your IP address;</li>
+            <li>your user-agent string or device fingerprint;</li>
+            <li>the referring page or any UTM parameter;</li>
+            <li>your country or any geolocation derived from the request;</li>
+            <li>any cookie, session token, or other identifier.</li>
+          </ul>
+          <p className="mt-3 text-sm">
+            The event is recorded so we can see whether anyone is downloading the beta. It cannot be
+            linked back to you. The marketing site does not use Google Analytics, Plausible,
+            PostHog, Mixpanel, Segment, Fathom, or any equivalent product analytics tool, and never
+            has.
+          </p>
         </Section>
 
         <Section title="Data stored locally">
