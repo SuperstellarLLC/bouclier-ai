@@ -100,19 +100,29 @@ export default function TermsPage() {
           <ul className="mt-3 list-disc space-y-2 pl-5">
             <li>
               <strong>False negatives.</strong> The Software will fail to detect some prompt
-              injections and some PII. Novel attack patterns, unusual encodings, multimodal inputs
-              (images, audio, files), and content the Software does not inspect will pass through
-              unchanged.
+              injections and some PII. Novel attack patterns, unusual encodings, low-resolution or
+              heavily-stylised images, scanned PDFs with poor OCR quality, accented or low-quality
+              audio, and content the Software does not inspect will pass through unchanged.
             </li>
             <li>
               <strong>False positives.</strong> The Software may classify benign content as a threat
-              or as PII, redact it, and disrupt the user&apos;s intended workflow.
+              or as PII, redact it, strip an attachment, and disrupt the user&apos;s intended
+              workflow.
+            </li>
+            <li>
+              <strong>Multimodal scope.</strong> When enabled, image OCR + face detection, PDF text
+              extraction + OCR fallback, and audio transcription (capped at 60 seconds, on-device
+              Apple Speech) run on attachments in JSON and multipart bodies. Video, encrypted or
+              password-protected PDFs, oversized files, unsupported audio formats, and any
+              attachment delivered through a channel outside the intercepted HTTPS traffic are not
+              inspected. Unscannable attachments inside a flagged request may be stripped rather
+              than forwarded.
             </li>
             <li>
               <strong>Content the Software does not inspect.</strong> Traffic to providers not on
-              the intercepted-hosts list, traffic over non-HTTPS protocols, file uploads, multipart
-              bodies, binary payloads, and content delivered through channels outside the macOS
-              network proxy are not inspected.
+              the intercepted-hosts list, traffic over non-HTTPS protocols, binary payloads outside
+              the recognised multimodal shapes, and content delivered through channels outside the
+              macOS network proxy are not inspected.
             </li>
             <li>
               <strong>Coverage of regulated identifiers.</strong> The Software detects a small
