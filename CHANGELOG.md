@@ -8,6 +8,56 @@ The `[VERSION]` section for each release is extracted verbatim by
 `apps/desktop/scripts/publish-update.sh` and injected into the Sparkle
 appcast. Write for end users, not for internal engineering notes.
 
+## [0.3.0] — 2026-05-17
+
+### Added
+
+- **PII redaction (beta, opt-in).** Strip personal data from prompts
+  before they reach Claude, ChatGPT, Cursor and other AI providers.
+  Detected entities are replaced with reversible placeholders on the
+  way out and restored locally on the way back, so the model never
+  sees the cleartext and you still read normal answers.
+
+  Detects emails, IBANs, credit cards, US SSNs, IP addresses, AWS
+  access keys, JWTs, French SIRET/SIREN/NIR, UK NHS numbers, UK NINO,
+  UK postcodes, and US NPI. Runs entirely on your Mac — no cloud
+  service, no third-party API, no telemetry.
+
+  Off by default. Enable from Settings → Privacy and use the new
+  menu-bar "Redacted" counter to see what's being protected.
+
+- **Per-domain rules.** Allow or deny redaction for specific hosts —
+  useful for internal LLM gateways that already enforce compliance,
+  or for embedding endpoints where redaction would break the request.
+- **Pause button.** One-click pause from the menu bar (1, 5, 15, or
+  60 minutes) when you need to disable redaction temporarily without
+  digging through Settings.
+- **Preview before send.** Optional confirmation modal lists what
+  would be redacted before each request leaves your Mac, with a
+  per-domain "Don't ask again" option once you trust a host.
+- **Redaction report.** One-click PDF export from Settings → Privacy
+  with totals, per-type and per-host breakdowns, and a SHA-256
+  integrity hash. Hand it to your compliance team or attach to an
+  audit binder.
+- **Beta branding.** Every surface (menu bar, About panel, marketing
+  site nav, footer, SEO metadata) now flags Bouclier as a beta. New
+  Terms of Use page sets expectations explicitly: experimental,
+  best-effort, not for production or regulated workloads.
+
+### Changed
+
+- **Tagline.** "Stop prompt injections. Stop PII from leaking to
+  LLMs." Marketing copy is now value-centric and no longer makes
+  claims that aren't substantiated.
+- **About panel.** Now shows version, prototype warning, and quick
+  links to Terms and Privacy.
+
+### Fixed
+
+- **Detector overlap resolution.** A latent bug in the PII tier
+  prevented longer spans from winning when two same-rank detectors
+  matched the same offset.
+
 ## [0.2.12] — 2026-04-17
 
 ### Fixed
