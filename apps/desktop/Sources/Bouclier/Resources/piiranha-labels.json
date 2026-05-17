@@ -1,0 +1,20 @@
+{
+  "0": "I-ACCOUNTNUM",
+  "1": "I-BUILDINGNUM",
+  "2": "I-CITY",
+  "3": "I-CREDITCARDNUMBER",
+  "4": "I-DATEOFBIRTH",
+  "5": "I-DRIVERLICENSENUM",
+  "6": "I-EMAIL",
+  "7": "I-GIVENNAME",
+  "8": "I-IDCARDNUM",
+  "9": "I-PASSWORD",
+  "10": "I-SOCIALNUM",
+  "11": "I-STREET",
+  "12": "I-SURNAME",
+  "13": "I-TAXNUM",
+  "14": "I-TELEPHONENUM",
+  "15": "I-USERNAME",
+  "16": "I-ZIPCODE",
+  "17": "O"
+}

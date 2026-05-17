@@ -6,35 +6,23 @@
     <description>Updates for Bouclier.ai — prompt injection firewall for macOS</description>
     <language>en</language>
     <item>
-      <title>Version 0.3.0</title>
-      <pubDate>Sun, 17 May 2026 21:35:33 +0200</pubDate>
-      <sparkle:version>0.3.0</sparkle:version>
-      <sparkle:shortVersionString>0.3.0</sparkle:shortVersionString>
+      <title>Version 0.3.3</title>
+      <pubDate>Sun, 17 May 2026 22:54:36 +0200</pubDate>
+      <sparkle:version>0.3.3</sparkle:version>
+      <sparkle:shortVersionString>0.3.3</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
       <description><![CDATA[
-<h2>Bouclier.ai v0.3.0</h2>
+<h2>Bouclier.ai v0.3.3</h2>
 <h4>Added</h4>
 <ul>
-<li><strong>PII redaction.</strong> Sensitive data is replaced with reversible placeholders before prompts leave your Mac, then restored on the response. Off by default — turn it on under Settings → Privacy.</li>
-<li><strong>Per-domain rules.</strong> Skip redaction for hosts that already enforce compliance or break with placeholders.</li>
-<li><strong>Pause button.</strong> Snooze redaction from the menu bar for 1, 5, 15, or 60 minutes.</li>
-<li><strong>Preview before send.</strong> Confirm what's being redacted on your first prompts of each session.</li>
-<li><strong>Redaction report.</strong> Export a one-page PDF of activity for compliance handoff.</li>
-<li><strong>Beta branding & Terms of Use.</strong> Bouclier is now clearly labelled a prototype with explicit, defensive terms.</li>
-</ul>
-<h4>Changed</h4>
-<ul>
-<li><strong>New tagline.</strong> "Stop prompt injections. Stop PII from leaking to LLMs."</li>
-</ul>
-<h4>Fixed</h4>
-<ul>
-<li>Span-overlap resolution in the redactor so longer matches always win.</li>
+<li><strong>Native phone and address detection.</strong> Uses macOS's built-in <code>NSDataDetector</code> — handles international formats and multi-line addresses that regex can't.</li>
+<li><strong>On-device ML tier (Piiranha).</strong> Catches PERSON, USERNAME, DATE_OF_BIRTH, driver's licence, medical licence, tax and bank account numbers — categories regex can't see. Loads in the background; the rest of the proxy keeps working if the model file isn't bundled yet.</li>
 </ul>
 ]]></description>
       <enclosure
-        url="https://0tdi95zyjwsefpzx.public.blob.vercel-storage.com/download/Bouclier-ai-v0.3.0-macOS.dmg"
-        sparkle:edSignature="n7cO4oFDu9B2EeKpoyw3m3+uGNRPjXHx/a4vmyJE8sC32PgHfFVaxw36Lg0sJ073xiJJPXdvfTq2nTMS654iAg=="
-        length="271951028"
+        url="https://0tdi95zyjwsefpzx.public.blob.vercel-storage.com/download/Bouclier-ai-v0.3.3-macOS.dmg"
+        sparkle:edSignature="R6UtixF2uXPY3kUs5cksHzLKYDc4Ekh98pCJt9NePRqklADbXWfuu9INrPyPs58O/uLPPitexhftWYGQ/80oAA=="
+        length="536140492"
         type="application/octet-stream"
       />
     </item>
