@@ -111,6 +111,72 @@ struct MultimodalRewriterTests {
         #expect(content[1]["type"] as? String == "image_url")
     }
 
+    @Test("Encrypted PDFs get stripped with a clear placeholder message (P0 fix)")
+    func encryptedPDFStripped() async throws {
+        guard let url = Bundle.module.url(forResource: "pdf-encrypted", withExtension: "pdf", subdirectory: "Fixtures")
+            ?? Bundle.module.url(forResource: "pdf-encrypted", withExtension: "pdf"),
+              let pdfData = try? Data(contentsOf: url)
+        else {
+            Issue.record("Missing pdf-encrypted fixture")
+            return
+        }
+        let b64 = pdfData.base64EncodedString()
+        let body = """
+        {"messages":[{"role":"user","content":[
+          {"type":"document","source":{"type":"base64","media_type":"application/pdf","data":"\(b64)"}}
+        ]}]}
+        """
+        let bodyData = Data(body.utf8)
+        let report = await MultimodalPIIInspector.inspect(body: bodyData)
+        // Critical invariant: the unscannable PDF MUST surface a finding
+        // so the rewriter strips it. Without the P0 fix this would be
+        // an empty findings list and the encrypted PDF would ship to
+        // the model unchanged.
+        #expect(!report.findings.isEmpty,
+                "Encrypted PDF must produce a finding to trigger strip — not silently pass through")
+        let rewritten = MultimodalRewriter.stripFlaggedImages(from: bodyData, report: report)
+        let parsed = try JSONSerialization.jsonObject(with: rewritten) as! [String: Any]
+        let content = ((parsed["messages"] as! [[String: Any]])[0]["content"] as! [[String: Any]])
+        #expect(content[0]["type"] as? String == "text")
+        let placeholder = content[0]["text"] as? String ?? ""
+        #expect(placeholder.lowercased().contains("encrypted"))
+        #expect(content[0]["source"] == nil)
+    }
+
+    @Test("Anthropic PDF document block gets stripped when text-layer PII is found")
+    func anthropicPDFRewrite() async throws {
+        guard let url = Bundle.module.url(forResource: "pdf-text-with-pii", withExtension: "pdf", subdirectory: "Fixtures")
+            ?? Bundle.module.url(forResource: "pdf-text-with-pii", withExtension: "pdf"),
+              let pdfData = try? Data(contentsOf: url)
+        else {
+            Issue.record("Missing pdf fixture")
+            return
+        }
+        let b64 = pdfData.base64EncodedString()
+        let body = """
+        {"messages":[{"role":"user","content":[
+          {"type":"text","text":"summarise this invoice"},
+          {"type":"document","source":{"type":"base64","media_type":"application/pdf","data":"\(b64)"}}
+        ]}]}
+        """
+        let bodyData = Data(body.utf8)
+        let report = await MultimodalPIIInspector.inspect(body: bodyData)
+        #expect(!report.findings.isEmpty)
+        let rewritten = MultimodalRewriter.stripFlaggedImages(from: bodyData, report: report)
+
+        let parsed = try JSONSerialization.jsonObject(with: rewritten) as! [String: Any]
+        let content = ((parsed["messages"] as! [[String: Any]])[0]["content"] as! [[String: Any]])
+        // First block (text) unchanged.
+        #expect(content[0]["type"] as? String == "text")
+        // Second block (PDF) replaced — placeholder text mentions PDF.
+        #expect(content[1]["type"] as? String == "text")
+        let placeholder = content[1]["text"] as? String ?? ""
+        #expect(placeholder.contains("PDF"))
+        #expect(placeholder.contains("Bouclier blocked"))
+        // Original `source` field should be gone.
+        #expect(content[1]["source"] == nil)
+    }
+
     @Test("Top-level JSON array bodies are still rewritten (P1 fix)")
     func arrayRootRewrite() async throws {
         // Some batched-API shapes wrap their requests in a top-level
@@ -144,7 +210,7 @@ struct MultimodalRewriterTests {
         let body = #"{"model":"gpt-4o","messages":[{"role":"user","content":"hello world"}]}"#
         let bodyData = Data(body.utf8)
         let empty = MultimodalPIIInspector.Report(
-            imagesScanned: 0, findings: [], latencyMs: 0
+            imagesScanned: 0, pdfsScanned: 0, findings: [], latencyMs: 0
         )
         let rewritten = MultimodalRewriter.stripFlaggedImages(from: bodyData, report: empty)
         #expect(rewritten == bodyData)
@@ -165,6 +231,7 @@ struct MultimodalRewriterTests {
         let bodyData = Data(body.utf8)
         let synthReport = MultimodalPIIInspector.Report(
             imagesScanned: 1,
+            pdfsScanned: 0,
             findings: [
                 MultimodalPIIInspector.Finding(
                     imagePath: [
