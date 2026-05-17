@@ -134,6 +134,13 @@ enum MultimodalRewriter {
         }
     }
 
+    /// Public re-export so MultipartMediaScanner can render the same
+    /// summary line as the JSON-based path. Defined here so the
+    /// human-label table stays a single source of truth.
+    static func summarizePublic(_ findings: [MultimodalPIIInspector.Finding]) -> String {
+        summarize(findings)
+    }
+
     private static func summarize(_ findings: [MultimodalPIIInspector.Finding]) -> String {
         var typeCounts: [String: Int] = [:]
         var faces = 0

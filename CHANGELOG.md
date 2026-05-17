@@ -8,6 +8,19 @@ The `[VERSION]` section for each release is extracted verbatim by
 `apps/desktop/scripts/publish-update.sh` and injected into the Sparkle
 appcast. Write for end users, not for internal engineering notes.
 
+## [0.4.0] — 2026-05-18
+
+### Added
+
+- **Multimodal PII inspection (beta).** Bouclier now inspects images, PDFs, and audio you attach to AI prompts — OCRs them on-device, transcribes audio with Apple Speech, and strips any attachment that contains PII before forwarding. Works for OpenAI, Anthropic, and Gemini chat APIs, plus the OpenAI and Anthropic Files APIs.
+- **Faces in images** are detected and count as PII (GDPR Art. 4).
+- **Encrypted PDFs** are stripped automatically because we can't inspect them — never silently forwarded.
+- **Body cap raised** from 10 MB to 64 MB so the typical multimodal payload fits inline.
+
+### Changed
+
+- Settings → Privacy toggle is now "Inspect images and PDFs in outbound multimodal prompts" and actually takes effect for non-MDM users (the underlying flag now reads UserDefaults too).
+
 ## [0.3.3] — 2026-05-17
 
 ### Added
