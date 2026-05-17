@@ -116,7 +116,11 @@ enum MultimodalRewriter {
         // block shouldn't be misnamed off the first one.
         let allPDF = findings.allSatisfy { $0.mediaType.lowercased().hasPrefix("application/pdf") }
         let allImage = findings.allSatisfy { $0.mediaType.lowercased().hasPrefix("image/") }
-        let mediaLabel = allPDF ? "PDF" : (allImage ? "image" : "attachment")
+        let allAudio = findings.allSatisfy { $0.mediaType.lowercased().hasPrefix("audio/") }
+        let mediaLabel = allPDF ? "PDF"
+            : allImage ? "image"
+            : allAudio ? "audio clip"
+            : "attachment"
         let message = "[Bouclier blocked an \(mediaLabel) — \(summary)]"
         switch provider {
         case .openai:
@@ -134,6 +138,7 @@ enum MultimodalRewriter {
         var typeCounts: [String: Int] = [:]
         var faces = 0
         var unscannable: PDFPIIScanner.ScanResult.UnscannableReason?
+        var audioUnscannable: AudioPIIScanner.ScanResult.UnscannableReason?
         for f in findings {
             switch f.category {
             case .textPII(let type):
@@ -142,16 +147,27 @@ enum MultimodalRewriter {
                 faces += 1
             case .unscannable(let reason):
                 unscannable = reason
+            case .unscannableAudio(let reason):
+                audioUnscannable = reason
             }
         }
-        // Unscannable trumps everything else — the document by
-        // definition has no text-PII findings because we couldn't
-        // open it. Give the user the concrete reason.
+        // Unscannable trumps everything else — the attachment by
+        // definition has no PII findings because we couldn't open it.
+        // Give the user the concrete reason.
         if let reason = unscannable {
             switch reason {
             case .encrypted: return "encrypted — Bouclier can't inspect locked documents"
             case .tooManyPages: return "too many pages to inspect safely"
             case .malformed: return "file is malformed or unreadable"
+            }
+        }
+        if let reason = audioUnscannable {
+            switch reason {
+            case .notAuthorised: return "speech recognition not authorised — grant permission in System Settings → Privacy → Speech Recognition"
+            case .unsupportedFormat: return "audio format unsupported"
+            case .tooLong: return "audio longer than the 60-second inspection cap"
+            case .malformed: return "audio file is malformed or unreadable"
+            case .recogniserUnavailable: return "on-device speech recogniser unavailable for this locale"
             }
         }
         var parts: [String] = []

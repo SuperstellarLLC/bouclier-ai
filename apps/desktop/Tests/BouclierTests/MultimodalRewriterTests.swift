@@ -210,7 +210,7 @@ struct MultimodalRewriterTests {
         let body = #"{"model":"gpt-4o","messages":[{"role":"user","content":"hello world"}]}"#
         let bodyData = Data(body.utf8)
         let empty = MultimodalPIIInspector.Report(
-            imagesScanned: 0, pdfsScanned: 0, findings: [], latencyMs: 0
+            imagesScanned: 0, pdfsScanned: 0, audioScanned: 0, findings: [], latencyMs: 0
         )
         let rewritten = MultimodalRewriter.stripFlaggedImages(from: bodyData, report: empty)
         #expect(rewritten == bodyData)
@@ -232,6 +232,7 @@ struct MultimodalRewriterTests {
         let synthReport = MultimodalPIIInspector.Report(
             imagesScanned: 1,
             pdfsScanned: 0,
+            audioScanned: 0,
             findings: [
                 MultimodalPIIInspector.Finding(
                     imagePath: [
