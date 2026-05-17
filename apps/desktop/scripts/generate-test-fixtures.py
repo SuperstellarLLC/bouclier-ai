@@ -69,6 +69,66 @@ def blank_image_png(color: str = "white", size: tuple[int, int] = (200, 200)) ->
     return Image.new("RGB", size, color)
 
 
+def text_pdf(text: str, name: str) -> None:
+    """Generate a text-layer PDF via reportlab. PDFKit's text-layer
+    extraction reads these natively without OCR."""
+    from reportlab.lib.pagesizes import letter
+    from reportlab.pdfgen import canvas as _canvas
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    path = OUT_DIR / name
+    c = _canvas.Canvas(str(path), pagesize=letter)
+    c.setFont("Helvetica", 14)
+    y = 720
+    for line in text.split("\n"):
+        c.drawString(72, y, line)
+        y -= 22
+    c.showPage()
+    c.save()
+    print(f"  → {name} ({path.stat().st_size:,} bytes)")
+
+
+def encrypted_pdf(text: str, name: str, password: str = "hunter2") -> None:
+    """Generate a password-protected PDF. reportlab uses the same
+    canvas API + the StandardEncryption helper."""
+    from reportlab.lib.pagesizes import letter
+    from reportlab.pdfgen import canvas as _canvas
+    from reportlab.lib.pdfencrypt import StandardEncryption
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    path = OUT_DIR / name
+    enc = StandardEncryption(userPassword=password, ownerPassword=password,
+                             canPrint=0, canModify=0, canCopy=0, canAnnotate=0)
+    c = _canvas.Canvas(str(path), pagesize=letter, encrypt=enc)
+    c.setFont("Helvetica", 14)
+    y = 720
+    for line in text.split("\n"):
+        c.drawString(72, y, line)
+        y -= 22
+    c.showPage()
+    c.save()
+    print(f"  → {name} ({path.stat().st_size:,} bytes, encrypted)")
+
+
+def scanned_pdf(text: str, name: str, pages: int = 1) -> None:
+    """Generate a scanned-style PDF — one rasterised image per page
+    with no embedded text layer. Forces Vision OCR fallback on read."""
+    from reportlab.lib.pagesizes import letter
+    from reportlab.lib.utils import ImageReader
+    from reportlab.pdfgen import canvas as _canvas
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    path = OUT_DIR / name
+    c = _canvas.Canvas(str(path), pagesize=letter)
+    for page in range(pages):
+        img = text_image_png(text if pages == 1 else f"Page {page+1}\n{text}", size=(800, 1000))
+        import io
+        buf = io.BytesIO()
+        img.save(buf, "PNG")
+        buf.seek(0)
+        c.drawImage(ImageReader(buf), 50, 50, width=512, height=640)
+        c.showPage()
+    c.save()
+    print(f"  → {name} ({path.stat().st_size:,} bytes)")
+
+
 def main() -> int:
     print("[1] Generating image fixtures...")
     write_image(
@@ -97,6 +157,20 @@ def main() -> int:
         "image-with-email.jpg",
         text_image_png("Email: jane.doe@example.com"),
         "JPEG",
+    )
+
+    print("\n[2] Generating PDF fixtures...")
+    text_pdf("Invoice for Acme Co.\nContact: alice@acme.io\nIBAN GB82 WEST 1234 5698 7654 32",
+             "pdf-text-with-pii.pdf")
+    text_pdf("Just a meeting agenda\nWelcome\nAgenda items\nClosing", "pdf-text-clean.pdf")
+    scanned_pdf("Email: bob@example.com\nCard 4242 4242 4242 4242", "pdf-scanned-with-pii.pdf")
+    # Encrypted PDF exercises the unscannable.encrypted P0 fix:
+    # the proxy must still strip the document even though we can't
+    # read its contents.
+    encrypted_pdf(
+        "Confidential — Email: alice@example.com\nIBAN GB82 WEST 1234 5698 7654 32",
+        "pdf-encrypted.pdf",
+        password="hunter2"
     )
     print(f"\nDone — fixtures in {OUT_DIR}")
     return 0

@@ -109,7 +109,15 @@ enum MultimodalRewriter {
         findings: [MultimodalPIIInspector.Finding]
     ) -> [String: Any] {
         let summary = summarize(findings)
-        let message = "[Bouclier blocked an image — \(summary)]"
+        // The placeholder names the media type so the LLM's response
+        // can refer back to what was blocked. PDFs vs images are
+        // surfaced separately because users want to know which they
+        // attached. We check ALL findings — a future mixed-media
+        // block shouldn't be misnamed off the first one.
+        let allPDF = findings.allSatisfy { $0.mediaType.lowercased().hasPrefix("application/pdf") }
+        let allImage = findings.allSatisfy { $0.mediaType.lowercased().hasPrefix("image/") }
+        let mediaLabel = allPDF ? "PDF" : (allImage ? "image" : "attachment")
+        let message = "[Bouclier blocked an \(mediaLabel) — \(summary)]"
         switch provider {
         case .openai:
             return ["type": "text", "text": message]
@@ -125,12 +133,25 @@ enum MultimodalRewriter {
     private static func summarize(_ findings: [MultimodalPIIInspector.Finding]) -> String {
         var typeCounts: [String: Int] = [:]
         var faces = 0
+        var unscannable: PDFPIIScanner.ScanResult.UnscannableReason?
         for f in findings {
             switch f.category {
             case .textPII(let type):
                 typeCounts[type, default: 0] += 1
             case .face:
                 faces += 1
+            case .unscannable(let reason):
+                unscannable = reason
+            }
+        }
+        // Unscannable trumps everything else — the document by
+        // definition has no text-PII findings because we couldn't
+        // open it. Give the user the concrete reason.
+        if let reason = unscannable {
+            switch reason {
+            case .encrypted: return "encrypted — Bouclier can't inspect locked documents"
+            case .tooManyPages: return "too many pages to inspect safely"
+            case .malformed: return "file is malformed or unreadable"
             }
         }
         var parts: [String] = []

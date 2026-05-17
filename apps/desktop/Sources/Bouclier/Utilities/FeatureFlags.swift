@@ -67,11 +67,12 @@ enum FeatureFlags {
         return resolve(key: "piiRedaction", default: false)
     }
 
-    /// Whether outbound multimodal requests (images today; PDFs/audio
-    /// in later phases) get inspected for PII via Vision + downstream
-    /// scanners and have flagged media stripped before forwarding.
-    /// Off by default in v0.4.0 so users opt in alongside the
-    /// existing text PII redaction. Subject to the same pause switch.
+    /// Whether outbound multimodal requests (images + PDFs today;
+    /// audio in a later release) get inspected for PII via Vision +
+    /// PDFKit + downstream scanners and have flagged media stripped
+    /// before forwarding. Off by default in v0.4.0 so users opt in
+    /// alongside the existing text PII redaction. Subject to the
+    /// same pause switch.
     static var multimodalInspection: Bool {
         if RedactionPause.isPaused() { return false }
         return resolve(key: "multimodalInspection", default: false)

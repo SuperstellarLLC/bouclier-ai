@@ -60,6 +60,22 @@ enum MultimodalImageExtractor {
             case key(String)
             case index(Int)
         }
+
+        /// True if this attachment's media type is a PDF. Centralised
+        /// so we don't accidentally drift between three call sites
+        /// when Anthropic / Gemini stop normalising the casing of
+        /// `media_type` or start appending charset parameters.
+        var isPDF: Bool {
+            let canonical = mediaType.lowercased()
+                .split(separator: ";").first.map(String.init)?
+                .trimmingCharacters(in: .whitespaces) ?? ""
+            return canonical == "application/pdf"
+        }
+
+        /// True if this attachment's media type is any image format.
+        var isImage: Bool {
+            mediaType.lowercased().hasPrefix("image/")
+        }
     }
 
     // MARK: - Public entry point
@@ -79,9 +95,9 @@ enum MultimodalImageExtractor {
     }
 
     /// Maximum decoded size we'll accept from a single field, in
-    /// bytes. Models accept up to ~20 MB images; we cap a bit
-    /// higher than that to absorb base64 overhead without inviting
-    /// unbounded buffer growth.
+    /// bytes. Models accept up to ~20 MB images and ~32 MB PDFs;
+    /// we cap a bit higher than that to absorb base64 overhead
+    /// without inviting unbounded buffer growth.
     static let maxBytesPerImage = 32 * 1024 * 1024
 
     // MARK: - Tree walk
@@ -130,9 +146,19 @@ enum MultimodalImageExtractor {
         guard let source = dict["source"] as? [String: Any],
               (source["type"] as? String) == "base64",
               let mediaType = source["media_type"] as? String,
-              mediaType.hasPrefix("image/"),
               let data = source["data"] as? String
         else { return nil }
+        // Anthropic accepts image/* AND application/pdf via the
+        // same content-block shape. Both ride through this extractor;
+        // downstream scanners route by mediaType. Accept case-
+        // insensitively to defend against thin clients that don't
+        // normalise the header.
+        let canonical = mediaType.lowercased()
+            .split(separator: ";").first.map(String.init)?
+            .trimmingCharacters(in: .whitespaces) ?? ""
+        guard canonical.hasPrefix("image/") || canonical == "application/pdf" else {
+            return nil
+        }
         guard let decoded = decodeBase64(data) else { return nil }
         let payloadPath = path + [.key("source"), .key("data")]
         return Image(
