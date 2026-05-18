@@ -20,9 +20,9 @@ import Foundation
 /// * Nested `multipart/mixed` parts (not used by file-upload APIs).
 /// * Content-Transfer-Encoding: base64 / quoted-printable on parts —
 ///   modern HTTP clients send bytes as-is.
-/// * Streaming / chunked parsing — Phase 4 buffers up to the 64 MB
-///   cap; larger bodies pass through untouched and a follow-up phase
-///   adds true streaming.
+/// * Streaming / chunked parsing — the proxy buffers up to the 64 MB
+///   request cap. Bodies past that cap are rejected at the proxy
+///   rather than streamed through partially-inspected.
 enum MultipartParser {
     /// One parsed part. Slices reference the source `Data` so the
     /// rewriter can rebuild a body without re-copying clean parts.

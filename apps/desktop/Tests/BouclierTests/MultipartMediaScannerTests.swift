@@ -93,11 +93,11 @@ struct MultipartMediaScannerTests {
         #expect(result == nil)
     }
 
-    @Test("application/octet-stream PDF gets sniffed and stripped (P0 fix)")
+    @Test("application/octet-stream PDF gets sniffed and stripped")
     func octetStreamSniffsAsPDF() async throws {
-        // curl -F file=@invoice.pdf without --mime-type sends
-        // Content-Type: application/octet-stream. Before the P0 fix
-        // this would silently bypass the inspector.
+        // `curl -F file=@invoice.pdf` without --mime-type sends
+        // `Content-Type: application/octet-stream`. The scanner must
+        // sniff the magic bytes rather than trust the declared type.
         let pdf = fixture("pdf-text-with-pii", ext: "pdf")
         let body = openAIFilesBody(filename: "invoice.pdf", contentType: "application/octet-stream", bytes: pdf)
         let result = await MultipartMediaScanner.inspect(body: body, contentType: fullContentType)
@@ -114,12 +114,13 @@ struct MultipartMediaScannerTests {
         #expect(result?.report.findings.isEmpty == false)
     }
 
-    @Test("Header injection via attacker-controlled name is neutralised (P0 fix)")
+    @Test("Header injection via attacker-controlled name is neutralised")
     func headerInjectionNeutralised() async throws {
         let img = fixture("image-with-iban", ext: "png")
-        // Craft a body whose Content-Disposition name carries CRLF +
-        // injected header. Before the P0 fix the rewriter re-emitted
-        // this verbatim, smuggling fake headers into the upstream.
+        // Craft a body whose Content-Disposition name carries CRLF
+        // and an injected header. The rewriter must sanitise the
+        // name before re-emitting; raw pass-through would smuggle
+        // attacker-controlled headers upstream.
         var body = Data()
         body.append(Data("--\(boundary)\r\n".utf8))
         body.append(Data("Content-Disposition: form-data; name=\"file\\\"\r\nX-Injected: bad\"; filename=\"a.png\"\r\n".utf8))
@@ -131,7 +132,7 @@ struct MultipartMediaScannerTests {
         let str = String(data: rewritten, encoding: .utf8) ?? ""
         // The injected header MUST NOT survive into the output.
         #expect(!str.contains("X-Injected"),
-                "P0 fix: smuggled header MUST be stripped before re-emission")
+                "smuggled header must be stripped before re-emission")
     }
 
     // NOTE: Audio-upload multipart routing isn't exercised here

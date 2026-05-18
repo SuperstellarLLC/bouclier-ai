@@ -22,7 +22,7 @@
  * is using the product. This is disclosed in /privacy.
  */
 
-import { NextRequest, NextResponse } from "next/server";
+import { type NextRequest, NextResponse } from "next/server";
 
 import { env } from "@/env";
 import { recordDownload } from "@/lib/download-tracker";

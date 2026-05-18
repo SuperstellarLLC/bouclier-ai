@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import Bouclier
 
-@Suite("PIIStreamReverser — Phase 3 scaffolding")
+@Suite("PIIStreamReverser — sliding-window placeholder reverser")
 struct PIIStreamReverserTests {
     @Test("Emits nothing until the buffer exceeds the holdback")
     func holdsBackUntilBuffered() async {

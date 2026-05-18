@@ -1,16 +1,17 @@
 import Foundation
 
-/// Swift port of the `@bouclier-ai/patterns` PII regex tier (Phase 1).
+/// Swift port of the `@bouclier-ai/patterns` PII regex tier.
 ///
-/// Detector list, validator logic, and overlap-resolution rules are kept
-/// in lockstep with the TypeScript source — same offsets, same precedence,
-/// same false-positive suppression. Cross-platform parity matters because
-/// the site playground (TS) and the desktop proxy (Swift) must reach
-/// identical conclusions about a given payload.
+/// Detector list, validator logic, and overlap-resolution rules are
+/// kept in lockstep with the TypeScript source — same offsets, same
+/// precedence, same false-positive suppression. Cross-platform parity
+/// matters because the site playground (TS) and the desktop proxy
+/// (Swift) must reach identical conclusions about a given payload.
 ///
-/// Phase 2 (Piiranha mDeBERTa on CoreML) will plug into this scanner as
-/// an optional second signal, mirroring `MLClassifier`'s relationship
-/// to `InjectionFilter`.
+/// An optional ML tier (Piiranha mDeBERTa on CoreML) plugs in via the
+/// process-wide registry below — the same pattern `MLClassifier` uses
+/// against `InjectionFilter`.
+///
 /// Process-wide registry for the active PIIScanner.
 ///
 /// The scanner is mutable across the app's lifetime because the ML

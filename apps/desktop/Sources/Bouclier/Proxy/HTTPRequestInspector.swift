@@ -8,15 +8,14 @@ import NIOHTTP1
 /// plumbing; unit tests exercise this type directly with no network or
 /// channel setup needed.
 enum HTTPRequestInspector {
-    /// Maximum buffered request body, in bytes. A single request larger
-    /// than this is rejected at the proxy to protect the event loop
-    /// from OOM / slow-loris uploads. Raised in v0.4.0 from 10 MB to
-    /// 64 MB to accommodate multimodal payloads — OpenAI's vision
-    /// images and Anthropic's PDF documents commonly exceed 10 MB
-    /// once base64-encoded, and the Files API multipart uploads
-    /// frequently sit in the 5–50 MB range. Bodies past this cap
-    /// are still rejected with 413; true streaming inspection of
-    /// >64 MB uploads is on the Phase 4.5 roadmap.
+    /// Maximum buffered request body, in bytes. A single request
+    /// larger than this is rejected at the proxy to protect the event
+    /// loop from OOM and slow-loris uploads. Sized to fit typical
+    /// multimodal payloads — OpenAI vision images and Anthropic PDF
+    /// documents routinely exceed 10 MB once base64-encoded, and
+    /// Files API multipart uploads sit in the 5–50 MB range. Bodies
+    /// past this cap are rejected with 413; true streaming inspection
+    /// of larger uploads is out of scope here.
     static let maxBodyBytes = 64 * 1024 * 1024
 
     /// Maximum number of bytes buffered while waiting for the end of a
