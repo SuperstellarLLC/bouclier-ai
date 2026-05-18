@@ -71,7 +71,7 @@ struct MenuBarView: View {
                     StatBadge(
                         value: "\(proxyManager.stats.mediaBlocked)",
                         label: "Media",
-                        icon: "photo.fill",
+                        icon: "paperclip",
                         color: proxyManager.stats.mediaBlocked > 0 ? .purple : .secondary
                     )
                 }
@@ -181,14 +181,15 @@ struct MenuBarView: View {
                     Label("Enable Protection", systemImage: "lock.shield")
                 }
             } else if proxyManager.isRunning {
+                // Operator panic switch first — `Pause` is more
+                // commonly wanted in a hurry than `Stop`. Stop tears
+                // down the proxy; Pause just bypasses redaction.
+                pauseMenu
+
                 Button(action: { proxyManager.stop() }) {
                     Label("Stop Protection", systemImage: "stop.fill")
                 }
                 .keyboardShortcut("s")
-
-                Button(action: { proxyManager.stats.reset() }) {
-                    Label("Reset Stats", systemImage: "arrow.counterclockwise")
-                }
             } else {
                 Button(action: { proxyManager.start() }) {
                     Label("Start Protection", systemImage: "play.fill")
@@ -316,7 +317,7 @@ struct MenuBarView: View {
     private var statusText: String {
         if proxyManager.errorMessage != nil { return "Error" }
         if proxyManager.isRunning { return "Active" }
-        if !proxyManager.caInstalled { return "Setup Required" }
+        if !proxyManager.caInstalled { return "Tap Enable below" }
         return "Stopped"
     }
 
@@ -337,13 +338,51 @@ struct MenuBarView: View {
     }
 
     private var mlBadgeText: String {
-        if proxyManager.mlClassifierActive { return "Fused detection active (regex + on-device ML)" }
-        if proxyManager.mlClassifierError != nil { return "Regex detection only — ML model unavailable" }
-        return "Regex detection (ML classifier loading…)"
+        if proxyManager.mlClassifierActive { return "Advanced on-device detection active" }
+        if proxyManager.mlClassifierError != nil { return "Basic detection — on-device model unavailable" }
+        return "Basic detection (advanced model loading…)"
     }
 
     private var appVersion: String {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—"
+    }
+
+    /// Pause submenu surfacing `RedactionPause` presets. When already
+    /// paused we show a "Resume now" entry and the remaining seconds,
+    /// computed once per render — no need for a Timer publisher since
+    /// re-opening the menu re-renders and the user only cares about
+    /// the figure they see when they look.
+    @ViewBuilder
+    private var pauseMenu: some View {
+        if let until = RedactionPause.pausedUntil() {
+            Menu {
+                Button(action: { RedactionPause.resume() }) {
+                    Label("Resume redaction now", systemImage: "play.circle")
+                }
+            } label: {
+                Label(
+                    "Paused — resumes in \(formatRemaining(until: until))",
+                    systemImage: "pause.circle.fill"
+                )
+            }
+        } else {
+            Menu {
+                ForEach(RedactionPause.presets, id: \.label) { preset in
+                    Button(preset.label) {
+                        RedactionPause.pause(for: preset.seconds)
+                    }
+                }
+            } label: {
+                Label("Pause redaction…", systemImage: "pause.circle")
+            }
+        }
+    }
+
+    private func formatRemaining(until: Date) -> String {
+        let secs = max(0, Int(until.timeIntervalSinceNow.rounded()))
+        if secs < 60 { return "\(secs)s" }
+        let mins = (secs + 30) / 60
+        return mins < 60 ? "\(mins) min" : "\(mins / 60)h \(mins % 60)m"
     }
 
     private func copyMLErrorToClipboard() {
