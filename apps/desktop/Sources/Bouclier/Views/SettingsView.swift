@@ -5,15 +5,19 @@ struct SettingsView: View {
     @ObservedObject var updater: AutoUpdater
 
     var body: some View {
+        // Tab order follows user task frequency: a first-time user wants
+        // to know "is it on and what does it cover" (Protection), then
+        // tune "what gets redacted" (Privacy). Operational knobs
+        // (General, Logs) and About come after.
         TabView {
-            GeneralSettingsView(proxyManager: proxyManager)
-                .tabItem { Label("General", systemImage: "gear") }
-
             ProtectionSettingsView(proxyManager: proxyManager)
                 .tabItem { Label("Protection", systemImage: "shield.checkered") }
 
             PrivacySettingsView(proxyManager: proxyManager)
                 .tabItem { Label("Privacy", systemImage: "eye.slash") }
+
+            GeneralSettingsView(proxyManager: proxyManager)
+                .tabItem { Label("General", systemImage: "gear") }
 
             LogsView(proxyManager: proxyManager)
                 .tabItem { Label("Logs", systemImage: "doc.text") }
@@ -66,7 +70,7 @@ struct PrivacySettingsView: View {
                 .disabled(!piiRedactionEnabled)
                 .help("Generate a PDF summarising redaction activity. Hand to a compliance officer or attach to an audit binder.")
             } header: {
-                Text("PII redaction")
+                Text("PII redaction (beta)")
             } footer: {
                 Text("Replaces detected PII (emails, IBANs, NHS numbers, etc.) with reversible placeholders before the prompt leaves your Mac. The model's response is reversed locally so you see normal text. All detection runs on-device — nothing about your PII is sent to Bouclier.ai or any third party.")
                     .font(.caption)
@@ -233,6 +237,7 @@ struct GeneralSettingsView: View {
     @AppStorage("launchAtLogin") private var launchAtLogin: Bool = false
     @AppStorage("showNotifications") private var showNotifications: Bool = true
     @AppStorage("quietMode") private var quietMode: Bool = true
+    @State private var showResetConfirm = false
 
     var body: some View {
         Form {
@@ -248,6 +253,27 @@ struct GeneralSettingsView: View {
                 Toggle("Show block notifications", isOn: $showNotifications)
                 Toggle("Quiet mode (no sounds)", isOn: $quietMode)
                     .disabled(!showNotifications)
+            }
+            Section {
+                Button("Reset session stats", role: .destructive) {
+                    showResetConfirm = true
+                }
+                .confirmationDialog(
+                    "Reset stats?",
+                    isPresented: $showResetConfirm,
+                    titleVisibility: .visible
+                ) {
+                    Button("Reset", role: .destructive) { proxyManager.stats.reset() }
+                    Button("Cancel", role: .cancel) {}
+                } message: {
+                    Text("Clears the menu-bar counters (scanned / blocked / redacted / media). The audit log and on-disk stats are untouched.")
+                }
+            } header: {
+                Text("Diagnostics")
+            } footer: {
+                Text("Resets are local to this session — the audit database keeps the history.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)
@@ -451,7 +477,7 @@ struct AboutView: View {
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
 
-            Text("Version \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.2.0")")
+            Text("Version \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—")")
                 .font(.caption)
                 .foregroundStyle(.tertiary)
 
