@@ -485,6 +485,17 @@ private final class HTTPInspectionHandler: ChannelInboundHandler, RemovableChann
         // and the upstream rejects mismatches with a 400.
         headers.replaceOrAdd(name: "Content-Length", value: "\(mutableBody.readableBytes)")
 
+        // Defence in depth: NIO's HTTPRequestDecoder normally rejects
+        // malformed headers, but we synthesise the outbound wire format
+        // manually so a single CR/LF/NUL byte in a header value or in
+        // the request line would smuggle a second request to the
+        // upstream. Reject the entire request rather than forward
+        // something that could be reinterpreted as two requests.
+        guard isWireSafe(head: head, headers: headers) else {
+            sendRejectionToClient(status: "400 Bad Request", allocator: allocator)
+            return
+        }
+
         var raw = allocator.buffer(capacity: 1024 + mutableBody.readableBytes)
         raw.writeString("\(head.method) \(head.uri) HTTP/1.1\r\n")
         for (name, value) in headers {
@@ -496,6 +507,35 @@ private final class HTTPInspectionHandler: ChannelInboundHandler, RemovableChann
         sendToUpstream(raw)
 
         // Reset for next request (HTTP keep-alive)
+        requestHead = nil
+        bodyBuffer.clear()
+    }
+
+    /// Reject any request whose URI or headers carry control bytes
+    /// (CR / LF / NUL) — these are the classic HTTP-request-smuggling
+    /// primitives. Header names also have to be token characters per
+    /// RFC 7230 §3.2.6. Static helpers live on `HTTPRequestInspector`
+    /// so they're unit-testable without a channel.
+    private func isWireSafe(head: HTTPRequestHead, headers: HTTPHeaders) -> Bool {
+        if HTTPRequestInspector.containsControlBytes(head.uri) { return false }
+        for (name, value) in headers {
+            if !HTTPRequestInspector.isValidHeaderName(name) { return false }
+            if HTTPRequestInspector.containsControlBytes(value) { return false }
+        }
+        return true
+    }
+
+    /// Push a synthetic error response to the client and tear down the
+    /// connection. Used by `forwardUpstream` when its own pre-flight
+    /// safety check refuses to forward a request the decoder produced.
+    private func sendRejectionToClient(status: String, allocator: ByteBufferAllocator) {
+        let resp = "HTTP/1.1 \(status)\r\nConnection: close\r\nContent-Length: 0\r\n\r\n"
+        var buf = allocator.buffer(capacity: resp.utf8.count)
+        buf.writeString(resp)
+        if let client = upstreamChannel {
+            client.writeAndFlush(buf, promise: nil)
+            client.close(promise: nil)
+        }
         requestHead = nil
         bodyBuffer.clear()
     }

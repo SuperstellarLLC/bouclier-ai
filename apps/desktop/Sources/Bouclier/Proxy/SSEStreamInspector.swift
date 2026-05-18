@@ -29,10 +29,23 @@ final class SSEStreamInspector {
     private(set) var closed: Bool = false
     private(set) var patternNames: [String] = []
 
+    /// Hard cap on the un-flushed SSE buffer. A misbehaving upstream
+    /// that never emits an event terminator (`\n\n`) could otherwise
+    /// drive arbitrary memory growth. 1 MiB is well above any
+    /// legitimate single SSE event (largest in practice is a few KB
+    /// of reasoning text) so this only fires on pathological input.
+    static let maxBufferBytes = 1 * 1024 * 1024
+
     /// SSE frame returned to the caller after a final safety event is
     /// emitted. `[DONE]` mirrors OpenAI's termination sentinel.
     static let redactionFrame =
         "event: bouclier-ai.redacted\ndata: {\"error\":\"response_blocked\",\"reason\":\"\(InjectionFilter.redactionMessage)\"}\n\ndata: [DONE]\n\n"
+
+    /// Frame emitted when the buffer cap is exceeded — distinguishes a
+    /// DoS-style runaway response from an injection block in the audit
+    /// trail.
+    static let oversizeFrame =
+        "event: bouclier-ai.oversize\ndata: {\"error\":\"sse_buffer_exceeded\"}\n\ndata: [DONE]\n\n"
 
     init(filter: InjectionFilter) {
         self.filter = filter
@@ -45,6 +58,15 @@ final class SSEStreamInspector {
         if closed { return "" }
 
         buffer += chunk
+
+        // Bound the unflushed buffer. A 1 MB cap is plenty for any
+        // legitimate SSE event; runaway upstreams hit this before they
+        // hurt the host.
+        if buffer.utf8.count > Self.maxBufferBytes {
+            closed = true
+            buffer.removeAll(keepingCapacity: false)
+            return Self.oversizeFrame
+        }
 
         var forward = ""
 
