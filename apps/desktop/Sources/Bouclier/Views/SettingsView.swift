@@ -34,8 +34,8 @@ struct SettingsView: View {
 struct PrivacySettingsView: View {
     @ObservedObject var proxyManager: ProxyManager
 
-    /// User-facing override for `FeatureFlags.piiRedaction`. Off by
-    /// default in v0.2.13 — users opt in while the detector set matures.
+    /// User-facing override for `FeatureFlags.piiRedaction`. Ships off
+    /// by default; users opt in while the detector set matures.
     @AppStorage("piiRedactionEnabled") private var piiRedactionEnabled: Bool = false
     /// Show the preview modal before forwarding any prompt that contains
     /// detected PII. Recommended-on for the first sessions so users build
