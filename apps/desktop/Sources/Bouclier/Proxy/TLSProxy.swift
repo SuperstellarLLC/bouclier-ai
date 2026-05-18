@@ -1,9 +1,16 @@
 import Foundation
-import NIO
-import NIOCore
+// Several NIO 2.x types our pipeline touches (NIOSSLHandler,
+// ByteToMessageHandler, ChannelHandlerContext) are not yet marked
+// Sendable in upstream NIO, but every site we capture them in is
+// event-loop-confined in practice. The `@preconcurrency` imports
+// suppress the noisy "conformance to Sendable unavailable" warnings
+// without changing runtime behaviour. Drop the modifier once NIO ships
+// full Sendable annotations.
+@preconcurrency import NIO
+@preconcurrency import NIOCore
 import NIOHTTP1
 import NIOPosix
-import NIOSSL
+@preconcurrency import NIOSSL
 import NIOTLS
 
 /// NIO-based TLS-intercepting proxy with HTTP-aware inspection.
@@ -56,9 +63,15 @@ final class TLSProxy: Sendable {
 
 // MARK: - CONNECT Handler
 
-private final class ConnectHandler: ChannelInboundHandler, RemovableChannelHandler {
+// NIO invokes every ChannelHandler instance from a single event loop,
+// so capturing `self` and `context` into `@Sendable` closures bound to
+// that loop (`whenSuccess`, `whenFailure`, `whenComplete`) is safe in
+// practice. The `@unchecked Sendable` conformance documents the
+// invariant for the Swift 6 region-isolation checker.
+private final class ConnectHandler: ChannelInboundHandler, RemovableChannelHandler, @unchecked Sendable {
     typealias InboundIn = ByteBuffer
     typealias InboundOut = ByteBuffer
+    typealias OutboundOut = ByteBuffer
 
     private let ca: CertificateAuthority
     private let filter: InjectionFilter
@@ -83,7 +96,7 @@ private final class ConnectHandler: ChannelInboundHandler, RemovableChannelHandl
             let resp = "HTTP/1.1 431 Request Header Fields Too Large\r\nConnection: close\r\n\r\n"
             var errBuf = context.channel.allocator.buffer(capacity: resp.utf8.count)
             errBuf.writeString(resp)
-            context.writeAndFlush(wrapInboundOut(errBuf), promise: nil)
+            context.writeAndFlush(wrapOutboundOut(errBuf), promise: nil)
             context.close(promise: nil)
             return
         }
@@ -100,7 +113,7 @@ private final class ConnectHandler: ChannelInboundHandler, RemovableChannelHandl
             let resp = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: \(body.utf8.count)\r\nConnection: close\r\n\r\n\(body)"
             var outBuf = context.channel.allocator.buffer(capacity: resp.utf8.count)
             outBuf.writeString(resp)
-            context.writeAndFlush(wrapInboundOut(outBuf), promise: nil)
+            context.writeAndFlush(wrapOutboundOut(outBuf), promise: nil)
             context.close(promise: nil)
             return
         }
@@ -109,7 +122,7 @@ private final class ConnectHandler: ChannelInboundHandler, RemovableChannelHandl
             let resp = "HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n"
             var errBuf = context.channel.allocator.buffer(capacity: resp.utf8.count)
             errBuf.writeString(resp)
-            context.writeAndFlush(wrapInboundOut(errBuf), promise: nil)
+            context.writeAndFlush(wrapOutboundOut(errBuf), promise: nil)
             context.close(promise: nil)
             return
         }
@@ -119,7 +132,7 @@ private final class ConnectHandler: ChannelInboundHandler, RemovableChannelHandl
             let resp = "HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n"
             var errBuf = context.channel.allocator.buffer(capacity: resp.utf8.count)
             errBuf.writeString(resp)
-            context.writeAndFlush(wrapInboundOut(errBuf), promise: nil)
+            context.writeAndFlush(wrapOutboundOut(errBuf), promise: nil)
             context.close(promise: nil)
             return
         }
@@ -128,9 +141,11 @@ private final class ConnectHandler: ChannelInboundHandler, RemovableChannelHandl
         var respBuf = context.channel.allocator.buffer(capacity: established.utf8.count)
         respBuf.writeString(established)
 
-        context.writeAndFlush(wrapInboundOut(respBuf)).whenSuccess { [self] in
+        let ctxBound = NIOLoopBound(context, eventLoop: context.eventLoop)
+        context.writeAndFlush(wrapOutboundOut(respBuf)).whenSuccess { [self] in
+            let context = ctxBound.value
             context.pipeline.removeHandler(self, promise: nil)
-            setupTLS(context: context, host: host, port: port)
+            self.setupTLS(context: context, host: host, port: port)
         }
     }
 
@@ -152,8 +167,13 @@ private final class ConnectHandler: ChannelInboundHandler, RemovableChannelHandl
 
             let sslContext = try NIOSSLContext(configuration: tlsConfig)
             let sslHandler = NIOSSLServerHandler(context: sslContext)
+            // NIOLoopBound lets the @Sendable callback re-acquire the
+            // non-Sendable context value safely on the same event loop.
+            let ctxBound = NIOLoopBound(context, eventLoop: context.eventLoop)
+            let sslBound = NIOLoopBound(sslHandler, eventLoop: context.eventLoop)
 
-            context.pipeline.addHandler(sslHandler, position: .first).whenSuccess {
+            context.pipeline.addHandler(sslBound.value, position: .first).whenSuccess { [self] in
+                let context = ctxBound.value
                 context.pipeline.addHandler(
                     HandshakeWaiter(host: host, port: port, filter: self.filter, onRequest: self.onRequest)
                 ).whenFailure { _ in context.close(promise: nil) }
@@ -166,7 +186,8 @@ private final class ConnectHandler: ChannelInboundHandler, RemovableChannelHandl
 
 // MARK: - Handshake Waiter
 
-private final class HandshakeWaiter: ChannelInboundHandler, RemovableChannelHandler {
+// Same NIO single-event-loop invariant as ConnectHandler.
+private final class HandshakeWaiter: ChannelInboundHandler, RemovableChannelHandler, @unchecked Sendable {
     typealias InboundIn = ByteBuffer
 
     private let host: String
@@ -189,8 +210,13 @@ private final class HandshakeWaiter: ChannelInboundHandler, RemovableChannelHand
             // The inspection handler accumulates the full HTTP request,
             // scans the body, rebuilds the request with adjusted Content-Length,
             // and forwards raw bytes to upstream via a direct channel bridge.
-            context.pipeline.addHandler(ByteToMessageHandler(HTTPRequestDecoder(leftOverBytesStrategy: .forwardBytes))).flatMap {
-                context.pipeline.addHandler(
+            let ctxBound = NIOLoopBound(context, eventLoop: context.eventLoop)
+            let decoder = ByteToMessageHandler(HTTPRequestDecoder(leftOverBytesStrategy: .forwardBytes))
+            let decoderBound = NIOLoopBound(decoder, eventLoop: context.eventLoop)
+
+            context.pipeline.addHandler(decoderBound.value).flatMap { [self] in
+                let context = ctxBound.value
+                return context.pipeline.addHandler(
                     HTTPInspectionHandler(
                         host: self.host,
                         port: self.port,
@@ -199,7 +225,7 @@ private final class HandshakeWaiter: ChannelInboundHandler, RemovableChannelHand
                         eventLoop: context.eventLoop
                     )
                 )
-            }.whenFailure { _ in context.close(promise: nil) }
+            }.whenFailure { _ in ctxBound.value.close(promise: nil) }
         }
         context.fireUserInboundEventTriggered(event)
     }
@@ -220,6 +246,7 @@ private final class HandshakeWaiter: ChannelInboundHandler, RemovableChannelHand
 // Swift 6 region-isolation checker.
 private final class HTTPInspectionHandler: ChannelInboundHandler, RemovableChannelHandler, @unchecked Sendable {
     typealias InboundIn = HTTPServerRequestPart
+    typealias OutboundOut = ByteBuffer
 
     private let host: String
     private let port: Int
@@ -485,7 +512,7 @@ private final class HTTPInspectionHandler: ChannelInboundHandler, RemovableChann
         let resp = "HTTP/1.1 \(status)\r\nConnection: close\r\nContent-Length: 0\r\n\r\n"
         var buf = context.channel.allocator.buffer(capacity: resp.utf8.count)
         buf.writeString(resp)
-        context.writeAndFlush(NIOAny(buf), promise: nil)
+        context.writeAndFlush(wrapOutboundOut(buf), promise: nil)
         context.close(promise: nil)
         requestHead = nil
         bodyBuffer.clear()
@@ -616,14 +643,14 @@ private final class UpstreamRelayHandler: ChannelInboundHandler, @unchecked Send
         // Fast path: once headers are forwarded and we know there's no
         // JSON reversal in progress, relay raw bytes with zero conversion.
         if headersParsed && !isEventStream && !jsonReversalActive {
-            clientChannel.writeAndFlush(NIOAny(buf), promise: nil)
+            clientChannel.writeAndFlush(buf, promise: nil)
             return
         }
 
         var mutableBuf = buf
         let bytes = mutableBuf.readableBytes
         guard let chunk = mutableBuf.readString(length: bytes) else {
-            clientChannel.writeAndFlush(NIOAny(buf), promise: nil)
+            clientChannel.writeAndFlush(buf, promise: nil)
             return
         }
 
@@ -661,7 +688,7 @@ private final class UpstreamRelayHandler: ChannelInboundHandler, @unchecked Send
                     var headBuf = context.channel.allocator.buffer(capacity: headerBlock.utf8.count + 4)
                     headBuf.writeString(headerBlock)
                     headBuf.writeString("\r\n\r\n")
-                    clientChannel.writeAndFlush(NIOAny(headBuf), promise: nil)
+                    clientChannel.writeAndFlush(headBuf, promise: nil)
                     headerBuffer = ""
                     if !bodyStart.isEmpty {
                         forwardBody(bodyStart, context: context)
@@ -741,7 +768,7 @@ private final class UpstreamRelayHandler: ChannelInboundHandler, @unchecked Send
         buf.writeString(combined)
         let finalBuf = buf
         channel.eventLoop.execute {
-            channel.writeAndFlush(NIOAny(finalBuf), promise: nil)
+            channel.writeAndFlush(finalBuf, promise: nil)
         }
     }
 
@@ -756,7 +783,7 @@ private final class UpstreamRelayHandler: ChannelInboundHandler, @unchecked Send
         buf.writeString(header)
         buf.writeString("\r\n\r\n")
         buf.writeString(body)
-        clientChannel.writeAndFlush(NIOAny(buf), promise: nil)
+        clientChannel.writeAndFlush(buf, promise: nil)
         jsonResponseBuffer = ""
         pendingHeaderBlock = nil
         jsonReversalActive = false
@@ -772,14 +799,16 @@ private final class UpstreamRelayHandler: ChannelInboundHandler, @unchecked Send
         return Int(trimmed)
     }
 
+    private static let contentLengthRegex = try! NSRegularExpression(
+        pattern: #"(?im)^(content-length\s*:\s*)\d+"#
+    )
+
     static func replaceContentLength(in headerBlock: String, with newLength: Int) -> String {
         // Case-insensitive replace of the Content-Length value; preserve
         // the original casing of the header name.
-        let pattern = #"(?im)^(content-length\s*:\s*)\d+"#
-        guard let regex = try? NSRegularExpression(pattern: pattern) else { return headerBlock }
         let nsHeader = headerBlock as NSString
         let range = NSRange(location: 0, length: nsHeader.length)
-        return regex.stringByReplacingMatches(
+        return contentLengthRegex.stringByReplacingMatches(
             in: headerBlock,
             range: range,
             withTemplate: "$1\(newLength)"
@@ -792,7 +821,7 @@ private final class UpstreamRelayHandler: ChannelInboundHandler, @unchecked Send
             if !safe.isEmpty {
                 var buf = context.channel.allocator.buffer(capacity: safe.utf8.count)
                 buf.writeString(safe)
-                clientChannel.writeAndFlush(NIOAny(buf), promise: nil)
+                clientChannel.writeAndFlush(buf, promise: nil)
             }
             let blocked = sseInspector.closed
             Task { await Metrics.shared.recordSSEFrame(blocked: blocked) }
@@ -803,7 +832,7 @@ private final class UpstreamRelayHandler: ChannelInboundHandler, @unchecked Send
         } else {
             var buf = context.channel.allocator.buffer(capacity: chunk.utf8.count)
             buf.writeString(chunk)
-            clientChannel.writeAndFlush(NIOAny(buf), promise: nil)
+            clientChannel.writeAndFlush(buf, promise: nil)
         }
     }
 
@@ -813,7 +842,7 @@ private final class UpstreamRelayHandler: ChannelInboundHandler, @unchecked Send
             if !tail.isEmpty {
                 var buf = context.channel.allocator.buffer(capacity: tail.utf8.count)
                 buf.writeString(tail)
-                clientChannel.writeAndFlush(NIOAny(buf), promise: nil)
+                clientChannel.writeAndFlush(buf, promise: nil)
             }
         }
         clientChannel.close(promise: nil)

@@ -3,8 +3,12 @@ import GRDB
 
 /// Manages local SQLite storage for scan logs and daily stats.
 /// Uses GRDB with WAL mode for concurrent reads during proxy operation.
-final class StorageManager: Sendable {
+final class StorageManager: @unchecked Sendable {
     private let dbPool: DatabasePool
+    /// Background task running the daily cleanup cadence. Held so the
+    /// task is cancelled when the storage manager is torn down (tests,
+    /// re-init, etc.).
+    private var retentionTask: Task<Void, Never>?
 
     private static let dateFormatter: DateFormatter = {
         let f = DateFormatter()
@@ -28,6 +32,24 @@ final class StorageManager: Sendable {
 
         try migrate()
         try cleanup()
+        startRetentionTask()
+    }
+
+    deinit {
+        retentionTask?.cancel()
+    }
+
+    /// Drive cleanup once every 24 h while the app is running.
+    /// Without this, retention only applied at launch — a process kept
+    /// running for weeks would grow the audit DB indefinitely.
+    private func startRetentionTask() {
+        retentionTask = Task.detached(priority: .background) { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 24 * 3600 * 1_000_000_000)
+                guard !Task.isCancelled, let self else { return }
+                try? self.cleanup()
+            }
+        }
     }
 
     // MARK: - Schema
@@ -104,10 +126,20 @@ final class StorageManager: Sendable {
 
     // MARK: - PII audit
 
-    /// Record one PII redaction event. Called once per substituted
-    /// entity. Receives the per-redactor audit entry and the parent
-    /// scan-log row id so the redaction can be joined back to the
-    /// request that produced it.
+    /// One row destined for the `pii_redactions` table. Lets callers
+    /// batch a request's worth of redactions into a single transaction
+    /// instead of N round-trips through `dbPool.write`.
+    struct PIIRedactionRow: Sendable {
+        let targetHost: String?
+        let entityType: String
+        let startOffset: Int
+        let endOffset: Int
+        let valueHashPrefix: String
+        let scanLogId: Int64?
+    }
+
+    /// Record one PII redaction event. Convenience wrapper around the
+    /// batch form for single-row callers.
     func recordPIIRedaction(
         targetHost: String?,
         entityType: String,
@@ -116,19 +148,33 @@ final class StorageManager: Sendable {
         valueHashPrefix: String,
         scanLogId: Int64?
     ) {
+        recordPIIRedactions([
+            PIIRedactionRow(
+                targetHost: targetHost, entityType: entityType,
+                startOffset: startOffset, endOffset: endOffset,
+                valueHashPrefix: valueHashPrefix, scanLogId: scanLogId
+            )
+        ])
+    }
+
+    /// Batch-insert N redaction rows in a single SQLite transaction.
+    /// A request with 50 detected entities goes from 50 commits to 1.
+    func recordPIIRedactions(_ rows: [PIIRedactionRow]) {
+        guard !rows.isEmpty else { return }
         do {
             try dbPool.write { db in
-                try db.execute(
-                    sql: """
-                        INSERT INTO pii_redactions
-                            (targetHost, entityType, startOffset, endOffset, valueHashPrefix, scanLogId)
-                        VALUES (?, ?, ?, ?, ?, ?)
-                        """,
-                    arguments: [
-                        targetHost, entityType, startOffset, endOffset,
-                        valueHashPrefix, scanLogId,
-                    ]
-                )
+                let stmt = try db.makeStatement(sql: """
+                    INSERT INTO pii_redactions
+                        (targetHost, entityType, startOffset, endOffset, valueHashPrefix, scanLogId)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    """)
+                for row in rows {
+                    try stmt.execute(arguments: [
+                        row.targetHost, row.entityType,
+                        row.startOffset, row.endOffset,
+                        row.valueHashPrefix, row.scanLogId,
+                    ])
+                }
             }
         } catch {
             print("[bouclier.ai-storage] PII audit write error: \(error.localizedDescription)")

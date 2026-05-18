@@ -47,21 +47,25 @@ if isHelp {
 }
 
 if CommandLine.arguments.contains("--check") {
-    // Quick check if proxy is listening
+    // Quick check if proxy is listening. The completion handler fires
+    // on URLSession's delegate queue, so we publish the result through
+    // a reference-typed box and synchronise via the semaphore — the
+    // wait establishes happens-before for the post-semaphore read.
+    final class ResultBox: @unchecked Sendable { var running = false }
     let url = URL(string: "http://127.0.0.1:\(port)/")!
     let semaphore = DispatchSemaphore(value: 0)
-    var proxyRunning = false
+    let result = ResultBox()
 
-    let task = URLSession.shared.dataTask(with: url) { data, response, _ in
+    let task = URLSession.shared.dataTask(with: url) { _, response, _ in
         if let http = response as? HTTPURLResponse, http.statusCode == 200 {
-            proxyRunning = true
+            result.running = true
         }
         semaphore.signal()
     }
     task.resume()
     _ = semaphore.wait(timeout: .now() + 1)
 
-    if proxyRunning {
+    if result.running {
         fputs("[bouclier.ai] Proxy is running on port \(port)\n", stderr)
         exit(0)
     } else {

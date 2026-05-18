@@ -184,11 +184,13 @@ enum PIIValidators {
         return luhnCore(clean)
     }
 
+    private static let nirRegex = try! NSRegularExpression(
+        pattern: #"^[12]\d{2}(0[1-9]|1[012]|20|[3-9]\d|[0-9][AB])\d[AB0-9]\d{6}\d{2}$"#
+    )
+
     @Sendable static func isPlausibleNIR(_ nir: String) -> Bool {
         let clean = stripSpace(nir).uppercased()
-        let pattern = #"^[12]\d{2}(0[1-9]|1[012]|20|[3-9]\d|[0-9][AB])\d[AB0-9]\d{6}\d{2}$"#
-        guard let regex = try? NSRegularExpression(pattern: pattern),
-              regex.firstMatch(in: clean, range: NSRange(location: 0, length: (clean as NSString).length)) != nil
+        guard nirRegex.firstMatch(in: clean, range: NSRange(location: 0, length: (clean as NSString).length)) != nil
         else { return false }
         var body = String(clean.prefix(13))
         var adjust: Int64 = 0
@@ -220,11 +222,11 @@ enum PIIValidators {
         return check == digits[9]
     }
 
+    private static let ninoRegex = try! NSRegularExpression(pattern: #"^[A-Z]{2}\d{6}[A-D]$"#)
+
     @Sendable static func isPlausibleNINO(_ nino: String) -> Bool {
         let clean = stripSpace(nino).uppercased()
-        let pattern = #"^[A-Z]{2}\d{6}[A-D]$"#
-        guard let regex = try? NSRegularExpression(pattern: pattern),
-              regex.firstMatch(in: clean, range: NSRange(location: 0, length: (clean as NSString).length)) != nil
+        guard ninoRegex.firstMatch(in: clean, range: NSRange(location: 0, length: (clean as NSString).length)) != nil
         else { return false }
         let banned1: Set<Character> = ["D", "F", "I", "Q", "U", "V"]
         let banned2: Set<Character> = ["D", "F", "I", "O", "Q", "U", "V"]
@@ -236,14 +238,15 @@ enum PIIValidators {
         return true
     }
 
+    private static let ukPostcodeRegex = try! NSRegularExpression(
+        pattern: #"^(GIR ?0AA|[A-PR-UWYZ](?:[0-9]{1,2}|[A-HK-Y][0-9]|[A-HK-Y][0-9](?:[0-9]|[ABEHMNPRV-Y])|[0-9][A-HJKPS-UW]) ?[0-9][ABD-HJLNP-UW-Z]{2})$"#,
+        options: [.caseInsensitive]
+    )
+
     @Sendable static func isPlausibleUKPostcode(_ pc: String) -> Bool {
         let trimmed = pc.trimmingCharacters(in: .whitespaces)
-        let pattern = #"^(GIR ?0AA|[A-PR-UWYZ](?:[0-9]{1,2}|[A-HK-Y][0-9]|[A-HK-Y][0-9](?:[0-9]|[ABEHMNPRV-Y])|[0-9][A-HJKPS-UW]) ?[0-9][ABD-HJLNP-UW-Z]{2})$"#
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
-            return false
-        }
         let range = NSRange(location: 0, length: (trimmed as NSString).length)
-        return regex.firstMatch(in: trimmed, range: range) != nil
+        return ukPostcodeRegex.firstMatch(in: trimmed, range: range) != nil
     }
 
     // MARK: - US NPI
@@ -258,17 +261,18 @@ enum PIIValidators {
 
     /// Suppress Luhn-passing 16-digit shapes that are clearly not cards
     /// based on the preceding ~48 chars (sha256:, txn_id=, hash:, etc.).
+    private static let creditCardContextRejectRegex = try! NSRegularExpression(
+        pattern: #"(?:sha(?:1|256|512)?|md5|hash|nonce|txn[_-]?id|tx[_-]?id|correlation[_-]?id|trace[_-]?id|order[_-]?id|request[_-]?id|session[_-]?id|user[_-]?id)\s*[:=]?\s*$"#,
+        options: [.caseInsensitive]
+    )
+
     @Sendable static func creditCardContextOk(_ content: String, _ matchRange: NSRange) -> Bool {
         let lookbackLen = min(48, matchRange.location)
         let lookbackRange = NSRange(location: matchRange.location - lookbackLen, length: lookbackLen)
         let nsContent = content as NSString
         let lookback = nsContent.substring(with: lookbackRange)
-        let pattern = #"(?:sha(?:1|256|512)?|md5|hash|nonce|txn[_-]?id|tx[_-]?id|correlation[_-]?id|trace[_-]?id|order[_-]?id|request[_-]?id|session[_-]?id|user[_-]?id)\s*[:=]?\s*$"#
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
-            return true
-        }
         let range = NSRange(location: 0, length: (lookback as NSString).length)
-        return regex.firstMatch(in: lookback, range: range) == nil
+        return creditCardContextRejectRegex.firstMatch(in: lookback, range: range) == nil
     }
 
     // MARK: - Secret-context guards

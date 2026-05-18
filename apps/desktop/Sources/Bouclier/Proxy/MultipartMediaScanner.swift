@@ -54,7 +54,10 @@ enum MultipartMediaScanner {
             } else if ct.hasPrefix("audio/") {
                 fileScans.append((idx, .audio))
             } else if ct.hasPrefix("application/octet-stream") || ct.hasPrefix("text/plain") {
-                let prefix = part.bodyData(in: body).prefix(16)
+                // Zero-copy slice: a 30 MB octet-stream upload doesn't
+                // need to clone every byte for a 16-byte magic-number
+                // peek.
+                let prefix = part.bodyPrefix(in: body, length: 16)
                 if let inferred = sniffMediaType(prefix) {
                     fileScans.append((idx, inferred))
                 }
