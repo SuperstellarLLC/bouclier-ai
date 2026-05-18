@@ -53,7 +53,7 @@ final class PIIRedactor: @unchecked Sendable {
         let nsContent = content as NSString
         // Build the redacted string in a single pass from right to left,
         // so we don't have to re-index offsets after each substitution.
-        var out = NSMutableString(string: content)
+        let out = NSMutableString(string: content)
         for det in detections.reversed() {
             let range = NSRange(location: det.start, length: det.end - det.start)
             let token = await session.mintToken(det.value, type: det.type)

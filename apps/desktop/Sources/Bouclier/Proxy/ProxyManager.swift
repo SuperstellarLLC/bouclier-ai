@@ -326,17 +326,22 @@ final class ProxyManager: ObservableObject {
         )
 
         // Per-entity audit rows. Stored after the parent scan_logs
-        // insert so the cascade FK is satisfied. Each call writes a
-        // row with type + offsets + hash-prefix; cleartext is never
-        // touched.
-        for entry in requestLog.piiAudit {
-            storage?.recordPIIRedaction(
-                targetHost: requestLog.targetHost,
-                entityType: entry.type,
-                startOffset: entry.start,
-                endOffset: entry.end,
-                valueHashPrefix: entry.valueHashPrefix,
-                scanLogId: nil
+        // insert so the cascade FK is satisfied. Batched into one
+        // SQLite transaction — for a 50-entity request that's 1 commit
+        // instead of 50. Type, offsets, and hash prefix only; cleartext
+        // never reaches the database.
+        if !requestLog.piiAudit.isEmpty {
+            storage?.recordPIIRedactions(
+                requestLog.piiAudit.map { entry in
+                    StorageManager.PIIRedactionRow(
+                        targetHost: requestLog.targetHost,
+                        entityType: entry.type,
+                        startOffset: entry.start,
+                        endOffset: entry.end,
+                        valueHashPrefix: entry.valueHashPrefix,
+                        scanLogId: nil
+                    )
+                }
             )
         }
     }
