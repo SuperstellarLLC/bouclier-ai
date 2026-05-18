@@ -69,6 +69,16 @@ final class MediaPIIScanner: @unchecked Sendable {
     /// notes for v0.4.0.
     private static let maxImagePixelSize: Int = 2000
 
+    /// Hard upper bound on declared image dimensions (long edge × short
+    /// edge) before we even attempt a thumbnail decode. Defends against
+    /// the classic "decompression bomb" — a tiny PNG/JPEG that declares
+    /// 100k × 100k dimensions and forces a multi-GB intermediate
+    /// allocation. 50 megapixels covers every legitimate camera /
+    /// screenshot users will paste into an LLM (8K screens are
+    /// ~33 MP). Above that, the rewriter strips the attachment and
+    /// surfaces an "unscannable" finding instead.
+    private static let maxImagePixelArea: Int = 50_000_000
+
     /// Face-detection confidence floor. Revision 3 has a low false-
     /// positive rate so 0.5 is safe in practice; raised for
     /// preview-modal noise reduction would be a UX call.
@@ -127,16 +137,22 @@ final class MediaPIIScanner: @unchecked Sendable {
                   CGImageSourceGetStatus(source) == .statusComplete
             else { return nil }
 
-            // Read EXIF orientation. Value 1 means "up" / no rotation.
-            // Anything else means the upstream camera or editor stored
-            // the image sideways and is relying on EXIF to render it
-            // right-side-up.
-            let orientationRaw: UInt32 = {
-                guard let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
-                      let value = props[kCGImagePropertyOrientation] as? UInt32
-                else { return 1 }
-                return value
-            }()
+            // Read metadata first — pixel dimensions, EXIF orientation
+            // — without decoding the pixel buffer. A decompression-bomb
+            // image declares enormous dimensions but ships only a few
+            // KB of data; reading the dimensions cheaply tells us to
+            // reject before allocating anything large.
+            let props = (CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any]) ?? [:]
+            if let w = props[kCGImagePropertyPixelWidth] as? Int,
+               let h = props[kCGImagePropertyPixelHeight] as? Int,
+               w > 0, h > 0,
+               w.multipliedReportingOverflow(by: h).overflow
+                || w * h > Self.maxImagePixelArea
+            {
+                return nil
+            }
+
+            let orientationRaw = (props[kCGImagePropertyOrientation] as? UInt32) ?? 1
             let orientation = CGImagePropertyOrientation(rawValue: orientationRaw) ?? .up
 
             // Use CGImageSourceCreateThumbnailAtIndex which is the
@@ -148,6 +164,7 @@ final class MediaPIIScanner: @unchecked Sendable {
                 kCGImageSourceCreateThumbnailFromImageAlways: true,
                 kCGImageSourceCreateThumbnailWithTransform: false, // we pass orientation explicitly
                 kCGImageSourceThumbnailMaxPixelSize: Self.maxImagePixelSize,
+                kCGImageSourceShouldCache: false,
             ]
             guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, opts as CFDictionary) else {
                 return nil

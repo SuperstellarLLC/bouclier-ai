@@ -372,6 +372,32 @@ enum HTTPRequestInspector {
         return plus.removingPercentEncoding ?? plus
     }
 
+    /// True if the string contains a CR, LF, or NUL byte. These are
+    /// the classic HTTP-request-smuggling primitives — anything we
+    /// re-serialise onto the wire must be vetted for them, including
+    /// the request URI and every header value the upstream sees.
+    static func containsControlBytes(_ s: String) -> Bool {
+        for u in s.utf8 where u == 0x00 || u == 0x0A || u == 0x0D { return true }
+        return false
+    }
+
+    /// Validate an HTTP header name against the RFC 7230 §3.2.6 token
+    /// production: `1*tchar`. tchar excludes separators and CTLs.
+    /// We accept alphanumerics plus a short punctuation allowlist
+    /// covering every header an HTTP stack legitimately emits.
+    static func isValidHeaderName(_ name: String) -> Bool {
+        guard !name.isEmpty else { return false }
+        for u in name.utf8 {
+            let alnum = (u >= 0x30 && u <= 0x39) || (u >= 0x41 && u <= 0x5A) || (u >= 0x61 && u <= 0x7A)
+            let allowed: Set<UInt8> = [
+                0x21, 0x23, 0x24, 0x25, 0x26, 0x27, 0x2A, 0x2B, 0x2D,
+                0x2E, 0x5E, 0x5F, 0x60, 0x7C, 0x7E,
+            ]
+            if !alnum && !allowed.contains(u) { return false }
+        }
+        return true
+    }
+
     /// Parse and validate a CONNECT target of the form `host:port`.
     ///
     /// Rejects:
