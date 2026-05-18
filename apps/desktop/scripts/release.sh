@@ -41,9 +41,13 @@ NEXT_VERSION=$(bump_patch "$CURRENT_VERSION")
 if [ -n "$CURRENT_VERSION" ]; then
   echo "  Current released version: $CURRENT_VERSION"
 fi
+# The release script is maintainer-driven (single host with the signing
+# keys). Defaults come from env so the public repo doesn't hard-code
+# the maintainer's Apple ID. Set $BOUCLIER_APPLE_ID and
+# $BOUCLIER_APPLE_TEAM_ID in your shell or a .env to skip the prompt.
 prompt_with_default VERSION "Version" "${NEXT_VERSION:-0.2.8}"
-prompt_with_default APPLE_ID "Apple ID" "yann.borie@superstellar.io"
-prompt_with_default TEAM_ID "Apple Team ID" "U86PR842AK"
+prompt_with_default APPLE_ID "Apple ID" "${BOUCLIER_APPLE_ID:-}"
+prompt_with_default TEAM_ID "Apple Team ID" "${BOUCLIER_APPLE_TEAM_ID:-}"
 prompt_with_default DOWNLOAD_BASE_URL "Vercel Blob public URL" \
   "https://0tdi95zyjwsefpzx.public.blob.vercel-storage.com/download"
 prompt_secret APP_PASSWORD "App-specific password"
