@@ -1,7 +1,18 @@
 {
   "name": "bouclier-ai",
-  "version": "0.1.0",
+  "version": "0.4.0",
   "private": true,
+  "description": "Local-only macOS proxy that stops prompt injections and PII from leaking to LLMs — in text, images, PDFs, and audio.",
+  "homepage": "https://www.bouclier.ai",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/SuperstellarLLC/ilvarion.git"
+  },
+  "bugs": {
+    "url": "https://github.com/SuperstellarLLC/ilvarion/issues"
+  },
+  "license": "Apache-2.0",
+  "author": "Superstellar LLC",
   "packageManager": "pnpm@9.15.0",
   "engines": {
     "node": ">=22.0.0"
