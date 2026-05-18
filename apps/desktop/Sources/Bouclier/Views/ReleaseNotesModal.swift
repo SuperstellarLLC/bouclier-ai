@@ -2,18 +2,14 @@ import SwiftUI
 
 /// One-time "what's new" sheet shown the first time the app launches
 /// on a freshly-installed version. Triggered by comparing the bundle
-/// CFBundleShortVersionString against a UserDefaults watermark; on
-/// mismatch we show the sheet once and update the watermark.
+/// `CFBundleShortVersionString` against a UserDefaults watermark; on
+/// mismatch the sheet appears once and the watermark advances.
 ///
-/// **Why this exists.** The senior product review flagged that the
-/// PII redaction feature ships invisible: off-by-default, buried under
-/// a Settings tab, with no discovery moment. Without a release-notes
-/// surface, a user upgrades from v0.2.12 to v0.2.13 and is never told
-/// the feature exists. This sheet is the discovery surface.
-///
-/// **Honest copy.** Per the founder's instruction, no superlatives, no
-/// "the only", no marketing fluff. State the value directly and flag
-/// the prototype caveat in the same breath.
+/// New PII and multimodal features ship off-by-default and live under
+/// a Settings tab, so without a release-notes surface a user can
+/// upgrade and never discover them. This sheet is the discovery
+/// surface. Copy is intentionally plain — value first, prototype
+/// caveat second, no superlatives.
 struct ReleaseNotesModal: View {
     let version: String
     let onOpenPrivacySettings: () -> Void
