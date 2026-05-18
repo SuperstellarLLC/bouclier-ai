@@ -47,6 +47,15 @@ actor PIISession {
     /// short enough that idle memory residency is bounded.
     static let defaultTTL: TimeInterval = 600
 
+    /// Hard cap on the number of distinct entities a single session
+    /// will tokenise. Defends against a pathological client streaming
+    /// an unbounded stream of unique PII through one keep-alive
+    /// connection — without this cap the per-session map would grow
+    /// monotonically until `close()`. Once exceeded, further values
+    /// pass through unredacted with an audit-log signal so the
+    /// operator notices.
+    static let maxEntriesPerSession = 50_000
+
     /// First N hex chars of the HMAC used as the token's unique part.
     /// 8 hex = 32 bits of collision resistance — overkill for a 10-min
     /// per-connection map but the cost is zero.
@@ -115,6 +124,16 @@ actor PIISession {
         if let existing = cleartextToToken[key] {
             lastAccess = Date()
             return existing
+        }
+
+        // Refuse to grow the map past the per-session cap. The caller
+        // sees the cleartext returned unchanged, which means redaction
+        // silently degrades for the spillover entities — but the
+        // alternative (unbounded growth on a long-lived connection) is
+        // worse. Reverser sees nothing to reverse, so the response
+        // path stays consistent.
+        if tokenToCleartext.count >= PIISession.maxEntriesPerSession {
+            return cleartext
         }
 
         let counter = (perTypeCounter[type] ?? 0) + 1

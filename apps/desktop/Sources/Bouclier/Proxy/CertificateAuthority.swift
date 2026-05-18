@@ -19,6 +19,13 @@ final class CertificateAuthority: @unchecked Sendable {
             in: .userDomainMask
         ).first!.appendingPathComponent("ai.bouclier.app", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        // Tighten directory perms to user-only. Application Support
+        // inherits the default 0o755 on macOS, which would let any
+        // process running as another user list and traverse our path.
+        // The CA private key was already removed after Keychain import,
+        // but the leaf-cert temp directory created beneath this path
+        // briefly holds key material during openssl invocations.
+        chmod(dir.path, 0o700)
         return dir
     }()
 
@@ -68,7 +75,10 @@ final class CertificateAuthority: @unchecked Sendable {
             guard process.terminationStatus == 0 else { return false }
         } catch { return false }
 
-        // Restrict permissions on key file
+        // Restrict permissions on key file. The parent dir is 0o700
+        // (see `storagePath`), so other users can't traverse to it
+        // anyway, but locking the file down too is cheap defence in
+        // depth.
         chmod(keyPath, 0o600)
 
         guard let keyPEM = try? String(contentsOfFile: keyPath, encoding: .utf8),
@@ -78,8 +88,14 @@ final class CertificateAuthority: @unchecked Sendable {
         // Import key into Keychain for encrypted-at-rest storage
         storeKeyInKeychain(keyPEM)
 
-        // Delete the plaintext key file — Keychain is the permanent store
-        try? FileManager.default.removeItem(atPath: keyPath)
+        // Delete the plaintext key file — Keychain is the permanent
+        // store. Log loudly on failure: leaving the key on disk is a
+        // P0 leak even though the parent dir is mode 0o700.
+        do {
+            try FileManager.default.removeItem(atPath: keyPath)
+        } catch {
+            print("[bouclier.ai-ca] WARNING: failed to remove plaintext CA key file at \(keyPath): \(error)")
+        }
 
         // Trust the CA cert
         guard let certDER = pemToDER(certPEM),
@@ -139,7 +155,21 @@ final class CertificateAuthority: @unchecked Sendable {
 
         let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try? FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: tempDir) }
+        // Lock the temp dir down before any private-key bytes land in
+        // it. openssl writes leaf.key + ca.key under here and inherits
+        // the parent's umask; the parent FS-level perms are the only
+        // thing stopping a same-user process from racing in to read.
+        chmod(tempDir.path, 0o700)
+        defer {
+            do {
+                try FileManager.default.removeItem(at: tempDir)
+            } catch {
+                // Leaving CA key material on disk is a P0 leak — log
+                // loudly so an operator notices instead of silently
+                // swallowing.
+                print("[bouclier.ai-ca] WARNING: failed to remove leaf temp dir \(tempDir.path): \(error)")
+            }
+        }
 
         let leafKeyPath = tempDir.appendingPathComponent("leaf.key").path
         let leafCsrPath = tempDir.appendingPathComponent("leaf.csr").path
