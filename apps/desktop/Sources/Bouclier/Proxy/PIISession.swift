@@ -12,14 +12,14 @@ import Foundation
 ///
 /// **Threat model honestly stated.** The session map is plaintext
 /// `[String: Data]` in process memory. This is *not* "encrypted at rest"
-/// — the AES-GCM-in-memory framing from earlier drafts was security
-/// theater because the key would have lived in the same actor. The
+/// — AES-GCM-in-memory framing from earlier drafts was security
+/// theatre because the key would have lived in the same actor. The
 /// honest claim: (1) PII never leaves the device, (2) the map is never
-/// written to disk, (3) cleartext buffers are zeroized on TTL expiry,
+/// written to disk, (3) cleartext buffers are zeroised on TTL expiry,
 /// (4) sessions are scoped to a single TLS connection so concurrent
 /// connections can never read each other's tokens. The audit log
-/// (separate file) is what should be encrypted at rest via Secure
-/// Enclave-wrapped key — that's a v0.2.14 follow-up.
+/// (separate file) is what would benefit from a Secure-Enclave-wrapped
+/// at-rest key — tracked separately.
 ///
 /// **Concurrency.** Actor isolation guarantees one operation at a time.
 /// Construct one `PIISession` per proxy connection; never share across
@@ -198,9 +198,9 @@ actor PIISession {
     /// `withUnsafeMutableBytes` is the closest we get.
     ///
     /// Note: this does *not* prevent the OS from having paged any of
-    /// this memory to swap before we got here. For the swap-leak threat
-    /// model the proper fix is `mlock` on the page or Secure Enclave key
-    /// wrapping of the audit log only — see R5 in the v0.2.13 review.
+    /// this memory to swap before we got here. The swap-leak threat
+    /// model needs either `mlock` on the page or Secure-Enclave-wrapped
+    /// keys for the audit log — both tracked as separate work items.
     private func zeroizeAll() {
         for (token, var data) in tokenToCleartext {
             data.withUnsafeMutableBytes { buf in

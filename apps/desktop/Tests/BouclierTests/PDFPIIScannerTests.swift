@@ -59,7 +59,7 @@ struct PDFPIIScannerTests {
         #expect(result.unscannable == .malformed)
     }
 
-    @Test("Encrypted PDFs surface as unscannable instead of silently passing through (P0 fix)")
+    @Test("Encrypted PDFs surface as unscannable instead of silently passing through")
     func encryptedPDFIsUnscannable() async throws {
         let data = fixture("pdf-encrypted")
         let result = try await PDFPIIScanner.shared.scan(pdfData: data)

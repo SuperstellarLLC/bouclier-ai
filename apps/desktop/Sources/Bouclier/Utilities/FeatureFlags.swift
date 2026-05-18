@@ -52,11 +52,11 @@ enum FeatureFlags {
         #endif
     }
 
-    /// Whether the PII redactor runs on outbound chat-completion bodies.
-    /// Ships off in v0.2.13 so users have to opt in explicitly while the
-    /// detector set matures; MDM admins can flip it on for the whole org.
-    /// Once Phase 2 (Piiranha CoreML) and Phase 3 (streaming reversal)
-    /// land we flip the default to on.
+    /// Whether the PII redactor runs on outbound chat-completion
+    /// bodies. Ships off so users opt in explicitly while the
+    /// detector set matures; MDM admins can flip it on for the whole
+    /// org. The default will flip on once the ML tier and streaming
+    /// reversal have shipped and bedded in.
     ///
     /// The user-facing pause button (RedactionPause) layers on top of
     /// this: even when the flag is on, an active pause short-circuits

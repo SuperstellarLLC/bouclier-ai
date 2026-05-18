@@ -7,7 +7,7 @@ import Testing
 /// Serialized because several tests toggle the global
 /// `FeatureFlags.piiRedaction` override — parallel execution otherwise
 /// races on the static `testOverrides` dictionary.
-@Suite("PII pipeline — Phase 1 end-to-end", .serialized)
+@Suite("PII pipeline — end-to-end", .serialized)
 struct PIIPipelineTests {
     // MARK: - Scanner
 

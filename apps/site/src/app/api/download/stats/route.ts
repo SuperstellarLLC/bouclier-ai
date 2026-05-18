@@ -11,7 +11,7 @@
  *        https://www.bouclier.ai/api/download/stats
  */
 
-import { NextRequest, NextResponse } from "next/server";
+import { type NextRequest, NextResponse } from "next/server";
 
 import { env } from "@/env";
 import { readDownloadStats } from "@/lib/download-tracker";

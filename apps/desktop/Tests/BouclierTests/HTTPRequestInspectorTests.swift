@@ -131,12 +131,11 @@ struct HTTPRequestInspectorTests {
 
         #expect(result.detected)
         #expect(result.matchCount > 0)
-        // P1 cross-phase fix: URI-only detection MUST NOT mark
-        // `bodyRewritten`. The downstream multimodal + PII gates use
-        // that flag to decide whether to scan attachments in the body —
-        // if `bodyRewritten` leaked true here, every URI-injection
-        // request would silently bypass image/PDF/audio scanning and
-        // leak user files to the model.
+        // URI-only detection must not mark `bodyRewritten`. The
+        // downstream multimodal + PII gates use that flag to decide
+        // whether to scan attachments in the body; if it leaked true
+        // here, every URI-injection request would silently bypass
+        // image/PDF/audio scanning and leak attachments to the model.
         #expect(!result.bodyRewritten)
     }
 

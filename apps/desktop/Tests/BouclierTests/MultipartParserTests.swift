@@ -92,12 +92,12 @@ struct MultipartParserTests {
         #expect(parts == nil)
     }
 
-    @Test("Boundary bytes embedded in a file payload don't corrupt the parse (P1 fix)")
+    @Test("Boundary bytes embedded in a file payload don't corrupt the parse")
     func boundaryInsideFilePayload() {
         let boundary = "ab"  // intentionally short to maximise collision odds
         // File payload deliberately contains the literal boundary
-        // string without a preceding CRLF anchor. Before the P1 fix
-        // this would split the file mid-payload and lose bytes.
+        // string without a preceding CRLF anchor. The parser must
+        // treat those bytes as payload, not as a delimiter.
         var payload = Data("hello world ".utf8)
         payload.append(Data("--ab".utf8))  // boundary bytes inside the file
         payload.append(Data(" more file bytes".utf8))
@@ -110,7 +110,7 @@ struct MultipartParserTests {
         let parts = MultipartParser.parse(body: bytes, contentType: "multipart/form-data; boundary=\(boundary)")
         #expect(parts?.count == 1)
         #expect(parts?[0].bodyData(in: bytes) == payload,
-                "P1 fix: embedded boundary bytes without CRLF anchor must NOT be treated as delimiters")
+                "embedded boundary bytes without a CRLF anchor must not be treated as a delimiter")
     }
 
     @Test("Tolerates LF-only line endings (some curl invocations)")

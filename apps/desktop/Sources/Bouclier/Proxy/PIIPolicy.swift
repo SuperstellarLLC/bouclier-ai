@@ -2,11 +2,11 @@ import Foundation
 
 /// Per-domain PII redaction policy.
 ///
-/// **Why this exists.** Phase 1 was off-by-default because we didn't
-/// want to disable PII for an "internal LLM gateway at company.ai"
-/// require a global off-switch. Per-domain rules let the operator
-/// keep PII redaction on for OpenAI/Anthropic while bypassing it for
-/// a private endpoint that already enforces compliance.
+/// Some operators run an internal LLM gateway that already enforces
+/// compliance, or an embedding endpoint that breaks if placeholders
+/// are substituted into the input. Per-domain rules let those hosts
+/// bypass redaction without disabling the feature for OpenAI,
+/// Anthropic, Gemini, and friends.
 ///
 /// **Resolution order** (first matching rule wins):
 /// 1. MDM-managed `denyDomains` (enterprise IT)

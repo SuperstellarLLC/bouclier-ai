@@ -8,10 +8,10 @@ import Testing
 /// `HTTPRequestInspector.applyMultimodalInspection` runs the full
 /// extract → inspect → rewrite pipeline against a real request body.
 ///
-/// Phase 1-4 unit tests cover each component in isolation; these
-/// tests catch integration drift (e.g. the Phase 4 P0 where the
-/// whole feature was dead code because of a misplaced
-/// `bodyScanSkipped` gate).
+/// Component-level unit tests cover each stage in isolation; these
+/// tests catch integration drift — e.g. a misplaced
+/// `bodyScanSkipped` gate that disables the whole pass without any
+/// component-level test failing.
 @Suite("Multimodal integration — applyMultimodalInspection through the proxy seam", .serialized)
 struct MultimodalIntegrationTests {
     private func base64Fixture(_ name: String, ext: String = "png") -> String {
@@ -70,7 +70,7 @@ struct MultimodalIntegrationTests {
                 "Integration: the rewritten body must carry the placeholder text")
     }
 
-    @Test("Multipart body with a flagged file part gets rewritten (P0 regression)")
+    @Test("Multipart body with a flagged file part gets rewritten")
     func multipartFileEndToEnd() async {
         enableMultimodal()
         defer { disableMultimodal() }
@@ -95,11 +95,11 @@ struct MultimodalIntegrationTests {
             method: .POST,
             allocator: allocator
         )
-        // Regression for the cross-phase review's P0-1: this used to
-        // return an empty pass because applyMultimodalInspection's
-        // `shouldScanBody` gate refused multipart bodies.
+        // Regression cover: a `shouldScanBody` gate that refuses
+        // multipart bodies would make applyMultimodalInspection
+        // return an empty pass and leak attachments unchanged.
         #expect(pass.report.pdfsScanned == 1,
-                "Integration P0 regression: multipart Files-API uploads must reach the multipart scanner")
+                "multipart Files-API uploads must reach the multipart scanner")
         #expect(!pass.report.findings.isEmpty,
                 "Integration: a flagged PDF in a Files-API upload must produce findings")
         // Verify the body bytes were actually rewritten — the file
