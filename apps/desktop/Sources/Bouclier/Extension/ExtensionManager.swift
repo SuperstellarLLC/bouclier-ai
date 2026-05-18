@@ -65,7 +65,7 @@ final class ExtensionManager: NSObject, ObservableObject {
 
             try await manager.saveToPreferences()
             try await manager.loadFromPreferences()
-            try await manager.connection.startVPNTunnel()
+            try manager.connection.startVPNTunnel()
 
             proxyEnabled = true
             return true

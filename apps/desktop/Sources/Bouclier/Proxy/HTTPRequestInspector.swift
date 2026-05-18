@@ -138,10 +138,10 @@ enum HTTPRequestInspector {
               method != .GET, method != .HEAD, method != .DELETE,
               method != .OPTIONS, method != .CONNECT, method != .TRACE
         else { return empty }
-        guard let bytes = body.getBytes(at: body.readerIndex, length: body.readableBytes) else {
-            return empty
-        }
-        let bodyData = Data(bytes)
+        // Single-copy `Data` from the ByteBuffer rather than
+        // `getBytes` → `[UInt8]` → `Data(_)` which copies twice. On a
+        // 64 MB body this saves a full allocation per request.
+        let bodyData = Data(body.readableBytesView)
 
         // Race the inspector against the wall-clock budget. If
         // inspection takes too long (pathological PDF / audio) we

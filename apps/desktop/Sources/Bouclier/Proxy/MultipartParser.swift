@@ -60,7 +60,43 @@ enum MultipartParser {
             return source.subdata(in: bodyStart..<(bodyStart + bodyLength))
         }
 
+        /// Zero-copy view into the first `maxLength` bytes of the part.
+        /// Use for magic-byte sniffing where copying the whole part
+        /// (potentially tens of megabytes) just to read the first
+        /// dozen bytes is wasteful.
+        func bodyPrefix(in source: Data, length maxLength: Int) -> Data.SubSequence {
+            guard bodyStart >= 0, bodyStart < source.count else { return Data().prefix(0) }
+            let end = min(bodyStart + min(bodyLength, maxLength), source.count)
+            return source[bodyStart..<end]
+        }
+
+        /// Cached per parameter name. Multipart bodies only carry a
+        /// handful of distinct names ("name", "filename", "boundary"),
+        /// so the bounded cache amortises the regex-compile cost to
+        /// once per process.
+        private static let parameterRegexCache = ParameterRegexCache()
+
         private static func parameter(_ name: String, in header: String) -> String? {
+            guard let regex = parameterRegexCache.get(name) else { return nil }
+            let range = NSRange(header.startIndex..., in: header)
+            guard let m = regex.firstMatch(in: header, range: range) else { return nil }
+            if let r = Range(m.range(at: 1), in: header) { return String(header[r]) }
+            if let r = Range(m.range(at: 2), in: header) { return String(header[r]) }
+            return nil
+        }
+    }
+
+    /// Tiny lock-protected cache so the same name regex isn't
+    /// recompiled across multipart parses. Compilation of these
+    /// patterns is fast (~10 µs) but multipart bodies parse hundreds
+    /// of parts in a row, so amortising matters at scale.
+    private final class ParameterRegexCache: @unchecked Sendable {
+        private var cache: [String: NSRegularExpression] = [:]
+        private let lock = NSLock()
+        func get(_ name: String) -> NSRegularExpression? {
+            lock.lock()
+            defer { lock.unlock() }
+            if let cached = cache[name] { return cached }
             // Matches `name="value"` and `name=value` (bare). We don't
             // unescape RFC 5987 percent-encoded values — providers
             // don't emit them in file-upload Content-Disposition.
@@ -68,11 +104,8 @@ enum MultipartParser {
             guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
                 return nil
             }
-            let range = NSRange(header.startIndex..., in: header)
-            guard let m = regex.firstMatch(in: header, range: range) else { return nil }
-            if let r = Range(m.range(at: 1), in: header) { return String(header[r]) }
-            if let r = Range(m.range(at: 2), in: header) { return String(header[r]) }
-            return nil
+            cache[name] = regex
+            return regex
         }
     }
 
@@ -85,16 +118,17 @@ enum MultipartParser {
         return parse(body: body, boundary: boundary)
     }
 
+    private static let boundaryRegex = try! NSRegularExpression(
+        pattern: #"boundary=(?:"([^"]+)"|([^;\s]+))"#,
+        options: [.caseInsensitive]
+    )
+
     static func boundary(from contentType: String) -> String? {
         // Content-Type: multipart/form-data; boundary=----abc
         let lower = contentType.lowercased()
         guard lower.contains("multipart/") else { return nil }
-        let pattern = #"boundary=(?:"([^"]+)"|([^;\s]+))"#
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
-            return nil
-        }
         let range = NSRange(contentType.startIndex..., in: contentType)
-        guard let m = regex.firstMatch(in: contentType, range: range) else { return nil }
+        guard let m = boundaryRegex.firstMatch(in: contentType, range: range) else { return nil }
         if let r = Range(m.range(at: 1), in: contentType) { return String(contentType[r]) }
         if let r = Range(m.range(at: 2), in: contentType) { return String(contentType[r]) }
         return nil
