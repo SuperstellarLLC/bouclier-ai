@@ -5,6 +5,15 @@ options:
     macOS: "15.0"
   createIntermediateGroups: true
 
+# Signing settings only matter when generating an Xcode project for a
+# signed release build (`xcodegen && xcodebuild -scheme Bouclier
+# -configuration Release`). Contributors who just want to build and run
+# locally can use `swift build` / `swift run` directly — those paths
+# don't touch these values. To build a signed copy on a different
+# Apple Developer team, override these in your own checkout — they're
+# left in because the maintainer ships the signed DMG from this exact
+# config; the team ID is otherwise visible in any `codesign -dvv` of
+# the published binary.
 settings:
   base:
     DEVELOPMENT_TEAM: U86PR842AK
