@@ -8,3 +8,22 @@ playwright-report
 *.min.js
 pnpm-lock.yaml
 package-lock.json
+
+# Python venvs / vendored ML conversion environments
+.venv
+.venv-ml
+**/.venv
+**/.venv-ml
+
+# Swift build output
+.build
+.swiftpm
+
+# Generated tokenizer artifacts (large, vendored verbatim)
+apps/desktop/Sources/Bouclier/Resources/PromptGuardTokenizer
+apps/desktop/Sources/Bouclier/Resources/PiiranhaTokenizer
+
+# License texts shouldn't be reformatted
+LICENSE
+LICENSES
+NOTICE.txt

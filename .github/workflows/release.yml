@@ -1,3 +1,17 @@
+# Tag-verifier and draft-release workflow.
+#
+# When a `v*` tag is pushed, this workflow rebuilds and tests the
+# desktop app from that exact tag, uploads the unsigned build as an
+# artifact for QA, and opens a draft GitHub release populated from
+# the matching `## [VERSION]` section of CHANGELOG.md.
+#
+# Signing, notarisation, DMG creation, and Sparkle appcast publication
+# happen locally on a maintainer's machine via
+# `apps/desktop/scripts/release.sh` — macOS code-signing in CI is
+# fragile and our threat model puts the signing keys on a single
+# maintainer-held machine. The draft release is finalised manually
+# after the signed DMG is uploaded to the download host.
+
 name: Release
 
 on:
@@ -12,156 +26,82 @@ concurrency:
 permissions:
   contents: write
 
-env:
-  NODE_VERSION: "22"
-  SKIP_ENV_VALIDATION: "true"
-  APP_NAME: "Bouclier-ai"
-  BUNDLE_ID: "ai.bouclier.app"
-
 jobs:
-  build-desktop:
-    name: Build, Sign & Notarize Desktop App
-    runs-on: macos-14
+  verify:
+    name: Verify tag builds & tests pass
+    runs-on: macos-15
+    timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
-
-      # ── Build patterns ────────────────────
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: "pnpm"
-      - run: pnpm install --frozen-lockfile && pnpm --filter @bouclier-ai/patterns build
-      - run: apps/desktop/scripts/sync-patterns.sh
+          node-version-file: .nvmrc
+          cache: pnpm
 
-      # ── Build Swift ───────────────────────
-      - name: Build release binaries
-        run: cd apps/desktop && swift build -c release
+      - name: Install workspace deps
+        run: pnpm install --frozen-lockfile
 
-      # ── Create .app bundle ────────────────
-      - name: Create .app bundle
-        run: |
-          APP="${APP_NAME}.app"
-          CONTENTS="${APP}/Contents"
-          mkdir -p "${CONTENTS}/MacOS" "${CONTENTS}/Resources"
+      - name: Build shared patterns package
+        run: pnpm --filter @bouclier-ai/patterns build
 
-          # Binaries
-          cp apps/desktop/.build/release/Bouclier "${CONTENTS}/MacOS/"
-          cp apps/desktop/.build/release/bouclier-ai-mcp-wrapper "${CONTENTS}/MacOS/"
+      - name: Sync patterns into desktop bundle
+        run: apps/desktop/scripts/sync-patterns.sh
 
-          # Resources (patterns.json bundle)
-          cp -r apps/desktop/.build/release/Bouclier_Bouclier.bundle "${CONTENTS}/Resources/" 2>/dev/null || true
+      - name: Build Swift package (release)
+        working-directory: apps/desktop
+        run: swift build -c release
 
-          # Info.plist
-          cat > "${CONTENTS}/Info.plist" << EOF
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0">
-          <dict>
-            <key>CFBundleName</key><string>${APP_NAME}</string>
-            <key>CFBundleDisplayName</key><string>${APP_NAME}</string>
-            <key>CFBundleIdentifier</key><string>${BUNDLE_ID}</string>
-            <key>CFBundleVersion</key><string>${GITHUB_REF_NAME#v}</string>
-            <key>CFBundleShortVersionString</key><string>${GITHUB_REF_NAME#v}</string>
-            <key>CFBundleExecutable</key><string>${APP_NAME}</string>
-            <key>CFBundlePackageType</key><string>APPL</string>
-            <key>LSUIElement</key><true/>
-            <key>LSMinimumSystemVersion</key><string>14.0</string>
-            <key>NSHumanReadableCopyright</key><string>Copyright 2026 Bouclier.ai</string>
-          </dict>
-          </plist>
-          EOF
+      - name: Run Swift tests
+        working-directory: apps/desktop
+        run: swift test
 
-      # ── Code Sign ─────────────────────────
-      - name: Import signing certificate
-        if: env.MACOS_CERTIFICATE != ''
-        env:
-          MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
-          MACOS_CERTIFICATE_PWD: ${{ secrets.MACOS_CERTIFICATE_PWD }}
-          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
-        run: |
-          CERT_PATH=$RUNNER_TEMP/build_certificate.p12
-          KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
-
-          echo -n "$MACOS_CERTIFICATE" | base64 --decode -o $CERT_PATH
-
-          security create-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
-          security set-keychain-settings -lut 21600 $KEYCHAIN_PATH
-          security unlock-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
-
-          security import $CERT_PATH -P "$MACOS_CERTIFICATE_PWD" -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
-          security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
-          security list-keychain -d user -s $KEYCHAIN_PATH
-
-      - name: Sign app bundle
-        if: env.MACOS_CERTIFICATE != ''
-        env:
-          MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
-          SIGNING_IDENTITY: ${{ secrets.SIGNING_IDENTITY }}
-        run: |
-          codesign --force --deep --options runtime \
-            --sign "$SIGNING_IDENTITY" \
-            --entitlements apps/desktop/Bouclier.entitlements \
-            "${APP_NAME}.app"
-
-      # ── Create DMG ────────────────────────
-      - name: Create DMG
-        run: |
-          # Create a temporary DMG folder
-          DMG_DIR=$RUNNER_TEMP/dmg
-          mkdir -p "$DMG_DIR"
-          cp -R "${APP_NAME}.app" "$DMG_DIR/"
-          ln -s /Applications "$DMG_DIR/Applications"
-
-          hdiutil create -volname "$APP_NAME" \
-            -srcfolder "$DMG_DIR" \
-            -ov -format UDZO \
-            "${APP_NAME}-${GITHUB_REF_NAME}-macOS.dmg"
-
-      # ── Notarize ──────────────────────────
-      - name: Notarize DMG
-        if: env.APPLE_ID != ''
-        env:
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
-        run: |
-          xcrun notarytool submit "${APP_NAME}-${GITHUB_REF_NAME}-macOS.dmg" \
-            --apple-id "$APPLE_ID" \
-            --team-id "$APPLE_TEAM_ID" \
-            --password "$APPLE_APP_PASSWORD" \
-            --wait
-
-          xcrun stapler staple "${APP_NAME}-${GITHUB_REF_NAME}-macOS.dmg"
-
-      # ── Also create unsigned zip for testing ─
-      - name: Create zip archive
-        run: zip -r "${APP_NAME}-${GITHUB_REF_NAME}-macOS.zip" "${APP_NAME}.app"
-
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+      - name: Upload unsigned binaries
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: desktop-macos
+          name: bouclier-${{ github.ref_name }}-unsigned
           path: |
-            ${{ env.APP_NAME }}-${{ github.ref_name }}-macOS.dmg
-            ${{ env.APP_NAME }}-${{ github.ref_name }}-macOS.zip
+            apps/desktop/.build/release/Bouclier
+            apps/desktop/.build/release/bouclier-ai-mcp-wrapper
+            apps/desktop/.build/release/bouclier-ai-env
+          retention-days: 14
+          if-no-files-found: error
 
-  release:
-    name: Create Release
+  draft-release:
+    name: Open draft GitHub release
     runs-on: ubuntu-latest
-    needs: [build-desktop]
+    needs: verify
+    timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
-      - name: Download artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: desktop-macos
+      - name: Extract CHANGELOG section for this tag
+        id: changelog
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo "Extracting changelog section for ${VERSION}"
+          {
+            echo 'BODY<<__EOF__'
+            awk -v ver="$VERSION" '
+              $0 ~ ("^## \\[" ver "\\]") { found = 1; next }
+              found && /^## \[/ { exit }
+              found { print }
+            ' CHANGELOG.md
+            echo '__EOF__'
+          } >> "$GITHUB_OUTPUT"
 
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+      - name: Create draft release
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
-          generate_release_notes: true
-          files: |
-            *.dmg
-            *.zip
+          draft: true
+          name: ${{ github.ref_name }}
+          tag_name: ${{ github.ref_name }}
+          body: |
+            ${{ steps.changelog.outputs.BODY }}
+
+            ---
+
+            > Signed DMG and Sparkle appcast are published separately via
+            > `apps/desktop/scripts/release.sh` on a maintainer machine.
+            > This release will be promoted from *draft* once those
+            > artifacts are uploaded.
