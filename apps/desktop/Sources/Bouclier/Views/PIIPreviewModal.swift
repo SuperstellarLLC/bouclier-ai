@@ -1,22 +1,19 @@
 import SwiftUI
 
-/// Modal that previews what PII would be redacted before a prompt is
-/// forwarded to the LLM, addressing Y6 from the v0.2.13 review:
-/// "show-redactions-before-send is non-negotiable for trust."
+/// Modal that previews what PII would be redacted before a prompt
+/// is forwarded to the LLM.
 ///
-/// **Where this fits.** Phase 1 wires PII redaction at the TLS proxy
-/// layer, which means the user's app (Cursor / Claude Desktop / etc.)
-/// doesn't know we're substituting tokens. For the first N prompts of
-/// each session — controlled by the `piiPreviewBeforeSend` preference —
-/// this modal surfaces *what we would redact* without exposing
-/// cleartext to a third party. The user clicks Send to forward, Cancel
-/// to abort, or "Don't ask again" to skip the modal for the rest of
-/// the day.
+/// PII redaction happens at the TLS proxy layer, so the user's app
+/// (Cursor, Claude Desktop, ChatGPT, …) never knows we're substituting
+/// tokens. For the first N prompts of each session — controlled by
+/// the `piiPreviewBeforeSend` preference — this modal surfaces *what
+/// we would redact* without exposing the cleartext to anyone else.
+/// Send forwards the request, Cancel aborts it, "Don't ask again"
+/// suppresses the modal for the rest of the day.
 ///
-/// **What the modal does NOT do.** It never leaves the device. It does
-/// not log cleartext. The displayed before/after is rendered locally
-/// from the original prompt and the minted token map, then dropped
-/// when the modal closes.
+/// The modal does not leave the device, does not log cleartext, and
+/// renders its before/after locally from the original prompt and the
+/// minted token map. Everything is dropped when the modal closes.
 struct PIIPreviewModal: View {
     /// What the user is about to send.
     let entries: [PreviewEntry]

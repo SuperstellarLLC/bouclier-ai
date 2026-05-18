@@ -169,11 +169,11 @@ enum RedactionReport {
         (text as NSString).draw(at: point, withAttributes: attrs)
     }
 
-    /// Deterministic fingerprint of the report's aggregated content so a
-    /// recipient can re-render the same report and verify the hash. This
-    /// is not a tamper-proof signature — that's the Phase 1.5 work — but
-    /// it lets an auditor sanity-check that the figures in the PDF match
-    /// what's in the audit DB without us having to ship the DB.
+    /// Deterministic fingerprint of the report's aggregated content
+    /// so a recipient can re-render the same report and verify the
+    /// hash. Not a tamper-proof signature (separate work item), but
+    /// enough for an auditor to sanity-check that the figures in the
+    /// PDF match the audit DB without having to ship the DB.
     private static func integrityHashHex(
         byType: [String: Int],
         byHost: [String: Int],

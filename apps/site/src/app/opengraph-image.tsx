@@ -24,7 +24,6 @@ export default function OGImage() {
         fontFamily: "system-ui, sans-serif",
       }}
     >
-      {/* eslint-disable-next-line @next/next/no-img-element */}
       <img src={logoBase64} width={96} height={96} style={{ borderRadius: 20 }} alt="" />
 
       <div

@@ -4,8 +4,8 @@ import Foundation
 /// and rewrites the body, replacing flagged file parts with text
 /// parts that explain what was blocked.
 ///
-/// Phase 4 scope: file uploads to LLM-provider Files APIs (OpenAI's
-/// `POST /v1/files`, Anthropic's `POST /v1/files`, the OpenAI
+/// Covers file uploads to LLM-provider Files APIs (OpenAI
+/// `POST /v1/files`, Anthropic `POST /v1/files`, the OpenAI
 /// `audio/transcriptions` and `audio/translations` endpoints).
 /// Each file part's Content-Type is the routing key:
 ///
@@ -198,10 +198,10 @@ enum MultipartMediaScanner {
         // ISO BMFF (mp4 / m4a / mov) — `ftyp` at byte 4
         if b.count >= 8 && b[4] == 0x66 && b[5] == 0x74 && b[6] == 0x79 && b[7] == 0x70 {
             // M4A vs MP4 vs HEIC — the brand at bytes 8..12 distinguishes.
-            // For routing we treat any ftyp as image if brand starts
-            // with "heic"/"heix"/"hevc"/"avif", audio if "M4A "/"M4B ",
-            // otherwise audio (most user uploads of mp4 to LLMs are
-            // audio recordings; video isn't in scope for Phase 4).
+            // We route any ftyp as image if the brand starts with
+            // "heic"/"heix"/"hevc"/"avif", audio if "M4A "/"M4B ", and
+            // otherwise audio (most ftyp uploads users send to LLMs are
+            // voice memos; video is not in scope).
             if b.count >= 12 {
                 let brand = String(bytes: b[8..<min(12, b.count)], encoding: .ascii) ?? ""
                 if brand.hasPrefix("heic") || brand.hasPrefix("heix")
@@ -341,10 +341,10 @@ enum MultipartMediaScanner {
             out.append(Data("--\(boundary)".utf8))
             out.append(crlf)
             if dirty.contains(idx) {
-                // P0 fix: sanitise the part name before re-emitting
-                // it inside a synthesised header. A name carrying
-                // CRLF / quote / boundary bytes would otherwise smuggle
-                // headers and split the multipart.
+                // Sanitise the part name before re-emitting it inside a
+                // synthesised header. A name carrying CRLF, quotes, or
+                // boundary bytes would smuggle headers and split the
+                // multipart body.
                 let name = sanitisePartName(part.name ?? "file")
                 let placeholder = placeholders[idx] ?? "[Bouclier blocked an attachment]"
                 out.append(Data("Content-Disposition: form-data; name=\"\(name)\"".utf8))

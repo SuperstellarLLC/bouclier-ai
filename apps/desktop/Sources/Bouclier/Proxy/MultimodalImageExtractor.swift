@@ -188,14 +188,12 @@ enum MultimodalImageExtractor {
     /// to a media type so downstream routing matches the Gemini /
     /// Anthropic flow.
     private static func matchOpenAIInputAudio(_ dict: [String: Any], at path: [Image.PathComponent]) -> Image? {
-        // P0: gate on the surrounding `type` field. Without this, any
-        // content block that happens to contain an `input_audio`
-        // sibling would trigger SFSpeechRecognizer — the most
-        // expensive scanner in the proxy — and would cause the
-        // rewriter to clobber an unrelated content block. Audio
-        // wall-clock cost (~60 s × 4 concurrent) makes this far more
-        // exploitable than image/PDF, which is why we tighten this
-        // matcher specifically.
+        // Gate on the surrounding `type` field. Without it, any content
+        // block that happens to carry an `input_audio` sibling triggers
+        // SFSpeechRecognizer (the most expensive scanner in the proxy)
+        // and causes the rewriter to clobber an unrelated block. Audio
+        // wall-clock cost (~60 s × 4 concurrent) makes audio routing
+        // far more sensitive to false matches than image or PDF.
         guard (dict["type"] as? String) == "input_audio",
               let block = dict["input_audio"] as? [String: Any],
               let data = block["data"] as? String

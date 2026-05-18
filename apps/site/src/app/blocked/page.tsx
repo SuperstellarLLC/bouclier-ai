@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Image from "next/image";
 import Link from "next/link";
 import { CATEGORY_COUNT, PATTERN_COUNT } from "@/lib/constants";
 
@@ -123,7 +124,7 @@ export default function BlockedPage() {
       <nav className="border-border border-b">
         <div className="mx-auto flex max-w-3xl items-center justify-between px-6 py-4">
           <Link href="/" className="text-text flex items-center gap-2 text-sm font-semibold">
-            <img
+            <Image
               src="/images/logo-64.png"
               alt="Bouclier.ai"
               width={20}

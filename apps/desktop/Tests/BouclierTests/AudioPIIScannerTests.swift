@@ -81,7 +81,7 @@ struct AudioPIIScannerTests {
         #expect(result.unscannable == .notAuthorised)
     }
 
-    @Test("Unsupported audio format surfaces as unsupportedFormat (P0 fix)")
+    @Test("Unsupported audio format surfaces as unsupportedFormat")
     func unsupportedFormatRejected() async throws {
         // webm gets removed from the explicit allow-list in P0-3 fix.
         // The scanner must short-circuit BEFORE writing a temp file
@@ -168,7 +168,7 @@ struct MultimodalAudioExtractorTests {
         """
         let images = MultimodalImageExtractor.extract(from: Data(body.utf8))
         #expect(images.isEmpty,
-                "P0 fix: input_audio without matching type field must not be extracted")
+                "input_audio without a matching type field must not be extracted")
     }
 
     @Test("Extracts a Gemini inlineData audio block")

@@ -1,35 +1,29 @@
 import Foundation
 
-/// **Phase 3 scaffolding — not wired into the proxy yet.**
-///
-/// Sliding-window reverser for SSE streaming responses. The design is
-/// modeled on NVIDIA NeMo Guardrails' streaming-output pattern (~50
-/// token holdback) — see:
+/// Sliding-window reverser for SSE streaming responses. The design
+/// follows NVIDIA NeMo Guardrails' streaming-output pattern with a ~50
+/// character holdback:
 /// https://developer.nvidia.com/blog/stream-smarter-and-safer-learn-how-nvidia-nemo-guardrails-enhance-llm-output-streaming/
 ///
-/// **Why we hold back tokens.** A minted placeholder like
+/// **Why we hold back characters.** A minted placeholder like
 /// `⟦pii:EMAIL:a3f2c1d4⟧` is 21 bytes. In OpenAI's BPE-token stream
-/// each SSE event carries a few characters; a placeholder will split
-/// across 3–5 events. If we emit each event the instant it arrives,
-/// the client renders a half-token mid-stream and the user sees
-/// `⟦pii:EMAI` for a frame before the reversed cleartext catches up.
-/// Worse, if the model emits a *partial* placeholder shape that never
-/// completes (token boundary lands inside `⟦pii:` and the model
-/// continues with different content), we'd never know to either
-/// reverse or pass through.
+/// each SSE event carries a few characters, so a placeholder splits
+/// across 3–5 events. If we emit each event the instant it arrives the
+/// client renders a half-token mid-stream (`⟦pii:EMAI`) for a frame
+/// before the reversed cleartext catches up. Worse, if the model emits
+/// a *partial* placeholder shape that never completes — token boundary
+/// lands inside `⟦pii:` and the model continues with different content
+/// — we'd never know whether to reverse or pass through.
 ///
 /// **The protocol.** Each `ingest(_:)` call appends to a rolling
-/// buffer. The reverser emits any *prefix* of the buffer that ends
-/// at least `holdback` characters away from a potential placeholder
-/// boundary. When the upstream marks end-of-stream, `finish()` flushes
-/// the entire remainder through the reverser.
+/// buffer. The reverser emits the buffer prefix that ends at least
+/// `holdback` characters away from any potential placeholder boundary.
+/// When the upstream marks end-of-stream, `finish()` flushes the
+/// remainder through the reverser.
 ///
-/// **What this scaffolding gives Phase 3.** A pure-Swift, unit-testable
-/// state machine that the SSE inspector and tool-call argument-stream
-/// reader can plug into without re-deriving the holdback algebra.
-/// The TLS pipeline integration (extending `SSEStreamInspector` to
-/// call this and to handle Anthropic `input_json_delta` deltas) lands
-/// in v0.2.15.
+/// Status: this is a tested utility. `SSEStreamInspector` currently
+/// runs non-streaming reversal; wiring this reverser through the
+/// inspector for true streaming reversal is tracked separately.
 final class PIIStreamReverser {
     /// How many characters at the buffer tail to hold back. Must be
     /// larger than the maximum possible placeholder length so a

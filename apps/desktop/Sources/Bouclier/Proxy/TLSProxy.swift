@@ -337,24 +337,23 @@ private final class HTTPInspectionHandler: ChannelInboundHandler, RemovableChann
             && !inspection.bodyScanSkipped
 
         // Multimodal inspection is independent of text PII — an image
-        // may carry an IBAN that's invisible to the text scanners.
-        // We run it whenever the feature flag is on AND injection
-        // didn't already replace the body bytes. Runs in the same Task
-        // as text PII so both passes share one cooperative hop.
+        // can carry an IBAN that the text scanners never see — and
+        // runs whenever the flag is on and injection hasn't already
+        // replaced the body bytes. Same Task as text PII so both
+        // passes share one cooperative hop.
         //
-        // P0 fix: `bodyScanSkipped` is set true for any body the
-        // injection scanner doesn't recognise — including
-        // `multipart/form-data` (the Files API shape). Without the
-        // multipart override, every file upload would skip the
-        // multimodal pass entirely and Phase 4 would be dead code in
-        // production. Multipart bodies are explicitly eligible.
+        // Two non-obvious gates:
         //
-        // P1 fix (cross-phase review): gate on `bodyRewritten` rather
-        // than `detected` — a URI-only injection match doesn't rewrite
-        // body bytes, so attachments are still present and must be
-        // scanned. Without this fix, a URI like
-        // `?q=ignore+previous+instructions` would silently let images
-        // and PDFs in the body pass through unscanned.
+        //   1. `bodyScanSkipped` is true for any body the injection
+        //      scanner doesn't recognise, including multipart/form-data
+        //      (the Files API shape). Without the explicit override,
+        //      every file upload would skip the multimodal pass.
+        //
+        //   2. We gate on `bodyRewritten`, not `detected`. URI-only
+        //      injection matches don't touch body bytes, so attachments
+        //      are still present and still need scanning. A URI like
+        //      `?q=ignore+previous+instructions` must not bypass image
+        //      and PDF inspection in the body.
         let mmContentType = (head.headers.first(name: "Content-Type") ?? "").lowercased()
         let isMultipart = mmContentType.hasPrefix("multipart/")
         let mmEligible = FeatureFlags.multimodalInspection

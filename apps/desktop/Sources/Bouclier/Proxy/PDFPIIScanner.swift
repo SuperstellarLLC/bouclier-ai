@@ -81,10 +81,10 @@ final class PDFPIIScanner: @unchecked Sendable {
                 latencyMs: (CFAbsoluteTimeGetCurrent() - start) * 1000
             )
         }
-        // P0: encrypted / password-locked PDFs were silently bypassing
-        // inspection because `page.string` returns empty and the OCR
-        // fallback paints a blank page. Surface them as unscannable so
-        // the upstream rewriter strips them with an "encrypted" label.
+        // Encrypted or password-locked PDFs return empty text and a
+        // blank raster for OCR, so both inspection paths see nothing.
+        // Surface them as unscannable so the rewriter strips them with
+        // an "encrypted" label rather than forwarding silently.
         if doc.isLocked || doc.isEncrypted {
             return ScanResult(
                 piiDetections: [], faces: [],
@@ -102,10 +102,9 @@ final class PDFPIIScanner: @unchecked Sendable {
                 latencyMs: (CFAbsoluteTimeGetCurrent() - start) * 1000
             )
         }
-        // P0: same shape as the encrypted-PDF bug — refusing to scan
-        // a long document AND letting it through is the wrong default
-        // for a privacy tool. Treat as unscannable so the rewriter
-        // strips it.
+        // Refusing to scan a long document while still forwarding it is
+        // the wrong default for a privacy tool. Surface as unscannable
+        // so the rewriter strips it.
         guard pageCount <= Self.maxPagesPerDocument else {
             return ScanResult(
                 piiDetections: [], faces: [],

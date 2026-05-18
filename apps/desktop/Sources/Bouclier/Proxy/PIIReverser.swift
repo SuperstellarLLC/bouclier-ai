@@ -1,14 +1,15 @@
 import Foundation
 
-/// Walks an LLM API response and replaces our minted PII placeholders
+/// Walks an LLM API response and replaces minted PII placeholders
 /// with the cleartext stored in the per-connection `PIISession`.
 ///
-/// Phase 1 handles non-streaming JSON responses only. JSON-mode and
-/// tool-call argument streaming reversal lives in Phase 3
-/// (`SSEStreamInspector` extension). For any token the session doesn't
-/// recognize (user-typed lookalikes, model-invented strings) the reverser
-/// is a no-op — the HMAC-keyed token format makes forgery infeasible so
-/// this is safe.
+/// This pass handles non-streaming JSON responses. JSON-mode and
+/// tool-call argument streaming reversal is handled by
+/// `PIIStreamReverser` once boundary-safe streaming is wired into the
+/// `SSEStreamInspector`. For any token the session doesn't recognise
+/// (user-typed lookalikes, model-invented strings) the reverser is a
+/// no-op — the HMAC-keyed token format makes forgery infeasible, so
+/// pass-through is safe.
 enum PIIReverser {
     /// Match the canonical token shape minted by `PIISession`.
     /// Mirrors `PIISession.tokenPattern`.
@@ -42,9 +43,9 @@ enum PIIReverser {
         return Data(reversed.utf8)
     }
 
-    /// Reverse placeholders in a single string. Public so the SSE
-    /// inspector (Phase 3) can call it on streamed-content fragments
-    /// once boundary handling lands.
+    /// Reverse placeholders in a single string. Exposed so the SSE
+    /// inspector can call it on streamed content once boundary-safe
+    /// streaming is wired up.
     static func reverseString(_ input: String, with session: PIISession) async -> String {
         let nsInput = input as NSString
         let range = NSRange(location: 0, length: nsInput.length)

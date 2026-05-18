@@ -111,7 +111,7 @@ struct MultimodalRewriterTests {
         #expect(content[1]["type"] as? String == "image_url")
     }
 
-    @Test("Encrypted PDFs get stripped with a clear placeholder message (P0 fix)")
+    @Test("Encrypted PDFs get stripped with a clear placeholder message")
     func encryptedPDFStripped() async throws {
         guard let url = Bundle.module.url(forResource: "pdf-encrypted", withExtension: "pdf", subdirectory: "Fixtures")
             ?? Bundle.module.url(forResource: "pdf-encrypted", withExtension: "pdf"),
@@ -128,10 +128,10 @@ struct MultimodalRewriterTests {
         """
         let bodyData = Data(body.utf8)
         let report = await MultimodalPIIInspector.inspect(body: bodyData)
-        // Critical invariant: the unscannable PDF MUST surface a finding
-        // so the rewriter strips it. Without the P0 fix this would be
-        // an empty findings list and the encrypted PDF would ship to
-        // the model unchanged.
+        // Critical invariant: an unscannable PDF must surface a
+        // finding so the rewriter strips it. An empty findings list
+        // here would mean the encrypted PDF ships to the model
+        // unchanged.
         #expect(!report.findings.isEmpty,
                 "Encrypted PDF must produce a finding to trigger strip — not silently pass through")
         let rewritten = MultimodalRewriter.stripFlaggedImages(from: bodyData, report: report)
@@ -177,11 +177,11 @@ struct MultimodalRewriterTests {
         #expect(content[1]["source"] == nil)
     }
 
-    @Test("Top-level JSON array bodies are still rewritten (P1 fix)")
+    @Test("Top-level JSON array bodies are still rewritten")
     func arrayRootRewrite() async throws {
         // Some batched-API shapes wrap their requests in a top-level
-        // array. Before the P1 fix the rewriter early-returned on
-        // non-dict roots and quietly let the unredacted bytes through.
+        // array. The rewriter must walk those too — early-returning
+        // on non-dict roots would let unredacted bytes through.
         let b64 = base64Fixture("image-with-iban")
         let body = """
         [
@@ -198,7 +198,7 @@ struct MultimodalRewriterTests {
         let firstEnvelope = parsed[0] as! [String: Any]
         let content = ((firstEnvelope["messages"] as! [[String: Any]])[0]["content"] as! [[String: Any]])
         #expect(content[0]["type"] as? String == "text",
-                "P1 fix: top-level array containing a multimodal payload must rewrite the image block")
+                "a top-level array wrapping a multimodal payload must still rewrite the image block")
         #expect((content[0]["text"] as? String)?.contains("Bouclier blocked") == true)
     }
 

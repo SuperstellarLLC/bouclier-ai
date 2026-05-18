@@ -187,10 +187,10 @@ enum MultimodalPIIInspector {
                 return []
             }
             var out: [Finding] = []
-            // P0 fix: unscannable PDFs (encrypted, oversize, malformed)
-            // surface as a synthetic finding so the rewriter still
-            // strips the content. Silent pass-through of an
-            // un-inspected document would be a fail-open bug.
+            // Unscannable PDFs (encrypted, oversize, malformed) surface
+            // as a synthetic finding so the rewriter still strips the
+            // content. Silent pass-through of an un-inspected document
+            // is a fail-open bug.
             if let reason = pdfResult.unscannable {
                 out.append(Finding(
                     imagePath: image.path,
