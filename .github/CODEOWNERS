@@ -1,12 +1,23 @@
-# Default owner for all files
-* @ilvarion/core-team
+# https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-customizations/about-code-owners
+#
+# Order matters: the last matching pattern wins. Keep narrowest at the bottom.
 
-# Infrastructure & CI
-.github/ @ilvarion/platform
-Dockerfile @ilvarion/platform
-docker-compose.yml @ilvarion/platform
+# Default owner for everything
+*                                      @yannborie-superstellar
 
-# Security-sensitive files
-src/middleware.ts @ilvarion/security
-src/env.ts @ilvarion/security
-next.config.ts @ilvarion/security
+# Build, release, security-sensitive infrastructure
+/.github/                              @yannborie-superstellar
+/.github/workflows/                    @yannborie-superstellar
+/.github/SECURITY.md                   @yannborie-superstellar
+
+# Desktop proxy core (signs into your network path)
+/apps/desktop/Sources/Bouclier/Proxy/  @yannborie-superstellar
+/apps/desktop/scripts/release.sh       @yannborie-superstellar
+/apps/desktop/Bouclier.entitlements    @yannborie-superstellar
+/apps/desktop/Package.swift            @yannborie-superstellar
+
+# Detection patterns ship with every release; changes change product behavior
+/packages/patterns/                    @yannborie-superstellar
+
+# Site & marketing
+/apps/site/                            @yannborie-superstellar

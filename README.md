@@ -1,57 +1,143 @@
-# Bouclier.ai (Beta)
+<div align="center">
+  <img src="apps/site/public/images/logo-256.png" alt="Bouclier.ai" width="128" height="128" />
 
-Stop prompt injections. Stop PII from leaking to LLMs — in text, in images, in PDFs, in audio clips. A local-only macOS app that sits between your apps and AI providers, scrubs prompts (and their attachments) before they leave your Mac, and reverses the model's response so you still read normal text.
+  <h1>Bouclier.ai</h1>
 
-> **Experimental, pre-1.0 software.** Bouclier.ai is a prototype intended for evaluation, research, and personal experimentation. Detection is best-effort and probabilistic — false positives and false negatives will occur. **Not** intended for production, regulated workloads, or any environment where a detection failure could cause harm. See [Terms](https://www.bouclier.ai/terms) before installing.
+  <p><strong>A local-only macOS proxy that stops prompt injections and stops PII from leaking to LLMs — in text, images, PDFs, and audio.</strong></p>
 
-## Architecture
+  <p>
+    <a href="https://github.com/SuperstellarLLC/ilvarion/actions/workflows/ci.yml"><img src="https://github.com/SuperstellarLLC/ilvarion/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+    <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue.svg" alt="License: Apache-2.0"></a>
+    <a href="https://github.com/SuperstellarLLC/ilvarion/releases"><img src="https://img.shields.io/github/v/release/SuperstellarLLC/ilvarion?display_name=tag" alt="Latest release"></a>
+    <img src="https://img.shields.io/badge/platform-macOS%2015%2B-lightgrey" alt="macOS 15+">
+    <img src="https://img.shields.io/badge/status-beta-orange" alt="Beta">
+  </p>
+
+  <p><a href="https://www.bouclier.ai">Website</a> · <a href="ARCHITECTURE.md">Architecture</a> · <a href="docs/THREAT_MODEL.md">Threat model</a> · <a href="CHANGELOG.md">Changelog</a></p>
+</div>
+
+---
+
+> **Beta software.** Bouclier.ai is a prototype intended for evaluation, research,
+> and personal experimentation. Detection is best-effort and probabilistic —
+> false positives and false negatives will occur. **Not** intended for
+> production, regulated workloads, or environments where a detection failure
+> could cause harm. See [Terms](https://www.bouclier.ai/terms) before installing.
+
+## What it does
+
+Bouclier.ai is a System Extension that routes traffic to AI APIs through a
+local TLS-terminating proxy on your Mac. Every outbound request is inspected
+before it reaches the provider, every streaming response is scanned for
+exfiltration, and nothing ever leaves the machine for inspection.
+
+- **Prompt-injection scanner.** 150+ patterns across 20+ attack categories,
+  fused with Meta Llama Prompt Guard 2 running on-device for a probabilistic
+  second opinion.
+- **PII redaction.** Emails, IBANs, NHS numbers, SIRET/SIREN/NIR, NINO,
+  postcodes, NPI, AWS keys, JWTs, IPs, and 50+ secret detectors. Replaced
+  with reversible per-connection placeholders so the model still answers
+  correctly.
+- **Multimodal inspection.** Outbound images, PDFs, and audio clips are
+  opened on-device with Apple Vision (OCR + face detection), PDFKit, and
+  SFSpeechRecognizer (`requiresOnDeviceRecognition`). Flagged attachments
+  are stripped before the request leaves your Mac.
+- **Local only.** No cloud calls, no telemetry, no accounts. The audit log
+  records type and offsets, never cleartext.
+
+## Quickstart
+
+Download the signed DMG from <https://www.bouclier.ai>, drag the app to
+`/Applications`, and grant the System Extension on first launch. The menu
+bar icon goes green when interception is live.
+
+```bash
+# Verify it's intercepting:
+curl https://api.openai.com/v1/models -H "Authorization: Bearer $OPENAI_API_KEY"
+# Check Bouclier.ai → Activity log.
+```
+
+Build from source:
+
+```bash
+git clone https://github.com/SuperstellarLLC/ilvarion.git
+cd ilvarion
+pnpm install
+cd apps/desktop && swift build -c release
+swift run Bouclier
+```
+
+A full developer setup is in [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## How it works
+
+```
+┌─────────────┐    HTTPS    ┌─────────────────────┐    HTTPS    ┌──────────┐
+│ AI client   │ ──────────► │  Bouclier.ai proxy  │ ──────────► │ Provider │
+│ (Cursor,    │             │  (local, on Mac)    │             │ (OpenAI, │
+│  ChatGPT,   │ ◄────────── │                     │ ◄────────── │  Claude, │
+│  curl, …)   │             │  ┌───────────────┐  │             │  Gemini) │
+└─────────────┘             │  │ Injection scan│  │             └──────────┘
+                            │  │ Multimodal    │  │
+                            │  │ PII redact    │  │
+                            │  │ Audit log     │  │
+                            │  └───────────────┘  │
+                            └─────────────────────┘
+                                      │
+                                      ▼
+                            ~/Library/Application Support/
+                            ai.bouclier.app/audit.db
+                            (no cleartext, 30-day TTL)
+```
+
+The proxy generates a per-machine root CA stored in the macOS Keychain, used
+solely to decrypt AI API hosts. All other traffic is untouched. See
+[ARCHITECTURE.md](ARCHITECTURE.md) for the request-handling pipeline,
+session model, and persistence layer.
+
+## Repository layout
 
 ```
 apps/
-├── desktop/       ← macOS menubar app (Swift) — local proxy engine
-└── site/          ← Marketing & docs site (Next.js)
+├── desktop/       Swift menubar app + TLS proxy + System Extension
+└── site/          Next.js marketing & docs site (bouclier.ai)
 
 packages/
-└── patterns/      ← Shared injection pattern definitions
+└── patterns/      Shared injection + PII detection rules (TypeScript)
+
+docs/
+├── THREAT_MODEL.md
+└── PII_PROTOCOL_COMPATIBILITY.md
 ```
 
-## Getting Started
+## Status and stability
 
-```bash
-# Install dependencies (site + patterns)
-pnpm install
+Bouclier.ai is **0.x**. The on-disk format, public APIs, and detection-rule
+schema may change between minor releases. We follow
+[Semantic Versioning](https://semver.org/) and document every user-visible
+change in [CHANGELOG.md](CHANGELOG.md).
 
-# Run the site locally
-pnpm dev --filter site
+The detection coverage and tested providers are listed in
+[`docs/PII_PROTOCOL_COMPATIBILITY.md`](docs/PII_PROTOCOL_COMPATIBILITY.md).
 
-# Build everything
-pnpm build
+## Contributing
 
-# Run all checks
-pnpm check
-```
+Bug reports, missed-detection reports, pattern contributions, and core
+proxy work are all welcome. Start with [CONTRIBUTING.md](CONTRIBUTING.md)
+for the dev setup, and see the
+[detection-miss template](https://github.com/SuperstellarLLC/ilvarion/issues/new/choose)
+if Bouclier let something through it shouldn't have.
 
-## Desktop App (macOS)
+For security issues, follow [SECURITY.md](.github/SECURITY.md) — do not
+open a public issue.
 
-```bash
-cd apps/desktop
-swift build
-swift run Bouclier.ai
-```
+## License
 
-## How It Works
+Apache License, Version 2.0. See [LICENSE](LICENSE).
 
-Bouclier.ai runs as a lightweight macOS menubar app that acts as a local proxy. It intercepts content flowing to AI APIs and MCP servers, scans for prompt injection patterns + PII, and redacts malicious or sensitive content before it reaches the model. As of v0.4, the scanner also opens images, PDFs and short audio clips attached to outbound prompts — Apple Vision for OCR + face detection, PDFKit + Vision for PDFs, and SFSpeechRecognizer (on-device) for audio — and replaces flagged attachments with a short text placeholder so the model still gets the gist without the leak.
+The bundled Meta Llama Prompt Guard 2 model is governed by the Llama 4
+Community License (`LICENSES/Llama-4-Community-License.txt`); see
+[NOTICE.txt](NOTICE.txt) for attribution.
 
-Detected injections are replaced with:
-
-```
-[Possible prompt injection redacted by Bouclier.ai. See https://www.bouclier.ai/blocked for details]
-```
-
-## Attribution
-
-Built with Llama. Bouclier.ai uses Meta Llama Prompt Guard 2 for on-device prompt attack detection.
-
-Third-party notice: `NOTICE.txt`
-Llama 4 Community License: `LICENSES/Llama-4-Community-License.txt`
+Built with Llama. Bouclier.ai uses Meta Llama Prompt Guard 2 locally on
+your Mac for on-device prompt-attack detection.
