@@ -109,10 +109,17 @@ final class PIIPolicy: @unchecked Sendable {
     }
 
     private func userAllowDomains() -> [String] {
-        decodeList(forKey: PIIPolicy.allowDomainsKey)
+        // The MDM-shaped test override also short-circuits the user lists.
+        // Without this, a stale `UserDefaults` entry from a developer's
+        // own machine (e.g. they once tested a per-domain allow rule)
+        // leaks into the e2e test's policy resolution and flips
+        // `shouldRedact("localhost")` to false for non-obvious reasons.
+        if testAllowOverride != nil { return [] }
+        return decodeList(forKey: PIIPolicy.allowDomainsKey)
     }
 
     private func userDenyDomains() -> [String] {
+        if testDenyOverride != nil { return [] }
         var list = decodeList(forKey: PIIPolicy.denyDomainsKey)
         // Add the default deny rules unless the user explicitly cleared
         // them (we detect "explicitly cleared" via a sentinel key —
