@@ -237,6 +237,12 @@ struct GeneralSettingsView: View {
     @AppStorage("launchAtLogin") private var launchAtLogin: Bool = false
     @AppStorage("showNotifications") private var showNotifications: Bool = true
     @AppStorage("quietMode") private var quietMode: Bool = true
+    /// Auto-write proxy + CA env vars into `~/.zshenv`, `~/.bashrc`,
+    /// fish config, and launchctl. On by default — without it, Node /
+    /// Python CLIs (Claude Code, Cursor, openai) silently bypass the
+    /// proxy. Off-switch is here as an escape hatch for users with
+    /// custom corporate proxies that conflict.
+    @AppStorage(ShellEnvInjector.autoConfigureKey) private var autoConfigureShell: Bool = true
     @State private var showResetConfirm = false
 
     var body: some View {
@@ -248,6 +254,25 @@ struct GeneralSettingsView: View {
                     .onChange(of: launchAtLogin) { _, newValue in
                         ProxyManager.setLaunchAtLogin(newValue)
                     }
+            }
+            Section {
+                Toggle("Capture CLI tools (Claude Code, Cursor, Python, Node)", isOn: $autoConfigureShell)
+                    .onChange(of: autoConfigureShell) { _, newValue in
+                        if newValue {
+                            ShellEnvInjector.apply(
+                                proxyPort: proxyManager.port,
+                                caCertPath: proxyManager.ca.caCertFilePath
+                            )
+                        } else {
+                            ShellEnvInjector.remove()
+                        }
+                    }
+            } header: {
+                Text("CLI capture")
+            } footer: {
+                Text("Bouclier writes `HTTPS_PROXY` and `NODE_EXTRA_CA_CERTS` into your shell startup files and the launchctl session so command-line AI tools route through the proxy. Without this, only GUI apps (ChatGPT, Claude Desktop) are protected — Claude Code and other CLIs bypass interception.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
             Section("Notifications") {
                 Toggle("Show block notifications", isOn: $showNotifications)
@@ -325,25 +350,15 @@ struct ProtectionSettingsView: View {
                 Divider()
                 Text("CLI Tools")
                     .font(.headline)
-                Text("Add to ~/.zshrc for Python/Node.js coverage:")
-                    .foregroundStyle(.secondary)
-                    .font(.callout)
                 HStack(spacing: 8) {
-                    Text("eval $(bouclier-ai-env)")
-                        .font(.system(.caption, design: .monospaced))
-                        .textSelection(.enabled)
-                        .padding(6)
-                        .background(.quaternary)
-                        .clipShape(RoundedRectangle(cornerRadius: 4))
-                    Button(action: {
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString("eval $(bouclier-ai-env)", forType: .string)
-                    }) {
-                        Image(systemName: "doc.on.doc")
-                            .font(.caption)
-                    }
-                    .buttonStyle(.borderless)
-                    .help("Copy to clipboard")
+                    Image(systemName: ShellEnvInjector.isEnabled ? "checkmark.seal.fill" : "exclamationmark.triangle.fill")
+                        .foregroundStyle(ShellEnvInjector.isEnabled ? .green : .orange)
+                        .font(.callout)
+                    Text(ShellEnvInjector.isEnabled
+                         ? "Claude Code, Cursor, Python, Node — all captured. Open a new terminal to pick up the change."
+                         : "CLI capture is off — Settings → General to re-enable.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
                 }
             }
 

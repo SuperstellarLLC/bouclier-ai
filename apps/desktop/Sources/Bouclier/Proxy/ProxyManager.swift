@@ -87,8 +87,18 @@ final class ProxyManager: ObservableObject {
             extensionActive = extensionManager.proxyEnabled
         }
 
-        if UserDefaults.standard.bool(forKey: "launchAtLogin") && !isRunning && caInstalled {
+        // If the user has already gone through onboarding (CA present),
+        // turn protection on at launch — the menu-bar shield otherwise
+        // shows the disarmed icon and the user has to manually re-arm
+        // every restart, which the "seatbelt made of paper" feedback
+        // called out as a credibility risk.
+        if caInstalled && !isRunning {
             start()
+            // launchctl setenv values don't survive logout — re-apply
+            // every launch so GUI apps started later in the session
+            // still inherit the proxy/CA pointers. The dotfile portion
+            // of the injector is idempotent so this is cheap.
+            ShellEnvInjector.apply(proxyPort: port, caCertPath: ca.caCertFilePath)
         }
     }
 
@@ -120,8 +130,13 @@ final class ProxyManager: ObservableObject {
                     self.log("System proxy PAC configured as fallback", blocked: false)
                 }
 
-                if self.ca.caCertFilePath != nil {
-                    self.log("CLI: eval $(bouclier-ai-env)", blocked: false)
+                // Auto-wire shells (.zshenv / .bashrc / fish) and the
+                // launchctl session so Node/Python CLIs (Claude Code,
+                // Cursor, openai CLI) actually trust our cert. Without
+                // this they fall through to direct egress and the user
+                // sees a green shield while their PII leaks.
+                if ShellEnvInjector.apply(proxyPort: self.port, caCertPath: self.ca.caCertFilePath) {
+                    self.log("Shell + GUI apps configured for CLI capture", blocked: false)
                 }
             }
         }
@@ -191,6 +206,7 @@ final class ProxyManager: ObservableObject {
         stop()
         extensionManager.removeExtension()
         ca.uninstallCA()
+        ShellEnvInjector.remove()
         caInstalled = false
         extensionActive = false
         log("Bouclier fully uninstalled", blocked: false)
