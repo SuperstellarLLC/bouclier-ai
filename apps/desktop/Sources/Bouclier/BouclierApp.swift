@@ -27,6 +27,12 @@ struct BouclierApp: App {
                     if !hasCompletedOnboarding {
                         openWindow(id: "onboarding")
                     } else if ReleaseNotes.shouldShow() {
+                        // Advance the watermark at open time, not on the
+                        // dismiss callback — closing the window via the
+                        // red traffic-light button bypasses `onDismiss`,
+                        // and a "what's new" sheet that reappears every
+                        // launch is the worst kind of nag.
+                        ReleaseNotes.markSeen()
                         openWindow(id: "release-notes")
                     }
                 }
