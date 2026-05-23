@@ -33,12 +33,26 @@ final class TLSProxy: Sendable {
     private let filter: InjectionFilter
     private let port: Int
     private let onRequest: @Sendable (RequestLog) -> Void
+    /// Override system trust roots for upstream TLS verification. Set
+    /// only by the e2e test, which talks to an in-process HTTPS upstream
+    /// signed by a throwaway CA — system roots have no reason to trust
+    /// it, but we still want full verification rather than a blanket
+    /// "trust anything" switch. `nil` (the production default) preserves
+    /// `.fullVerification` against the system trust store.
+    let upstreamTrustRootsPEM: [String]?
 
-    init(port: Int, ca: CertificateAuthority, filter: InjectionFilter, onRequest: @Sendable @escaping (RequestLog) -> Void) {
+    init(
+        port: Int,
+        ca: CertificateAuthority,
+        filter: InjectionFilter,
+        upstreamTrustRootsPEM: [String]? = nil,
+        onRequest: @Sendable @escaping (RequestLog) -> Void
+    ) {
         self.group = MultiThreadedEventLoopGroup(numberOfThreads: System.coreCount)
         self.ca = ca
         self.filter = filter
         self.port = port
+        self.upstreamTrustRootsPEM = upstreamTrustRootsPEM
         self.onRequest = onRequest
     }
 
@@ -46,9 +60,14 @@ final class TLSProxy: Sendable {
         let bootstrap = ServerBootstrap(group: group)
             .serverChannelOption(.backlog, value: 256)
             .serverChannelOption(.socketOption(.so_reuseaddr), value: 1)
-            .childChannelInitializer { [ca, filter, onRequest] channel in
+            .childChannelInitializer { [ca, filter, upstreamTrustRootsPEM, onRequest] channel in
                 channel.pipeline.addHandler(
-                    ConnectHandler(ca: ca, filter: filter, onRequest: onRequest)
+                    ConnectHandler(
+                        ca: ca,
+                        filter: filter,
+                        upstreamTrustRootsPEM: upstreamTrustRootsPEM,
+                        onRequest: onRequest
+                    )
                 )
             }
             .childChannelOption(.socketOption(.so_reuseaddr), value: 1)
@@ -75,12 +94,19 @@ private final class ConnectHandler: ChannelInboundHandler, RemovableChannelHandl
 
     private let ca: CertificateAuthority
     private let filter: InjectionFilter
+    private let upstreamTrustRootsPEM: [String]?
     private let onRequest: @Sendable (RequestLog) -> Void
     private var buffer = ""
 
-    init(ca: CertificateAuthority, filter: InjectionFilter, onRequest: @Sendable @escaping (RequestLog) -> Void) {
+    init(
+        ca: CertificateAuthority,
+        filter: InjectionFilter,
+        upstreamTrustRootsPEM: [String]?,
+        onRequest: @Sendable @escaping (RequestLog) -> Void
+    ) {
         self.ca = ca
         self.filter = filter
+        self.upstreamTrustRootsPEM = upstreamTrustRootsPEM
         self.onRequest = onRequest
     }
 
@@ -175,7 +201,13 @@ private final class ConnectHandler: ChannelInboundHandler, RemovableChannelHandl
             context.pipeline.addHandler(sslBound.value, position: .first).whenSuccess { [self] in
                 let context = ctxBound.value
                 context.pipeline.addHandler(
-                    HandshakeWaiter(host: host, port: port, filter: self.filter, onRequest: self.onRequest)
+                    HandshakeWaiter(
+                        host: host,
+                        port: port,
+                        filter: self.filter,
+                        upstreamTrustRootsPEM: self.upstreamTrustRootsPEM,
+                        onRequest: self.onRequest
+                    )
                 ).whenFailure { _ in context.close(promise: nil) }
             }
         } catch {
@@ -193,12 +225,20 @@ private final class HandshakeWaiter: ChannelInboundHandler, RemovableChannelHand
     private let host: String
     private let port: Int
     private let filter: InjectionFilter
+    private let upstreamTrustRootsPEM: [String]?
     private let onRequest: @Sendable (RequestLog) -> Void
 
-    init(host: String, port: Int, filter: InjectionFilter, onRequest: @Sendable @escaping (RequestLog) -> Void) {
+    init(
+        host: String,
+        port: Int,
+        filter: InjectionFilter,
+        upstreamTrustRootsPEM: [String]?,
+        onRequest: @Sendable @escaping (RequestLog) -> Void
+    ) {
         self.host = host
         self.port = port
         self.filter = filter
+        self.upstreamTrustRootsPEM = upstreamTrustRootsPEM
         self.onRequest = onRequest
     }
 
@@ -221,6 +261,7 @@ private final class HandshakeWaiter: ChannelInboundHandler, RemovableChannelHand
                         host: self.host,
                         port: self.port,
                         filter: self.filter,
+                        upstreamTrustRootsPEM: self.upstreamTrustRootsPEM,
                         onRequest: self.onRequest,
                         eventLoop: context.eventLoop
                     )
@@ -251,6 +292,7 @@ private final class HTTPInspectionHandler: ChannelInboundHandler, RemovableChann
     private let host: String
     private let port: Int
     private let filter: InjectionFilter
+    private let upstreamTrustRootsPEM: [String]?
     private let onRequest: @Sendable (RequestLog) -> Void
     private let eventLoop: EventLoop
 
@@ -268,10 +310,18 @@ private final class HTTPInspectionHandler: ChannelInboundHandler, RemovableChann
     private var bodyBuffer = ByteBuffer()
     private var pendingRawWrites: [ByteBuffer] = []
 
-    init(host: String, port: Int, filter: InjectionFilter, onRequest: @Sendable @escaping (RequestLog) -> Void, eventLoop: EventLoop) {
+    init(
+        host: String,
+        port: Int,
+        filter: InjectionFilter,
+        upstreamTrustRootsPEM: [String]?,
+        onRequest: @Sendable @escaping (RequestLog) -> Void,
+        eventLoop: EventLoop
+    ) {
         self.host = host
         self.port = port
         self.filter = filter
+        self.upstreamTrustRootsPEM = upstreamTrustRootsPEM
         self.onRequest = onRequest
         self.eventLoop = eventLoop
     }
@@ -562,6 +612,17 @@ private final class HTTPInspectionHandler: ChannelInboundHandler, RemovableChann
         do {
             var tlsConfig = TLSConfiguration.makeClientConfiguration()
             tlsConfig.certificateVerification = .fullVerification
+            // Test injects an in-process upstream signed by a throwaway
+            // CA that system roots have no reason to trust. Production
+            // callers leave this nil and we keep `.fullVerification`
+            // against the system store unchanged.
+            if let pems = upstreamTrustRootsPEM {
+                var roots: [NIOSSLCertificate] = []
+                for pem in pems {
+                    roots.append(contentsOf: try NIOSSLCertificate.fromPEMBytes(Array(pem.utf8)))
+                }
+                tlsConfig.trustRoots = .certificates(roots)
+            }
             let sslContext = try NIOSSLContext(configuration: tlsConfig)
 
             // Check for upstream corporate proxy

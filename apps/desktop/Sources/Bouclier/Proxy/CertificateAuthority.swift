@@ -48,6 +48,16 @@ final class CertificateAuthority: @unchecked Sendable {
         loadExisting()
     }
 
+    /// Test-only constructor that bypasses the Keychain load and accepts
+    /// PEMs directly. Exposed so the end-to-end proxy test can stand up
+    /// a real CA without prompting for Keychain access or persisting a
+    /// trust setting into the user's profile — both of which would make
+    /// the test unsafe to run in CI.
+    init(testingKeyPEM keyPEM: String, certPEM: String) {
+        self._caKeyPEM = keyPEM
+        self._caCertPEM = certPEM
+    }
+
     // MARK: - Install
 
     func installCA() -> Bool {

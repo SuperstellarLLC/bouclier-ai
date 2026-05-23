@@ -18,10 +18,26 @@ enum SystemProxy {
         "openrouter.ai",
     ]
 
+    /// Test-only additions to the SSRF allowlist. The e2e test stands
+    /// up an in-process upstream on `localhost`; the proxy's CONNECT
+    /// handler refuses any host not in `interceptedDomains`, so the
+    /// test seeds this set before driving traffic. Always empty in
+    /// production builds.
+    ///
+    /// `nonisolated(unsafe)` rather than an actor or lock: the value
+    /// is mutated exactly once per test in the synchronous setup phase
+    /// and read by handler instances on event-loop threads thereafter.
+    /// A lock would be overkill; an actor would force the read path
+    /// async for production code that never touches this property.
+    nonisolated(unsafe) static var testAdditionalDomains: Set<String> = []
+
     /// All intercepted domains (built-in + MDM-configured).
     static var interceptedDomains: Set<String> {
         var domains = builtinDomains
         for domain in ManagedConfig.additionalDomains {
+            domains.insert(domain.lowercased())
+        }
+        for domain in testAdditionalDomains {
             domains.insert(domain.lowercased())
         }
         return domains
