@@ -8,6 +8,21 @@ The `[VERSION]` section for each release is extracted verbatim by
 `apps/desktop/scripts/publish-update.sh` and injected into the Sparkle
 appcast. Write for end users, not for internal engineering notes.
 
+## [0.5.0] — 2026-05-24
+
+### Added
+
+- **Command-line AI tools captured automatically.** Bouclier now wires Claude Code, Cursor, the OpenAI / Anthropic Python SDKs, and any other Node or Python CLI through the proxy on its own — no `eval $(bouclier-ai-env)` step. Toggleable from Settings → General if you have a corporate proxy that conflicts.
+- **Everything else still goes direct.** Traffic to non-AI hosts (`git`, `npm`, `brew`, `curl`, your dev servers) tunnels straight through Bouclier unmodified. Cloud-instance metadata endpoints stay blocked.
+
+### Changed
+
+- **Protection is on the moment the app launches.** Previously the shield rendered "off" on every restart until you opened the menubar. Now it's armed at launch as soon as you've completed onboarding.
+
+### Fixed
+
+- **"What's new" sheet no longer reappears after dismissal.** Closing via the window's close button now counts the same as the buttons inside.
+
 ## [0.4.0] — 2026-05-18
 
 ### Added
