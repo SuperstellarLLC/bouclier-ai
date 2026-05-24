@@ -78,6 +78,18 @@ final class TLSProxy: Sendable {
     func shutdown() {
         group.shutdownGracefully { _ in }
     }
+
+    /// Hosts that point at cloud-instance metadata services — never
+    /// tunnelled, even though we otherwise act as a general CONNECT
+    /// proxy for non-AI hosts. Lifted out of the handler so a test
+    /// can pin the allowlist without spinning up a live proxy.
+    static func isCloudMetadataHost(_ host: String) -> Bool {
+        let h = host.lowercased()
+        return h == "169.254.169.254"
+            || h == "metadata.google.internal"
+            || h == "metadata.azure.com"
+            || h == "[fd00:ec2::254]"
+    }
 }
 
 // MARK: - CONNECT Handler
@@ -153,8 +165,18 @@ private final class ConnectHandler: ChannelInboundHandler, RemovableChannelHandl
             return
         }
 
-        // Only allow intercepted domains (SSRF protection)
-        guard SystemProxy.interceptedDomains.contains(host) else {
+        // AI-API hosts get MITM'd so we can inspect & redact. Every
+        // other host gets a plain CONNECT tunnel — required now that
+        // `ShellEnvInjector` plants `HTTPS_PROXY=…` in every shell, so
+        // git / npm / brew / curl-to-non-AI-hosts all flow through
+        // this listener. The previous design 403'd them, which broke
+        // every CLI tool the moment the user enabled the feature.
+        //
+        // Cloud-metadata IPs are blocked outright — there's no
+        // legitimate reason a user CLI tool needs to be tunnelled to
+        // 169.254.169.254 (AWS/Azure) or metadata.google.internal,
+        // and these are the classic SSRF jackpot.
+        if TLSProxy.isCloudMetadataHost(host) {
             let resp = "HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n"
             var errBuf = context.channel.allocator.buffer(capacity: resp.utf8.count)
             errBuf.writeString(resp)
@@ -163,15 +185,73 @@ private final class ConnectHandler: ChannelInboundHandler, RemovableChannelHandl
             return
         }
 
-        let established = "HTTP/1.1 200 Connection Established\r\n\r\n"
-        var respBuf = context.channel.allocator.buffer(capacity: established.utf8.count)
-        respBuf.writeString(established)
+        if SystemProxy.interceptedDomains.contains(host) {
+            let established = "HTTP/1.1 200 Connection Established\r\n\r\n"
+            var respBuf = context.channel.allocator.buffer(capacity: established.utf8.count)
+            respBuf.writeString(established)
 
-        let ctxBound = NIOLoopBound(context, eventLoop: context.eventLoop)
-        context.writeAndFlush(wrapOutboundOut(respBuf)).whenSuccess { [self] in
-            let context = ctxBound.value
-            context.pipeline.removeHandler(self, promise: nil)
-            self.setupTLS(context: context, host: host, port: port)
+            let ctxBound = NIOLoopBound(context, eventLoop: context.eventLoop)
+            context.writeAndFlush(wrapOutboundOut(respBuf)).whenSuccess { [self] in
+                let context = ctxBound.value
+                context.pipeline.removeHandler(self, promise: nil)
+                self.setupTLS(context: context, host: host, port: port)
+            }
+        } else {
+            setupPassthrough(context: context, host: host, port: port)
+        }
+    }
+
+    /// Forward bytes between client and upstream without TLS
+    /// termination — the proxy never sees plaintext. Used for hosts
+    /// outside the AI-API allowlist so they keep working when the user
+    /// has Bouclier in their `HTTPS_PROXY` env.
+    ///
+    /// Ordering is load-bearing: we answer `200 Connection Established`
+    /// FIRST so the client unblocks and starts the TLS handshake, then
+    /// install the glue handler. The handshake bytes are buffered by
+    /// the pipeline until our glue is in place — pipeline reads stay
+    /// strictly ordered on the event loop, so no race.
+    private func setupPassthrough(context: ChannelHandlerContext, host: String, port: Int) {
+        let clientChannel = context.channel
+        let clientBound = NIOLoopBound(clientChannel, eventLoop: context.eventLoop)
+
+        let bootstrap = ClientBootstrap(group: context.eventLoop)
+            .channelInitializer { upstream in
+                // Glue the upstream side: every inbound byte gets
+                // shovelled to the client. Closure on either side tears
+                // the other down via the glue handler's channelInactive.
+                upstream.pipeline.addHandler(
+                    PassthroughGlueHandler(partner: clientBound.value)
+                )
+            }
+
+        bootstrap.connect(host: host, port: port).whenComplete { [self] result in
+            switch result {
+            case .success(let upstreamChannel):
+                // Write 200 to the client through the channel (not the
+                // about-to-be-removed handler's context). Then swap
+                // ConnectHandler out for the client-side glue.
+                let established = "HTTP/1.1 200 Connection Established\r\n\r\n"
+                var respBuf = clientChannel.allocator.buffer(capacity: established.utf8.count)
+                respBuf.writeString(established)
+                clientChannel.writeAndFlush(respBuf, promise: nil)
+
+                clientChannel.pipeline.removeHandler(self).flatMap {
+                    clientChannel.pipeline.addHandler(
+                        PassthroughGlueHandler(partner: upstreamChannel),
+                        position: .first
+                    )
+                }.whenFailure { _ in
+                    upstreamChannel.close(promise: nil)
+                    clientChannel.close(promise: nil)
+                }
+            case .failure:
+                let resp = "HTTP/1.1 502 Bad Gateway\r\nConnection: close\r\n\r\n"
+                var errBuf = clientChannel.allocator.buffer(capacity: resp.utf8.count)
+                errBuf.writeString(resp)
+                clientChannel.writeAndFlush(errBuf, promise: nil)
+                clientChannel.close(promise: nil)
+            }
         }
     }
 
@@ -213,6 +293,40 @@ private final class ConnectHandler: ChannelInboundHandler, RemovableChannelHandl
         } catch {
             context.close(promise: nil)
         }
+    }
+}
+
+// MARK: - Passthrough Glue
+
+/// One-way byte shovel between a NIO channel and its peer. Two
+/// instances form a bidirectional bridge — used for CONNECT tunnels
+/// to non-AI hosts where Bouclier acts as a plain HTTP CONNECT proxy
+/// and never terminates TLS.
+///
+/// Holds a strong reference to its partner channel. NIO closes both
+/// channels when either side goes inactive, so the cycle is broken
+/// at connection teardown.
+private final class PassthroughGlueHandler: ChannelInboundHandler, @unchecked Sendable {
+    typealias InboundIn = ByteBuffer
+
+    private let partner: Channel
+
+    init(partner: Channel) {
+        self.partner = partner
+    }
+
+    func channelRead(context: ChannelHandlerContext, data: NIOAny) {
+        partner.writeAndFlush(data, promise: nil)
+    }
+
+    func channelInactive(context: ChannelHandlerContext) {
+        partner.close(promise: nil)
+        context.fireChannelInactive()
+    }
+
+    func errorCaught(context: ChannelHandlerContext, error: Error) {
+        partner.close(promise: nil)
+        context.close(promise: nil)
     }
 }
 
@@ -968,6 +1082,15 @@ enum CorporateProxy {
     /// Only URLs that pass `ManagedConfigValidator.validatedProxyURL`
     /// are accepted — scheme must be http/https, host must be a valid
     /// RFC 1123 hostname, port must be in the unprivileged range.
+    ///
+    /// Loopback hosts are deliberately ignored. With v0.5.0's
+    /// `ShellEnvInjector`, the Bouclier process itself inherits
+    /// `HTTPS_PROXY=http://127.0.0.1:8484` from the launchctl session,
+    /// and naively trusting that env would make the proxy try to relay
+    /// every upstream request *through itself* — an instant TLS-handshake
+    /// loop that times out every API call. A real corporate proxy is by
+    /// definition not on the loopback, so dropping these candidates
+    /// costs nothing legitimate.
     static func detect() -> Config? {
         let env = ProcessInfo.processInfo.environment
         let candidates = [
@@ -976,11 +1099,21 @@ enum CorporateProxy {
         ]
         for raw in candidates {
             guard let url = ManagedConfigValidator.validatedProxyURL(raw),
-                  let host = url.host
+                  let host = url.host,
+                  !isLoopbackHost(host)
             else { continue }
             return Config(host: host, port: url.port ?? 8080)
         }
         return nil
+    }
+
+    static func isLoopbackHost(_ host: String) -> Bool {
+        let h = host.lowercased()
+        return h == "localhost"
+            || h == "127.0.0.1"
+            || h.hasPrefix("127.")
+            || h == "::1"
+            || h == "[::1]"
     }
 }
 
