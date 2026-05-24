@@ -37,6 +37,19 @@ import Testing
 struct E2EProxyTests {
     @Test("PII in the request body is replaced with placeholders before reaching upstream")
     func piiRedactedOverRealTLS() async throws {
+        // 0. Scrub proxy env vars that may have been planted by a
+        //    running Bouclier on this machine (`launchctl setenv
+        //    HTTPS_PROXY=…` propagates to every child of the user
+        //    session, including `swift test`). If we left them in
+        //    place, OCSP/CRL fetches issued by NIOSSL during the
+        //    upstream handshake would try to route back through the
+        //    live proxy and deadlock — masquerading as "test broken"
+        //    when the actual symptom is "test environment poisoned by
+        //    the very feature we're verifying."
+        for key in ["HTTPS_PROXY", "HTTP_PROXY", "NODE_EXTRA_CA_CERTS", "SSL_CERT_FILE", "REQUESTS_CA_BUNDLE"] {
+            unsetenv(key)
+        }
+
         // 1. Generate a throwaway CA and a leaf cert for the upstream.
         //    The same CA signs both the upstream's serving cert AND is
         //    handed to TLSProxy as the in-memory root — so the proxy

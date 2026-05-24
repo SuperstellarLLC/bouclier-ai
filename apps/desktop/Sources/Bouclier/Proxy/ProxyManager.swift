@@ -53,6 +53,11 @@ final class ProxyManager: ObservableObject {
     let extensionManager = ExtensionManager()
     private var patternManager: PatternManager!
     private(set) var storage: StorageManager?
+    /// True once `initializeStorage()` has run. Exposed so a regression
+    /// test can pin "this runs at construction time" without depending
+    /// on storage actually succeeding (SQLite init can fail in sandbox/CI
+    /// environments — that's expected, but the *gate* must still fire).
+    private(set) var didInitializeStorage = false
 
     init() {
         // PatternManager's onChange fires both for patterns hot-reload
@@ -75,10 +80,20 @@ final class ProxyManager: ObservableObject {
         })
         // Register crash cleanup — disable system proxy if we die unexpectedly
         registerCleanupHandlers()
+
+        // Auto-init at construction. The previous design deferred this
+        // to MenuBarView.onAppear, but that fires only when the user
+        // *opens* the menu — so on launch the shield icon read "off"
+        // until the user clicked it, defeating the whole point of the
+        // auto-start-when-CA-installed change. Calling it here makes
+        // the gate fire as soon as the App's body builds the
+        // MenuBarExtra scene (which forces @StateObject construction).
+        initializeStorage()
     }
 
     func initializeStorage() {
-        guard storage == nil else { return }
+        guard !didInitializeStorage else { return }
+        didInitializeStorage = true
         storage = try? StorageManager()
         caInstalled = ca.isInstalled
 
