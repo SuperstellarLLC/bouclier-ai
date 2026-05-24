@@ -8,6 +8,12 @@ The `[VERSION]` section for each release is extracted verbatim by
 `apps/desktop/scripts/publish-update.sh` and injected into the Sparkle
 appcast. Write for end users, not for internal engineering notes.
 
+## [0.5.1] — 2026-05-24
+
+### Changed
+
+- Improved PII stripping logic.
+
 ## [0.5.0] — 2026-05-24
 
 ### Added
