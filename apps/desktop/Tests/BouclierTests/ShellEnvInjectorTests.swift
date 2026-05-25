@@ -154,6 +154,22 @@ struct ShellEnvInjectorTests {
         #expect(content.contains("end"), "Fish if/end block must close")
     }
 
+    @Test("Watchdog plist runs every minute and unsets env when the proxy port isn't reachable")
+    func watchdogPlistShape() {
+        let plist = ShellEnvInjector.watchdogPlist(proxyPort: 8484)
+
+        #expect(plist.contains("<key>Label</key>"))
+        #expect(plist.contains(ShellEnvInjector.watchdogLabel))
+        #expect(plist.contains("<integer>60</integer>"),
+                "Watchdog should tick at least every minute — that's the worst-case window of stale env after a crash")
+        #expect(plist.contains("nc -z 127.0.0.1 8484"),
+                "Probe must TCP-test the port (not pgrep — that false-positives on any command-line containing the bundle path)")
+        #expect(plist.contains("launchctl unsetenv HTTPS_PROXY"),
+                "Failure branch must unset the proxy env vars")
+        #expect(plist.contains("RunAtLoad"),
+                "Agent must run on load so a stale env from a previous boot is cleared at login")
+    }
+
     @Test("Recovers gracefully when the end marker is missing")
     func recoversFromMalformedBlock() {
         let url = Self.tmpFile(prefix: "malformed")
