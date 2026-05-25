@@ -8,6 +8,12 @@ The `[VERSION]` section for each release is extracted verbatim by
 `apps/desktop/scripts/publish-update.sh` and injected into the Sparkle
 appcast. Write for end users, not for internal engineering notes.
 
+## [0.5.3] — 2026-05-25
+
+### Fixed
+
+- **A Bouclier crash no longer leaves your system pointing at a dead proxy.** A small watchdog now runs once a minute in the background, and if Bouclier ever stops responding, it cleans the proxy environment off your session within 60 seconds. Apps you launch from Spotlight/Dock after a crash work normally instead of failing on a stale pointer.
+
 ## [0.5.2] — 2026-05-25
 
 ### Fixed
