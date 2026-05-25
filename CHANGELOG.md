@@ -8,6 +8,13 @@ The `[VERSION]` section for each release is extracted verbatim by
 `apps/desktop/scripts/publish-update.sh` and injected into the Sparkle
 appcast. Write for end users, not for internal engineering notes.
 
+## [0.5.2] — 2026-05-25
+
+### Fixed
+
+- **Quitting Bouclier no longer breaks every CLI tool.** When the proxy isn't running, your shell now skips the proxy env entirely and CLI tools (`git`, `npm`, `curl`, `claude`) talk direct instead of failing with "connection refused."
+- **API keys in your prompts aren't redacted on the way to LLMs.** Pasting `OPENAI_API_KEY=…` into a chat to debug it now reaches the model unchanged — Bouclier still strips actual PII (emails, addresses, IDs) but treats keys, tokens, and secrets as functional context the model needs to help. Settings → Privacy → "Also strip credentials (strict mode)" opts back in.
+
 ## [0.5.1] — 2026-05-24
 
 ### Changed
