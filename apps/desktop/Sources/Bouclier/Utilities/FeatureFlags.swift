@@ -78,6 +78,18 @@ enum FeatureFlags {
         return resolve(key: "multimodalInspection", default: false)
     }
 
+    /// When true, the PII redactor also strips credential-class entities
+    /// (API keys, JWTs, secrets, DB URLs, private keys) on requests
+    /// bound for AI APIs. Off by default — see `PIICategory` for the
+    /// rationale: pasting an API key into a Claude prompt while asking
+    /// "why doesn't this work?" is usually functional context the model
+    /// needs to help; redacting it both breaks the debugging session
+    /// and trips upstream abuse detection. Opt-in for users with
+    /// supply-chain-leak concerns.
+    static var strictCredentialRedaction: Bool {
+        resolve(key: "strictCredentialRedaction", default: false)
+    }
+
     // MARK: - Resolution
 
     /// Test-only override: set a value here to force a flag regardless

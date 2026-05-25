@@ -49,6 +49,11 @@ struct PrivacySettingsView: View {
     /// for PII before forwarding. Off by default in v0.4.0 to mirror
     /// the text-PII toggle's opt-in posture.
     @AppStorage("multimodalInspectionEnabled") private var multimodalInspectionEnabled: Bool = false
+    /// Strict mode: also strip credentials (API keys, JWTs, secrets) on
+    /// requests to AI APIs. Off by default — pasting a key while asking
+    /// a model "what's wrong with this?" is usually functional context
+    /// the model needs. See `PIICategory` for the long-form rationale.
+    @AppStorage("strictCredentialRedactionEnabled") private var strictCredentialRedactionEnabled: Bool = false
     /// Days to retain redaction audit entries. Mirrors the cleanup
     /// window in `StorageManager.cleanup()`; surfaced here so users can
     /// see what the retention is (the value itself is informational).
@@ -64,6 +69,9 @@ struct PrivacySettingsView: View {
                 Toggle("Strip PII from outbound prompts", isOn: $piiRedactionEnabled)
                 Toggle("Preview redactions before sending", isOn: $previewBeforeSend)
                     .disabled(!piiRedactionEnabled)
+                Toggle("Also strip credentials (strict mode)", isOn: $strictCredentialRedactionEnabled)
+                    .disabled(!piiRedactionEnabled)
+                    .help("By default Bouclier leaves API keys, JWTs, and other credentials in your prompts because they're usually functional context when you're debugging with the LLM. Strict mode also strips them — turn this on if you're worried about supply-chain leaks.")
                 Button("Export redaction report…") {
                     exportRedactionReport()
                 }

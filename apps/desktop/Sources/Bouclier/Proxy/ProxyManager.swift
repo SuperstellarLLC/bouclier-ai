@@ -213,6 +213,11 @@ final class ProxyManager: ObservableObject {
             await MainActor.run { extensionActive = false }
         }
         _ = SystemProxy.disable()
+        // Drop the launchctl proxy env so processes spawned via `open`
+        // / Spotlight don't keep pointing at a port we no longer listen
+        // on. The dotfile block stays (fail-open TCP probe handles that
+        // case); we only fix the GUI-launch path here.
+        ShellEnvInjector.unsetLaunchctl()
 
         log("Proxy stopped", blocked: false)
     }
@@ -286,15 +291,20 @@ final class ProxyManager: ObservableObject {
     // MARK: - Crash Recovery
 
     private nonisolated func registerCleanupHandlers() {
-        // Disable system proxy on SIGTERM (e.g., force quit from Activity Monitor)
+        // Disable system proxy AND drop launchctl proxy env on SIGTERM
+        // (e.g. force quit from Activity Monitor). Without the env drop,
+        // every GUI-launched process spawned after the crash inherits a
+        // dead `HTTPS_PROXY=127.0.0.1:8484` pointer.
         signal(SIGTERM) { _ in
             _ = SystemProxy.disable()
+            ShellEnvInjector.unsetLaunchctl()
             exit(0)
         }
 
-        // Disable on normal exit
+        // Same cleanup on normal exit (menubar Quit, ⌘Q, etc.).
         atexit {
             _ = SystemProxy.disable()
+            ShellEnvInjector.unsetLaunchctl()
         }
     }
 

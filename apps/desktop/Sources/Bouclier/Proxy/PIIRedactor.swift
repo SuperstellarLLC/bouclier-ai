@@ -36,15 +36,24 @@ final class PIIRedactor: @unchecked Sendable {
     /// Scan and tokenize. Returns the substituted body plus an audit
     /// trail. Callers must hand `session` the same actor for the lifetime
     /// of a connection so reversal works on the response path.
-    func redact(_ content: String, with session: PIISession) async -> (
-        redacted: String,
-        audit: [AuditEntry]
-    ) {
+    ///
+    /// `skipCategories` filters detections *before* tokenization so we
+    /// never mint a token for a value we're going to leave in cleartext
+    /// anyway — keeps the per-session token map small and means the
+    /// audit log only records redactions that actually happened.
+    func redact(
+        _ content: String,
+        with session: PIISession,
+        skipCategories: Set<PIICategory> = []
+    ) async -> (redacted: String, audit: [AuditEntry]) {
         // `scanWithML` falls back to regex+native when the ML tier
         // isn't loaded yet, so this path is correct on both the
         // pre-Piiranha (regex+native only) and post-Piiranha (fused)
         // sides of the classifier's async load.
-        let detections = await scanner.scanWithML(content)
+        let raw = await scanner.scanWithML(content)
+        let detections = skipCategories.isEmpty
+            ? raw
+            : raw.filter { !skipCategories.contains(PIICategory.of($0.type)) }
         if detections.isEmpty {
             return (content, [])
         }

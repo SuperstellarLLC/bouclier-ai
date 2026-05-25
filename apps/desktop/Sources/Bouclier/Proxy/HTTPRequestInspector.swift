@@ -214,7 +214,8 @@ enum HTTPRequestInspector {
         method: HTTPMethod,
         redactor: PIIRedactor,
         session: PIISession,
-        allocator: ByteBufferAllocator
+        allocator: ByteBufferAllocator,
+        skipCategories: Set<PIICategory> = []
     ) async -> PIIPass {
         guard FeatureFlags.piiRedaction else {
             return PIIPass(body: body, audit: [])
@@ -225,7 +226,9 @@ enum HTTPRequestInspector {
         else {
             return PIIPass(body: body, audit: [])
         }
-        let (redacted, audit) = await redactor.redact(text, with: session)
+        let (redacted, audit) = await redactor.redact(
+            text, with: session, skipCategories: skipCategories
+        )
         if audit.isEmpty {
             return PIIPass(body: body, audit: [])
         }

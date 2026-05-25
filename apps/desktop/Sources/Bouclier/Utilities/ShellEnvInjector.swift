@@ -87,6 +87,16 @@ enum ShellEnvInjector {
         try? FileManager.default.removeItem(at: configDir().appendingPathComponent("env.sh"))
         try? FileManager.default.removeItem(at: configDir().appendingPathComponent("env.fish"))
 
+        unsetLaunchctl()
+    }
+
+    /// Drop the launchctl session env vars without touching the dotfile
+    /// blocks or the canonical env files. Called from `ProxyManager.stop`
+    /// and the crash/exit handlers so a quit-or-crash leaves the user
+    /// session unable to route through the now-dead proxy — paired with
+    /// the shell scripts' fail-open TCP check, the user's CLI tools
+    /// recover transparently instead of seeing `connection refused`.
+    static func unsetLaunchctl() {
         for key in Self.envVarKeys {
             _ = runLaunchctl(["unsetenv", key])
         }
@@ -102,11 +112,11 @@ enum ShellEnvInjector {
         "REQUESTS_CA_BUNDLE",
     ]
 
-    private struct Exports {
+    struct Exports {
         let pairs: [(String, String)]
     }
 
-    private static func buildExports(proxyURL: String, caCertPath: String?) -> Exports {
+    static func buildExports(proxyURL: String, caCertPath: String?) -> Exports {
         var pairs: [(String, String)] = [
             ("HTTPS_PROXY", proxyURL),
             ("HTTP_PROXY", proxyURL),
@@ -119,25 +129,57 @@ enum ShellEnvInjector {
         return Exports(pairs: pairs)
     }
 
-    private static func posixEnvFileContent(exports: Exports) -> String {
+    /// Port the proxy is bound to. Used by the shell scripts'
+    /// fail-open TCP check.
+    private static func proxyPort(from url: String) -> Int {
+        // Pull the port out of `http://127.0.0.1:8484`. If anything is
+        // off, fall back to the well-known default — wrong answer here
+        // just means a slightly slower failed connect on shell start.
+        if let last = url.split(separator: ":").last, let p = Int(last) { return p }
+        return 8484
+    }
+
+    static func posixEnvFileContent(exports: Exports) -> String {
+        let port = proxyPort(from: exports.pairs.first(where: { $0.0 == "HTTPS_PROXY" })?.1 ?? "")
+        let keys = exports.pairs.map(\.0).joined(separator: " ")
         var lines = [
             "# Bouclier.ai — auto-generated. Do not edit by hand.",
             "# Routes AI traffic through the local interception proxy and",
             "# extends the system CA bundle to trust Bouclier's leaf certs.",
+            "#",
+            "# Fail-open: if Bouclier isn't listening we *unset* the proxy",
+            "# vars so CLI tools talk direct instead of erroring with",
+            "# 'connection refused'. Explicit unset matters because a stale",
+            "# value can be inherited from launchctl setenv, the parent",
+            "# shell, or a previous Bouclier session — without the unset",
+            "# the conditional `export` doesn't override it. ~5ms TCP probe,",
+            "# runs once per shell start.",
+            "if /usr/bin/nc -z 127.0.0.1 \(port) 2>/dev/null; then",
         ]
         for (k, v) in exports.pairs {
-            lines.append("export \(k)=\"\(shellEscape(v))\"")
+            lines.append("    export \(k)=\"\(shellEscape(v))\"")
         }
+        lines.append("else")
+        lines.append("    unset \(keys)")
+        lines.append("fi")
         return lines.joined(separator: "\n") + "\n"
     }
 
-    private static func fishEnvFileContent(exports: Exports) -> String {
+    static func fishEnvFileContent(exports: Exports) -> String {
+        let port = proxyPort(from: exports.pairs.first(where: { $0.0 == "HTTPS_PROXY" })?.1 ?? "")
+        let keys = exports.pairs.map(\.0).joined(separator: " ")
         var lines = [
             "# Bouclier.ai — auto-generated. Do not edit by hand.",
+            "# Fail-open: unset proxy vars when Bouclier isn't listening so",
+            "# `git push`, `curl`, etc. don't break when the proxy is down.",
+            "if /usr/bin/nc -z 127.0.0.1 \(port) 2>/dev/null",
         ]
         for (k, v) in exports.pairs {
-            lines.append("set -gx \(k) \"\(shellEscape(v))\"")
+            lines.append("    set -gx \(k) \"\(shellEscape(v))\"")
         }
+        lines.append("else")
+        lines.append("    set -e \(keys)")
+        lines.append("end")
         return lines.joined(separator: "\n") + "\n"
     }
 

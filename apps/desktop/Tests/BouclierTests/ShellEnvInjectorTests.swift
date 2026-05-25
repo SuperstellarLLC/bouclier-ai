@@ -109,6 +109,51 @@ struct ShellEnvInjectorTests {
                 "Stripping the only block in a file we created should leave no stray file behind")
     }
 
+    @Test("POSIX env file gates exports behind a TCP check AND unsets stale values")
+    func posixFileIsFailOpen() {
+        let exports = ShellEnvInjector.buildExports(
+            proxyURL: "http://127.0.0.1:8484",
+            caCertPath: "/tmp/ca.pem"
+        )
+        let content = ShellEnvInjector.posixEnvFileContent(exports: exports)
+
+        // The guard line MUST come before the exports — otherwise the
+        // exports happen unconditionally and we're back to "connection
+        // refused for every command" when Bouclier isn't listening.
+        guard let guardIdx = content.range(of: "nc -z 127.0.0.1 8484"),
+              let exportIdx = content.range(of: "export HTTPS_PROXY=")
+        else {
+            Issue.record("Expected both `nc -z` guard and `export HTTPS_PROXY` in:\n\(content)")
+            return
+        }
+        #expect(guardIdx.lowerBound < exportIdx.lowerBound,
+                "Fail-open TCP check must precede the exports")
+        // Explicit unset in the else branch is what makes fail-open
+        // actually work — without it, a stale HTTPS_PROXY inherited
+        // from launchctl or the parent shell would survive even when
+        // Bouclier is down. Caught during live QA on 2026-05-25.
+        #expect(content.contains("else"))
+        #expect(content.contains("unset HTTPS_PROXY"),
+                "else-branch must explicitly unset, not just skip exports")
+        #expect(content.contains("fi"), "Guard block must be closed with `fi`")
+    }
+
+    @Test("Fish env file gates exports behind a TCP check AND unsets stale values")
+    func fishFileIsFailOpen() {
+        let exports = ShellEnvInjector.buildExports(
+            proxyURL: "http://127.0.0.1:9999",
+            caCertPath: "/tmp/ca.pem"
+        )
+        let content = ShellEnvInjector.fishEnvFileContent(exports: exports)
+
+        #expect(content.contains("nc -z 127.0.0.1 9999"),
+                "Fish guard should pull the port from the configured proxy URL, not hardcode 8484")
+        #expect(content.contains("set -gx HTTPS_PROXY"))
+        #expect(content.contains("set -e HTTPS_PROXY"),
+                "Fish else-branch must explicitly erase, not just skip exports")
+        #expect(content.contains("end"), "Fish if/end block must close")
+    }
+
     @Test("Recovers gracefully when the end marker is missing")
     func recoversFromMalformedBlock() {
         let url = Self.tmpFile(prefix: "malformed")
