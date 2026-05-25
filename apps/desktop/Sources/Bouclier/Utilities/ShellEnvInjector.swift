@@ -72,7 +72,18 @@ enum ShellEnvInjector {
         injectBlock(into: home(".profile"), payload: posixSource)
         injectBlock(into: fishConfigPath(), payload: fishSource, createParent: true)
 
+        // Idempotent stale-state cleanup before re-setting. If the
+        // previous Bouclier session hard-crashed, the launchctl env
+        // still points at the dead port; clearing first guarantees a
+        // clean slate even if our SIGTERM/atexit handlers never ran.
+        unsetLaunchctl()
         applyLaunchctlSetenv(exports: exports)
+
+        // Install the watchdog LaunchAgent so a Bouclier crash gets
+        // cleaned up within the next minute, even if no Bouclier
+        // process ever runs the SIGTERM handler. Idempotent — reloading
+        // an already-loaded agent is a no-op.
+        installWatchdog(proxyPort: proxyPort)
         return true
     }
 
@@ -87,6 +98,7 @@ enum ShellEnvInjector {
         try? FileManager.default.removeItem(at: configDir().appendingPathComponent("env.sh"))
         try? FileManager.default.removeItem(at: configDir().appendingPathComponent("env.fish"))
 
+        removeWatchdog()
         unsetLaunchctl()
     }
 
@@ -264,6 +276,97 @@ enum ShellEnvInjector {
         for (k, v) in exports.pairs {
             _ = runLaunchctl(["setenv", k, v])
         }
+    }
+
+    // MARK: - Crash-resilient watchdog (LaunchAgent)
+
+    /// Label for the LaunchAgent. macOS uses this to identify the
+    /// loaded job; must match the plist's `Label` key.
+    static let watchdogLabel = "ai.bouclier.proxy-env-watchdog"
+
+    /// Path to the per-user LaunchAgent plist. We install at the user
+    /// level (no admin password) and only act on per-user launchctl
+    /// state, so the privileges line up.
+    static func watchdogPlistPath() -> URL {
+        FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/LaunchAgents/\(watchdogLabel).plist")
+    }
+
+    /// Generate the LaunchAgent plist content. Hoisted out for testing.
+    ///
+    /// The agent runs every minute. On each tick it checks whether any
+    /// process matching the Bouclier app bundle is alive; if not, it
+    /// `launchctl unsetenv`s the proxy env. This catches the hard-crash
+    /// / force-quit / SIGKILL case where Bouclier's own atexit + SIGTERM
+    /// handlers never fire, leaving stale env pointing at a dead port.
+    /// One minute of staleness is the worst-case window — paired with
+    /// the shell-level fail-open guard for new shells, that's tolerable.
+    static func watchdogPlist(proxyPort: Int) -> String {
+        // Single-line shell command so we don't have to externalise a
+        // separate script — keeps install/uninstall self-contained.
+        //
+        // The probe tests what we actually care about — "is the proxy
+        // listener reachable" — rather than "is a Bouclier process
+        // alive." `pgrep -f` would match any process whose command-line
+        // *mentions* the bundle path (including our own diagnostic
+        // commands and shell scripts), which gave false positives
+        // during live QA. A TCP connect to the listening port has no
+        // such ambiguity.
+        let unsetCmd = Self.envVarKeys.map { "launchctl unsetenv \($0)" }.joined(separator: "; ")
+        let probe = "/usr/bin/nc -z 127.0.0.1 \(proxyPort) >/dev/null 2>&1"
+        let script = "\(probe) || { \(unsetCmd); }"
+        return """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+        <plist version="1.0">
+        <dict>
+            <key>Label</key>
+            <string>\(watchdogLabel)</string>
+            <key>ProgramArguments</key>
+            <array>
+                <string>/bin/sh</string>
+                <string>-c</string>
+                <string>\(script)</string>
+            </array>
+            <key>StartInterval</key>
+            <integer>60</integer>
+            <key>RunAtLoad</key>
+            <true/>
+            <key>StandardOutPath</key>
+            <string>/dev/null</string>
+            <key>StandardErrorPath</key>
+            <string>/dev/null</string>
+        </dict>
+        </plist>
+        """
+    }
+
+    /// Install the watchdog: write the plist, load it via `launchctl`.
+    /// Idempotent — re-installing first unloads any existing copy so
+    /// changes to the plist body take effect on the next apply().
+    static func installWatchdog(proxyPort: Int) {
+        let path = watchdogPlistPath()
+        do {
+            try FileManager.default.createDirectory(
+                at: path.deletingLastPathComponent(), withIntermediateDirectories: true
+            )
+        } catch {}
+        writeAtomically(content: watchdogPlist(proxyPort: proxyPort), to: path)
+        // bootout first so we pick up any plist edits; ignore failure
+        // when the agent isn't yet loaded (first run).
+        _ = runLaunchctl(["bootout", "gui/\(uid())/\(watchdogLabel)"])
+        _ = runLaunchctl(["bootstrap", "gui/\(uid())", path.path])
+    }
+
+    /// Uninstall the watchdog: unload the agent and remove the plist.
+    static func removeWatchdog() {
+        let path = watchdogPlistPath()
+        _ = runLaunchctl(["bootout", "gui/\(uid())/\(watchdogLabel)"])
+        try? FileManager.default.removeItem(at: path)
+    }
+
+    private static func uid() -> String {
+        String(getuid())
     }
 
     @discardableResult
