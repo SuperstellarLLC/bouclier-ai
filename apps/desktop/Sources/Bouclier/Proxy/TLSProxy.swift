@@ -564,6 +564,14 @@ private final class HTTPInspectionHandler: ChannelInboundHandler, RemovableChann
             let inspectionRef = inspection
             let hostRef = host
             let sizeRef = bodySize
+            // Every host that reaches this point has been allowlisted
+            // for MITM in `ConnectHandler`, which means it's an AI API
+            // destination (built-in or MDM-added). Skip credential-class
+            // detections by default — see `PIICategory` for the rationale.
+            // The strict-mode flag lets paranoid users force-redact
+            // credentials anyway.
+            let skipCategories: Set<PIICategory> =
+                FeatureFlags.strictCredentialRedaction ? [] : [.credential]
             Task {
                 // Multimodal first so the text-PII pass sees the
                 // post-rewrite body (text placeholders may themselves
@@ -589,7 +597,8 @@ private final class HTTPInspectionHandler: ChannelInboundHandler, RemovableChann
                         method: method,
                         redactor: redactor,
                         session: session,
-                        allocator: allocator
+                        allocator: allocator,
+                        skipCategories: skipCategories
                     )
                     : HTTPRequestInspector.PIIPass(body: mmPass.body, audit: [])
 
