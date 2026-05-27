@@ -8,7 +8,7 @@ body:
       value: |
         Thanks for taking the time to file a bug report. Before submitting, please:
 
-        - Search [existing issues](https://github.com/SuperstellarLLC/ilvarion/issues) and the [discussions](https://github.com/SuperstellarLLC/ilvarion/discussions) to avoid duplicates.
+        - Search [existing issues](https://github.com/SuperstellarLLC/bouclier-ai/issues) and the [discussions](https://github.com/SuperstellarLLC/bouclier-ai/discussions) to avoid duplicates.
         - **Do not** include screenshots or logs that contain real PII, credentials, or prompt content. Bouclier.ai logs do not capture request bodies, but anything you paste here is public.
 
   - type: input

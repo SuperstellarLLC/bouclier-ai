@@ -24,7 +24,7 @@ a suspected vulnerability.
 Use one of the following private channels, in order of preference:
 
 1. GitHub Security Advisories — open a private report at
-   <https://github.com/SuperstellarLLC/ilvarion/security/advisories/new>.
+   <https://github.com/SuperstellarLLC/bouclier-ai/security/advisories/new>.
 2. Email `security@bouclier.ai` with the details below.
 
 Please include:

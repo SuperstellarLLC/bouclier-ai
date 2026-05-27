@@ -7,21 +7,21 @@ we read everything that comes in through the channels below.
 
 - Check [CHANGELOG.md](CHANGELOG.md) — your issue may already be fixed
   in the next release.
-- Search existing [issues](https://github.com/SuperstellarLLC/ilvarion/issues?q=is%3Aissue)
-  and [discussions](https://github.com/SuperstellarLLC/ilvarion/discussions).
+- Search existing [issues](https://github.com/SuperstellarLLC/bouclier-ai/issues?q=is%3Aissue)
+  and [discussions](https://github.com/SuperstellarLLC/bouclier-ai/discussions).
 - Make sure you are on the latest release. The menu bar → About panel
   shows the version.
 
 ## Where to ask
 
-| You want to...                    | Use                                                                                            |
-| --------------------------------- | ---------------------------------------------------------------------------------------------- |
-| Report a security vulnerability   | [SECURITY.md](.github/SECURITY.md) (private)                                                   |
-| Report a reproducible bug         | [Open a bug issue](https://github.com/SuperstellarLLC/ilvarion/issues/new/choose)              |
-| Report a missed detection (FN/FP) | [Detection-miss issue template](https://github.com/SuperstellarLLC/ilvarion/issues/new/choose) |
-| Propose a feature                 | [Feature issue template](https://github.com/SuperstellarLLC/ilvarion/issues/new/choose)        |
-| Ask a question or discuss usage   | [Discussions](https://github.com/SuperstellarLLC/ilvarion/discussions)                         |
-| Commercial / press / partnership  | `hello@bouclier.ai`                                                                            |
+| You want to...                    | Use                                                                                               |
+| --------------------------------- | ------------------------------------------------------------------------------------------------- |
+| Report a security vulnerability   | [SECURITY.md](.github/SECURITY.md) (private)                                                      |
+| Report a reproducible bug         | [Open a bug issue](https://github.com/SuperstellarLLC/bouclier-ai/issues/new/choose)              |
+| Report a missed detection (FN/FP) | [Detection-miss issue template](https://github.com/SuperstellarLLC/bouclier-ai/issues/new/choose) |
+| Propose a feature                 | [Feature issue template](https://github.com/SuperstellarLLC/bouclier-ai/issues/new/choose)        |
+| Ask a question or discuss usage   | [Discussions](https://github.com/SuperstellarLLC/bouclier-ai/discussions)                         |
+| Commercial / press / partnership  | `hello@bouclier.ai`                                                                               |
 
 ## What to include
 
