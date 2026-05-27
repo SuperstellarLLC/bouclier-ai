@@ -67,16 +67,16 @@ export default function Home() {
               Try it
             </a>
             <a
-              href="#pii"
+              href="#trust"
               className="text-text-secondary hover:text-text text-sm transition-colors"
             >
-              PII redaction
+              Trust
             </a>
             <a
-              href="#multimodal"
+              href="#attachments"
               className="text-text-secondary hover:text-text text-sm transition-colors"
             >
-              Multimodal
+              Attachments
             </a>
             <a
               href="#how"
@@ -136,15 +136,15 @@ export default function Home() {
             <h1 className="text-text mx-auto max-w-3xl text-5xl font-bold leading-[1.1] tracking-tight sm:text-6xl">
               Stop prompt injections.
               <br />
-              <span className="text-bouclier">Stop PII from leaking to LLMs.</span>
+              <span className="text-bouclier">Inspect what you upload to LLMs.</span>
             </h1>
 
             <p className="text-text-secondary mx-auto mt-6 max-w-2xl text-lg leading-relaxed">
-              Bouclier.ai sits between your apps and AI providers and inspects every prompt before
-              it leaves your Mac. Prompt injections get stripped; emails, IBANs, NHS numbers and
-              other PII get replaced with reversible placeholders. New in v0.4 — images, PDFs and
-              audio clips are inspected too, with flagged attachments blocked before they leave your
-              Mac. Runs locally — your prompts never leave your Mac.
+              Bouclier.ai sits between your apps and AI providers. Every outbound request is scanned
+              for prompt-injection attacks. Images, PDFs and short audio clips are inspected
+              on-device — if they contain PII, the attachment is replaced with a plain-English
+              description before it reaches the model. Your text prompts pass through byte-for-byte;
+              auth headers and API keys are never touched. All inspection runs locally on your Mac.
             </p>
 
             <p className="mt-3 inline-flex items-center gap-2 rounded-full border border-amber-300 bg-amber-50 px-3 py-1 text-xs font-medium text-amber-900">
@@ -180,70 +180,74 @@ export default function Home() {
       {/* ── Live playground ──────────────────────── */}
       <Playground />
 
-      {/* ── PII redaction ─────────────────────────── */}
-      <section id="pii" className="border-border bg-surface border-t py-24">
+      {/* ── Trust / what we don't touch ───────────── */}
+      <section id="trust" className="border-border bg-surface border-t py-24">
         <div className="mx-auto max-w-5xl px-6">
           <div className="reveal">
-            <SectionLabel>PII redaction</SectionLabel>
+            <SectionLabel>What we don&apos;t touch</SectionLabel>
             <h2 className="mt-3 text-3xl font-bold tracking-tight">
-              Keep your data out of model logs.
+              Your prompts and headers reach the model unchanged.
             </h2>
             <p className="text-text-secondary mt-4 max-w-2xl">
-              Every prompt you paste into Claude, ChatGPT or Cursor is stored by the provider — your
-              customers&apos; emails, your colleagues&apos; SIRETs, your IBANs all sit in their
-              training set or their incident response logs. Bouclier.ai swaps each piece of PII for
-              a reversible placeholder on the way out and restores the original on the way back, so
-              the model never sees the cleartext and you still see normal answers.
+              A proxy that rewrites prompts is a proxy you can&apos;t trust. Bouclier sits in the
+              middle of every AI request but it isn&apos;t a rewriter — prompt bodies traverse the
+              proxy byte-for-byte and auth headers are forwarded untouched. The only thing Bouclier
+              ever modifies on the way out is an attachment the on-device scanner flagged as
+              containing PII, and even then we substitute a short text description, not a
+              placeholder token that could trip the provider&apos;s abuse detection.
             </p>
           </div>
 
           <div className="reveal-stagger reveal-stagger-3 mt-12 grid gap-6 md:grid-cols-3">
             <FlowCard
               step="01"
-              title="Detect"
-              description="Regex + structural validators for emails, IBANs, credit cards, SSNs, French SIRET/SIREN/NIR, UK NHS / NINO / postcodes, US NPI, AWS keys, JWTs, IPs."
+              title="Prompts"
+              description="Forwarded byte-for-byte. No tokenisation, no placeholder substitution, no JSON-blind rewriter that could touch user-identifier or analytics fields. The model receives your prompt exactly as your app sent it."
             />
             <FlowCard
               step="02"
-              title="Tokenize"
-              description="Each value is replaced with an unguessable placeholder keyed to a per-connection HMAC. No central vault. No cloud round-trip."
+              title="Headers"
+              description="Authorization, x-api-key, X-Trace-ID, custom analytics, User-Agent — every header reaches the upstream unmodified. Pinned by an end-to-end test so a future change can't drift."
             />
             <FlowCard
               step="03"
-              title="Reverse"
-              description="On the way back the placeholders are replaced with the original values locally. The model answers naturally; you see your data, not tokens."
+              title="Attachments"
+              description="The one thing Bouclier rewrites. Images, PDFs, audio that contain PII are replaced with a plain-English description — never with a token shape that could look adversarial to the model."
             />
           </div>
 
           <div className="reveal border-border mt-12 rounded-2xl border bg-white p-6">
             <p className="text-text-secondary text-sm">
-              PII redaction ships <strong>off by default</strong> in this release. Enable it from
-              Settings → Privacy when you&apos;re ready. Per-domain allow / deny lists let you
-              bypass internal LLM gateways or embedding endpoints where redaction would break the
-              request. Detection is best-effort and probabilistic — see{" "}
+              The byte-identical guarantee is pinned by{" "}
+              <code className="text-text rounded bg-zinc-100 px-1.5 py-0.5 text-xs font-medium">
+                E2EProxyTests
+              </code>{" "}
+              in CI — every release proves that a real CONNECT + TLS request through the proxy
+              reaches the upstream with body, auth headers, API keys and trace IDs all intact. Read
+              the{" "}
               <Link href="/terms" className="text-bouclier hover:underline">
                 Terms
               </Link>{" "}
-              for the limits.
+              for the limits of best-effort attachment detection.
             </p>
           </div>
         </div>
       </section>
 
-      {/* ── Multimodal inspection ────────────────── */}
-      <section id="multimodal" className="border-border border-t bg-white py-24">
+      {/* ── Attachment PII inspection ─────────────── */}
+      <section id="attachments" className="border-border border-t bg-white py-24">
         <div className="mx-auto max-w-5xl px-6">
           <div className="reveal">
-            <SectionLabel>Multimodal — new in v0.4</SectionLabel>
+            <SectionLabel>Attachment PII</SectionLabel>
             <h2 className="mt-3 text-3xl font-bold tracking-tight">
-              PII hides in attachments too.
+              PII hides in what you upload.
             </h2>
             <p className="text-text-secondary mt-4 max-w-2xl">
               A screenshot of an invoice, a scanned NDA, a 30-second voice memo — modern LLM clients
-              accept all of it, and a regex pass over the JSON body sees none of it. Bouclier.ai
-              opens images, PDFs and audio clips on the way out, scans them with Apple&apos;s
-              on-device Vision, PDFKit and Speech frameworks, and replaces flagged attachments with
-              a short text placeholder so the model still gets the gist without the leak.
+              accept all of it, and a regex pass over the JSON body sees none of it. Bouclier opens
+              images, PDFs and audio clips on the way out, scans them with Apple&apos;s on-device
+              Vision, PDFKit and Speech frameworks, and replaces flagged attachments with a short
+              text description so the model still gets the gist without the leak.
             </p>
           </div>
 
@@ -267,7 +271,7 @@ export default function Home() {
 
           <div className="reveal border-border mt-12 rounded-2xl border bg-white p-6">
             <p className="text-text-secondary text-sm">
-              Multimodal inspection ships <strong>off by default</strong> and is opt-in from
+              Attachment inspection ships <strong>off by default</strong> and is opt-in from
               Settings → Privacy. Multipart file uploads to the OpenAI Files API and Anthropic
               messages with PDF / image / audio blocks are all supported. Detection runs entirely on
               your Mac — no cloud OCR, no cloud transcription, no telemetry.
