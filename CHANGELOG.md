@@ -8,6 +8,12 @@ The `[VERSION]` section for each release is extracted verbatim by
 `apps/desktop/scripts/publish-update.sh` and injected into the Sparkle
 appcast. Write for end users, not for internal engineering notes.
 
+## [0.6.1] — 2026-05-27
+
+### Fixed
+
+- **"Blocked 0 injection(s):" log mystery.** When the ML classifier or entropy heuristic flagged a request without any specific regex pattern matching, the activity log showed _"Blocked 0 injection(s) → host:"_ with a trailing colon and no detail — read as a bug to anyone watching. The log now surfaces these as _"Flagged by ML/entropy (score 0.55) → host — forwarded unchanged"_ with the red shield reserved for actual regex-driven blocks. The fused score is included in both branches so you can triage at a glance.
+
 ## [0.6.0] — 2026-05-27
 
 ### Changed

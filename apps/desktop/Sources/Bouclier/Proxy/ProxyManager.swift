@@ -355,18 +355,43 @@ final class ProxyManager: ObservableObject {
 
         if requestLog.detected {
             stats.injectionsBlocked += requestLog.matchCount
-            log(
-                "Blocked \(requestLog.matchCount) injection(s) → \(requestLog.targetHost): \(requestLog.patternNames.joined(separator: ", "))",
-                blocked: true
-            )
-            sendBlockNotification(count: requestLog.matchCount, target: requestLog.targetHost)
 
-            // SIEM audit log (os_log + optional webhook)
+            // Distinguish two failure modes the operator sees very
+            // differently:
+            //
+            //  - **Regex-driven block** (matchCount > 0). At least one
+            //    pattern matched and the body got sanitized in place.
+            //    Names the patterns and counts as a hard block.
+            //
+            //  - **ML/entropy-only flag** (matchCount == 0). Prompt
+            //    Guard 2 or the entropy heuristic pushed the fused
+            //    score over threshold without a specific pattern. The
+            //    body is forwarded unchanged — nothing was actually
+            //    blocked. The old "Blocked 0 injection(s):" line read
+            //    as a bug; surface this honestly as a flag with the
+            //    fused score so the operator can judge.
+            let score = String(format: "%.2f", requestLog.fusedScore)
+            if requestLog.matchCount > 0 {
+                let names = requestLog.patternNames.joined(separator: ", ")
+                log(
+                    "Blocked \(requestLog.matchCount) injection(s) → \(requestLog.targetHost): \(names) [score \(score)]",
+                    blocked: true
+                )
+                sendBlockNotification(count: requestLog.matchCount, target: requestLog.targetHost)
+            } else {
+                log(
+                    "Flagged by ML/entropy (score \(score)) → \(requestLog.targetHost) — forwarded unchanged",
+                    blocked: false
+                )
+            }
+
+            // SIEM audit log (os_log + optional webhook). Both paths
+            // emit so an analyst sees the ML-only signals too.
             AuditLogger.shared.logDetection(
                 host: requestLog.targetHost,
                 matchCount: requestLog.matchCount,
                 patterns: requestLog.patternNames,
-                severity: "high",
+                severity: requestLog.matchCount > 0 ? "high" : "medium",
                 bodySize: requestLog.bodySize
             )
         }
