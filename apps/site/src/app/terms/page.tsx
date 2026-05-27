@@ -37,41 +37,63 @@ export default function TermsPage() {
 
       <article className="mx-auto max-w-3xl px-6 py-16">
         <h1 className="text-3xl font-bold tracking-tight">Terms of Use</h1>
-        <p className="text-text-secondary mt-2 text-sm">Last updated: May 2026</p>
+        <p className="text-text-secondary mt-2 text-sm">Last updated: 27 May 2026</p>
 
         {/* Loud prototype banner — anyone evaluating the software must see this first. */}
         <div className="mt-10 rounded-xl border-2 border-amber-300 bg-amber-50 p-6">
           <p className="font-semibold text-amber-900">
-            Bouclier.ai is experimental, prototype software.
+            Bouclier.ai is a research prototype. It is not a commercial product.
           </p>
           <p className="mt-2 text-sm text-amber-900">
-            It is provided for evaluation, research, and personal experimentation. It is{" "}
-            <strong>not</strong> intended for production use, regulated workloads, safety-critical
-            systems, healthcare, financial services compliance, or any environment in which a
-            detection failure could cause harm, financial loss, regulatory non-compliance, or other
-            material damage. Detection is best-effort and probabilistic; false negatives and false
-            positives will occur. Use at your own risk.
+            The Software is published for evaluation, security research, academic study, and
+            personal experimentation only. It is <strong>not</strong> a commercial product, is{" "}
+            <strong>not</strong> sold, distributed, or offered for production use, and is{" "}
+            <strong>not</strong> intended for regulated workloads, safety-critical systems,
+            healthcare, financial services, payment processing, identity verification, fraud
+            prevention, or any environment in which a detection failure could cause harm, financial
+            loss, regulatory non-compliance, or other material damage. Detection is best-effort and
+            probabilistic; false negatives and false positives will occur. You may not deploy the
+            Software as a security control on which any other person or system relies. Use at your
+            own risk and at your own cost.
           </p>
         </div>
 
         <Section title="1. Acceptance">
           <p>
-            By downloading, installing, or running Bouclier.ai (the &quot;Software&quot;), you agree
-            to these Terms of Use. If you do not agree, do not install or use the Software. These
-            terms apply to all components of the Software including the macOS application, the
-            bundled MCP wrapper, the local proxy, the regex patterns, the on-device classifiers, the
-            marketing website at bouclier.ai, and any related artifacts.
+            By downloading, installing, or running Bouclier.ai (the &quot;Software&quot;), or by
+            accessing the website at bouclier.ai (the &quot;Site&quot;), you agree to these Terms of
+            Use. If you do not agree, do not install or use the Software, and do not access the
+            Site. These terms apply to all components of the Software including the macOS
+            application, the bundled MCP wrapper, the local proxy, the regex pattern library, the
+            on-device classifiers, the Site, and any related artifacts, documentation, or sample
+            data.
           </p>
         </Section>
 
-        <Section title="2. Experimental status">
+        <Section title="2. Research prototype — not a commercial product">
           <p>
-            The Software is in active development and labelled as a pre-1.0 release. Version numbers
-            below 1.0 indicate that the Software is a prototype: APIs, detection behaviour, file
-            formats, default settings, and the set of detected entities may change without notice
-            between releases. Features described in the marketing site, documentation, README, or
-            in-app text may be removed, altered, or replaced at any time. You should not rely on any
-            specific behaviour persisting across releases.
+            The Software is a research prototype published as the output of independent security and
+            machine-learning research. It is not a commercial product. We do not market, sell,
+            licence for a fee, or commercially distribute the Software, make no representations
+            regarding its fitness for any operational purpose, and offer no service-level agreement,
+            paid support tier, professional services, uptime commitment, or commercial obligation of
+            any kind.
+          </p>
+          <p className="mt-3">
+            The Software is published under the Apache License, Version 2.0; you are welcome to
+            read, audit, modify, fork, and rebuild the source. The project&apos;s intent is research
+            output — independent security testing, academic engagement, and contributor feedback are
+            welcome. Deployment of the Software in any environment where its failure would cause
+            loss, harm, regulatory consequence, or third-party reliance is expressly outside the
+            project&apos;s intended use and is undertaken solely at the deploying party&apos;s risk.
+          </p>
+          <p className="mt-3">
+            Pre-1.0 version numbering reflects this status. APIs, detection behaviour, file formats,
+            default settings, the set of detected entities, the rewriter behaviour, and the scope of
+            intercepted traffic may change without notice between releases. Features described in
+            marketing materials, documentation, the README, the changelog, or in-app text may be
+            removed, altered, or replaced at any time. You must not rely on any specific behaviour
+            persisting across releases.
           </p>
         </Section>
 
@@ -156,19 +178,22 @@ export default function TermsPage() {
               time.
             </li>
             <li>
-              You are solely responsible for reviewing the redactions performed by the Software
-              before relying on them. The preview modal is provided as an aid, not as a
+              You are solely responsible for reviewing any rewrites performed by the Software —
+              today limited to attachment content blocks flagged as containing PII — before relying
+              on the result. The exported audit report is provided as an evaluation aid, not as a
               certification.
             </li>
             <li>
               You are solely responsible for evaluating whether the Software is appropriate for your
               environment, your data, and your obligations. You must not deploy the Software in any
-              environment in which a detection failure could cause harm.
+              environment in which a detection failure could cause harm to you, to your employer, to
+              your customers, or to any third party.
             </li>
             <li>
-              You are solely responsible for the configuration of allow- and deny-domain lists,
-              per-entity policies, and any MDM-managed settings. Misconfiguration can cause PII to
-              be transmitted to upstream providers without redaction.
+              You are solely responsible for the configuration of every Software setting, including
+              MDM-managed values. Misconfiguration may cause attachments containing PII to be
+              transmitted to upstream providers without inspection, or conversely may cause benign
+              attachments to be stripped from outbound requests.
             </li>
             <li>
               You must comply with the terms of service of every AI provider you send traffic to.
@@ -215,27 +240,31 @@ export default function TermsPage() {
 
         <Section title="9. Local-only processing; no data collection">
           <p>
-            The Software is designed to process all prompt content locally on your device. We do not
-            operate servers that receive prompt content, redaction events, audit logs, or user
-            telemetry. The only outbound network calls initiated by the Software are described in
-            the{" "}
+            The Software is designed to process all prompt content, attachment content, and
+            detection signals locally on your device. We do not operate servers that receive prompt
+            content, attachment content, audit logs, or user telemetry. The only outbound network
+            calls initiated by the Software are described in the{" "}
             <Link href="/privacy" className="text-bouclier hover:underline">
               Privacy Policy
             </Link>
-            . You acknowledge that we therefore have no ability to recover, restore, or audit
-            content processed by the Software on your behalf.
+            . You acknowledge that we therefore have no ability to recover, restore, undo, or audit
+            content processed by the Software on your behalf, and that we cannot intervene in any
+            interaction between the Software, your computer, and the third-party AI providers you
+            send traffic to.
           </p>
         </Section>
 
         <Section title="10. Third-party providers">
           <p>
-            The Software intercepts traffic to third-party AI providers and forwards modified
-            content to them. We have no control over those providers, their terms, their data
-            handling, their availability, or their pricing. Your use of those providers is governed
-            by your agreement with each of them. The Software may rewrite the bodies of requests
-            sent to those providers; the content received by the provider is what we deliver after
-            redaction, and that content is what they may store and process according to their own
-            terms.
+            The Software intercepts traffic to third-party AI providers and forwards it to them.
+            Text prompt bodies and HTTP request headers are forwarded byte-for-byte; the only
+            content the Software ever modifies on an outbound request is an attachment (image, PDF,
+            or audio file) that the on-device scanner has flagged as containing personal data, in
+            which case the attachment&apos;s content block is replaced with a short text
+            description. We have no control over those providers, their terms, their data handling,
+            their availability, or their pricing. Your use of those providers is governed by your
+            agreement with each of them. Content delivered to each provider is governed by that
+            provider&apos;s own terms.
           </p>
         </Section>
 
@@ -269,12 +298,27 @@ export default function TermsPage() {
           </p>
         </Section>
 
-        <Section title="14. Governing law">
+        <Section title="14. Governing law and exclusive jurisdiction">
           <p>
-            These Terms are governed by the laws of France, without regard to its conflict-of-laws
-            provisions. The courts of Paris, France shall have exclusive jurisdiction over any
-            dispute arising out of or relating to these Terms or the Software, except that we may
-            seek injunctive or other equitable relief in any court of competent jurisdiction.
+            These Terms are governed by, and shall be construed in accordance with, the substantive
+            laws of Switzerland, to the exclusion of its conflict-of-laws rules and to the exclusion
+            of the United Nations Convention on Contracts for the International Sale of Goods
+            (CISG).
+          </p>
+          <p className="mt-3 font-semibold">
+            Any dispute, controversy, or claim arising out of, related to, or in connection with
+            these Terms, the Software, the Site, or any matter governed by these Terms — including
+            disputes regarding their existence, validity, breach, termination, or non-contractual
+            obligations connected to them — shall be subject to the exclusive jurisdiction of the
+            ordinary courts of the Canton of Zug, Switzerland.
+          </p>
+          <p className="mt-3 text-sm">
+            To the extent that mandatorily-applicable consumer-protection law of your habitual
+            residence affords you the non-waivable right to bring suit before the courts of that
+            jurisdiction, that right is preserved. Nothing in this clause prevents us from seeking
+            injunctive, declaratory, or other equitable relief before any court of competent
+            jurisdiction in respect of a threatened or actual infringement of intellectual property
+            rights, breach of confidentiality, or unauthorised use of the Software.
           </p>
         </Section>
 
