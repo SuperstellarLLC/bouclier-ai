@@ -69,28 +69,27 @@ inbound CONNECT ─► TLSProxy.HTTPHandler.head
                        │  - Returns Report { findings, latencyMs, … }
                        ▼
                    MultimodalRewriter.stripFlaggedImages
-                       │  - Replaces flagged blocks with a short text
-                       │    placeholder; unscannable attachments are
-                       │    stripped, never silently forwarded
-                       ▼
-                   HTTPRequestInspector.applyPIIRedaction
-                       │  - PIIScanner → PIIRedactor → audit entries
-                       │  - Reversible per-connection placeholders keyed
-                       │    by an HMAC stored in PIISession
+                       │  - Replaces flagged attachment blocks with a
+                       │    plain-English text description; unscannable
+                       │    attachments are stripped, never silently
+                       │    forwarded
                        ▼
                    forwardUpstream
+                       │  - Text bodies forwarded byte-for-byte. Bouclier
+                       │    does NOT modify outbound prompts. Headers
+                       │    (Authorization, x-api-key, custom trace IDs,
+                       │    User-Agent) are forwarded unchanged.
                        │
 outbound HTTPS ◄───────┘
 ```
 
-Inbound response handling is symmetric:
+Inbound response handling:
 
 - `SSEStreamInspector` runs on streaming response chunks to catch
   exfiltration mid-stream.
-- `PIIStreamReverser` swaps placeholders back to their original
-  cleartext on the way to the client, using the per-connection session
-  established on the request leg. The reversal is purely local — the
-  cleartext is never written to disk.
+- Non-SSE responses are relayed verbatim. No body rewriting, no
+  buffering, no Content-Length adjustment — the response path is
+  effectively zero-copy for the common JSON case.
 
 ## Detector stack
 
@@ -118,30 +117,39 @@ Detectors are organised in tiers so the cheap pass runs first:
 Scores fuse via `FilterResult.fusedScore` so a strong ML signal can
 escalate an otherwise-weak regex match and vice versa.
 
-## Session & reversibility model
+## Scope: what we modify and what we don't
 
-A `PIISession` is a per-connection actor that holds the HMAC key used
-to derive placeholder tokens. The token format is
-`[BL-<type>-<short-hash>]` — looks reasonable enough that the model
-keeps answering, distinct enough that the reverser can find it. The
-session has a TTL sweep so abandoned connections release their key
-material on schedule.
+Bouclier touches outbound traffic in exactly two ways:
 
-The reverser walks the response body (or each SSE chunk) and rewrites
-placeholders back to the values stored in the session. If the session
-has been swept the placeholder passes through unchanged — there is no
-fallback that could leak the wrong cleartext.
+1. **Prompt-injection blocking.** When the injection scanner matches a
+   pattern in the body or URI, the request is rewritten to neutralise
+   the payload (or rejected outright when the match is high-severity).
+2. **Attachment PII inspection.** When multimodal inspection is enabled
+   and an outbound request carries an image / PDF / audio attachment
+   containing PII, the attachment's content block is replaced with a
+   plain-English description ("This image contained an email address
+   and was removed by Bouclier"). The model receives normal text and
+   can still answer; the cleartext attachment never leaves the Mac.
+
+Everything else is forwarded byte-for-byte. **Bouclier does not modify
+text prompt bodies.** Earlier versions ran a reversible PII tokeniser
+on prompts — that was removed in v0.6 because (a) the placeholder
+shape tripped Anthropic's abuse heuristics and (b) the JSON-blind
+rewriter risked touching `user`, `metadata.user_id`, and other
+provider analytics fields. The header set (Authorization, x-api-key,
+custom trace IDs, User-Agent, …) is also never modified. The
+no-modification invariant is pinned by `E2EProxyTests`.
 
 ## Persistence
 
 GRDB-managed SQLite at `~/Library/Application Support/ai.bouclier.app/`:
 
-| Table              | Purpose                                              | Retention |
-| ------------------ | ---------------------------------------------------- | --------- |
-| `request_log`      | Per-request metadata, detection signals, hash prefix | 30 days   |
-| `daily_stats`      | Day-bucketed counts for the menu bar UI              | 365 days  |
-| `pii_audit`        | Per-redaction `{type, offset, hash}` rows            | 30 days   |
-| `multimodal_audit` | Per-attachment `{kind, status, latency}` rows        | 30 days   |
+| Table              | Purpose                                                    | Retention |
+| ------------------ | ---------------------------------------------------------- | --------- |
+| `request_log`      | Per-request metadata, detection signals, hash prefix       | 30 days   |
+| `daily_stats`      | Day-bucketed counts for the menu bar UI                    | 365 days  |
+| `pii_redactions`   | Per-finding `{type, hash}` rows for PII inside attachments | 30 days   |
+| `multimodal_audit` | Per-attachment `{kind, status, latency}` rows              | 30 days   |
 
 Migrations live in `StorageManager.swift`. Schema changes are forward-only
 and use GRDB's `DatabaseMigrator` — no destructive migrations.
@@ -187,8 +195,7 @@ update path is documented at length in `scripts/release.sh` and
 
 - Request inspection pipeline: `apps/desktop/Sources/Bouclier/Proxy/HTTPRequestInspector.swift`
 - TLS interception + connection handlers: `apps/desktop/Sources/Bouclier/Proxy/TLSProxy.swift`, `CertificateAuthority.swift`
-- Multimodal pipeline: `MultimodalPIIInspector.swift`, `MediaPIIScanner.swift`, `PDFPIIScanner.swift`, `AudioPIIScanner.swift`
-- Sessions + reversal: `PIISession.swift`, `PIIReverser.swift`, `PIIStreamReverser.swift`
+- Multimodal pipeline: `MultimodalPIIInspector.swift`, `MultimodalImageExtractor.swift`, `MultimodalRewriter.swift`, `MultipartMediaScanner.swift`, `MediaPIIScanner.swift`, `PDFPIIScanner.swift`, `AudioPIIScanner.swift`
 - Patterns: `packages/patterns/src/`
 - Persistence: `apps/desktop/Sources/Bouclier/Utilities/StorageManager.swift`
 - System Extension: `apps/desktop/Sources/BouclierExtension/`

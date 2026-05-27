@@ -13,8 +13,11 @@ import Testing
 /// TLS) → real `TLSProxy` over TCP → real TLS handshake (proxy mints a
 /// leaf signed by a throwaway CA) → real upstream HTTPS server
 /// in-process. The assertion is against the bytes the *upstream*
-/// observes: the email cleartext must be gone, replaced by a
-/// `⟦pii:EMAIL:…⟧` placeholder.
+/// observes: the text body must arrive **unmodified**. Bouclier never
+/// rewrites text prompts — only file attachments (handled by the
+/// separate multimodal pass) — and any drift back into prompt
+/// rewriting is the failure mode that put us on Anthropic's abuse
+/// list in v0.5.x.
 ///
 /// **Why NIO and not URLSession.** `URLSessionConfiguration
 /// .connectionProxyDictionary` silently bypasses HTTPS proxying in
@@ -22,21 +25,13 @@ import Testing
 /// the proxy would falsely pass this exact test, so we drive CONNECT
 /// + TLS ourselves where there's no ambiguity.
 ///
-/// **Why it matters.** Every existing unit test asserts on the
-/// inspection layer in isolation — they pass even if the NIO pipeline
-/// is broken, the proxy listener never binds, or the post-redaction
-/// bytes never reach upstream. This test would have caught any of
-/// those, and it's the regression bar for "did we accidentally turn
-/// the seatbelt back into paper."
-///
-/// **Why serialized.** Toggles the global `FeatureFlags.piiRedaction`
-/// override and seeds `SystemProxy.testAdditionalDomains`. Parallel
-/// execution would race those.
+/// **Why serialized.** Seeds `SystemProxy.testAdditionalDomains`.
+/// Parallel execution would race the global.
 @Suite("E2E — proxy → upstream over real TLS", .serialized)
 @MainActor
 struct E2EProxyTests {
-    @Test("PII in the request body is replaced with placeholders before reaching upstream")
-    func piiRedactedOverRealTLS() async throws {
+    @Test("Text request bodies pass through to upstream unmodified")
+    func textBodyPassesThroughUnmodified() async throws {
         // 0. Scrub proxy env vars that may have been planted by a
         //    running Bouclier on this machine (`launchctl setenv
         //    HTTPS_PROXY=…` propagates to every child of the user
@@ -64,17 +59,12 @@ struct E2EProxyTests {
         )
         defer { upstream.shutdown() }
 
-        // 3. Configure the SSRF allowlist + feature flags + per-host
-        //    policy. Explicit empty deny + allow ensures any leftover
-        //    MDM-shaped overrides from sibling test suites can't
-        //    short-circuit `shouldRedact("localhost")` to false.
-        FeatureFlags.setTestOverride("piiRedaction", true)
+        // 3. Configure the SSRF allowlist so the proxy will accept the
+        //    in-process upstream as a MITM target. No PII feature flag
+        //    is needed — text bodies are never rewritten regardless.
         SystemProxy.testAdditionalDomains.insert("localhost")
-        PIIPolicy.shared.setTestOverrides(allow: [], deny: [])
         defer {
-            FeatureFlags.setTestOverride("piiRedaction", nil)
             SystemProxy.testAdditionalDomains.remove("localhost")
-            PIIPolicy.shared.clearTestOverrides()
         }
 
         // 4. Start the proxy.
@@ -125,13 +115,110 @@ struct E2EProxyTests {
         let logs = observedRequests.snapshot()
         #expect(!logs.isEmpty,
                 "TLSProxy never saw the request — the client isn't routing through the proxy")
-        #expect(logs.first?.piiAudit.isEmpty == false,
-                "Proxy saw the request but emitted no PII audit entry — the redactor didn't run")
 
-        #expect(!observedString.contains(cleartextEmail),
-                "Cleartext email leaked to upstream — redaction was skipped or didn't write the rewritten body")
-        #expect(observedString.contains("⟦pii:EMAIL:"),
-                "Expected a PII placeholder in upstream bytes; got: \(observedString)")
+        // The load-bearing invariant for the post-0.5.x scope-down:
+        // text bodies traverse the proxy unmodified. If a future change
+        // ever reintroduces prompt-side redaction, this test catches it
+        // before it ships and re-trips the upstream abuse detectors
+        // we got de-listed from.
+        #expect(observedString.contains(cleartextEmail),
+                "Email cleartext disappeared in transit — Bouclier rewrote a text body, which is the regression this guards against; got: \(observedString)")
+        #expect(!observedString.contains("⟦pii:"),
+                "Found a PII placeholder in upstream bytes — text redaction has been re-enabled; got: \(observedString)")
+        #expect(observedString.contains(bodyString),
+                "Body wasn't byte-stable through the proxy; got: \(observedString)")
+    }
+
+    /// The other half of the customer-facing promise: client-supplied
+    /// request headers — `Authorization`, `x-api-key`, custom trace IDs,
+    /// a non-default `User-Agent` — reach the upstream unmodified.
+    /// These are the fields LLM providers use for auth, abuse
+    /// monitoring, and analytics, and Bouclier must not touch them.
+    ///
+    /// If this test fails the failure mode is direct revenue impact:
+    /// either auth breaks ("we changed your Bearer token"), abuse
+    /// detection flags the request ("the client looks anonymised"), or
+    /// observability breaks ("we dropped your trace ID"). All of those
+    /// were the abuse-list incidents the v0.6 scope cut was designed
+    /// to make impossible by construction; this test pins it.
+    @Test("Request headers (auth, api-key, trace IDs, user-agent) pass through to upstream unmodified")
+    func headersPassThroughUnmodified() async throws {
+        for key in ["HTTPS_PROXY", "HTTP_PROXY", "NODE_EXTRA_CA_CERTS", "SSL_CERT_FILE", "REQUESTS_CA_BUNDLE"] {
+            unsetenv(key)
+        }
+
+        let pki = try TestPKI.generate(upstreamHost: "localhost")
+        let upstream = try await UpstreamRecorder.start(
+            certificatePEM: pki.upstreamCertPEM,
+            keyPEM: pki.upstreamKeyPEM
+        )
+        defer { upstream.shutdown() }
+
+        SystemProxy.testAdditionalDomains.insert("localhost")
+        defer { SystemProxy.testAdditionalDomains.remove("localhost") }
+
+        let ca = CertificateAuthority(testingKeyPEM: pki.caKeyPEM, certPEM: pki.caCertPEM)
+        let filter = InjectionFilter()
+        let observedRequests = ObservedRequests()
+        let proxy = TLSProxy(
+            port: 0,
+            ca: ca,
+            filter: filter,
+            upstreamTrustRootsPEM: [pki.caCertPEM],
+            onRequest: { log in observedRequests.append(log) }
+        )
+        let proxyChannel = try await proxy.start()
+        defer { proxy.shutdown() }
+        guard let proxyPort = proxyChannel.localAddress?.port else {
+            Issue.record("Proxy didn't bind a port")
+            return
+        }
+
+        // A representative spread of headers that real LLM clients send.
+        // Mixed case names + values with `=` and `-` cover the wire-safe
+        // characters most likely to trip a naïve rewriter.
+        let extras: [(String, String)] = [
+            ("Authorization", "Bearer sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA-XX"),
+            ("x-api-key", "sk-ant-api03-ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ-YY"),
+            ("X-Trace-Id", "b1a3c2d4-e5f6-7890-abcd-ef0123456789"),
+            ("X-Request-ID", "req_2026_05_27_xyz=="),
+            ("User-Agent", "AnthropicSDK/Python 1.10.0"),
+            ("Anthropic-Version", "2023-06-01"),
+            ("Anthropic-Beta", "pdfs-2024-09-25,prompt-caching-2024-07-31"),
+        ]
+
+        let bodyString = #"{"prompt":"hello"}"#
+        let statusCode = try await ProxyDrivenClient.sendThroughProxy(
+            proxyHost: "127.0.0.1",
+            proxyPort: proxyPort,
+            upstreamHost: "localhost",
+            upstreamPort: upstream.port,
+            method: "POST",
+            path: "/v1/messages",
+            contentType: "application/json",
+            body: bodyString,
+            trustRootPEM: pki.caCertPEM,
+            extraHeaders: extras
+        )
+        #expect(statusCode == 200, "Upstream should accept the proxied request")
+
+        // Headers are matched case-insensitively on the name and
+        // byte-identical on the value. NIO's HTTPParser lowercases the
+        // name on receive so we compare normalized.
+        let observedHeaders = await upstream.observedRequestHeaders()
+        let observedByLowerName: [String: String] = Dictionary(
+            observedHeaders.map { ($0.0.lowercased(), $0.1) },
+            uniquingKeysWith: { _, latest in latest }
+        )
+
+        for (name, value) in extras {
+            let lower = name.lowercased()
+            let received = observedByLowerName[lower]
+            #expect(received != nil,
+                    "Header \(name) was dropped between client and upstream — Bouclier is mutating the header set")
+            #expect(received == value,
+                    "Header \(name) was rewritten in transit: client sent \"\(value)\", upstream received \"\(received ?? "<missing>")\"")
+        }
     }
 }
 
@@ -232,8 +319,11 @@ struct TestPKI {
 final class LockedBytes: @unchecked Sendable {
     private let lock = NSLock()
     private var data = Data()
+    private var headers: [(String, String)] = []
     func store(_ d: Data) { lock.lock(); data = d; lock.unlock() }
     func read() -> Data { lock.lock(); defer { lock.unlock() }; return data }
+    func storeHeaders(_ h: [(String, String)]) { lock.lock(); headers = h; lock.unlock() }
+    func readHeaders() -> [(String, String)] { lock.lock(); defer { lock.unlock() }; return headers }
 }
 
 /// Minimal NIO HTTPS server that accepts a single POST, records the
@@ -300,6 +390,12 @@ actor UpstreamRecorder {
         recorderBox?.read() ?? Data()
     }
 
+    /// The headers the upstream actually saw. Order-preserving so a
+    /// test can assert against the wire ordering if it ever matters.
+    func observedRequestHeaders() -> [(String, String)] {
+        recorderBox?.readHeaders() ?? []
+    }
+
     nonisolated func shutdown() {
         try? channel.close().wait()
         try? group.syncShutdownGracefully()
@@ -323,8 +419,9 @@ private final class RecorderHandler: ChannelInboundHandler, @unchecked Sendable 
 
     func channelRead(context: ChannelHandlerContext, data: NIOAny) {
         switch unwrapInboundIn(data) {
-        case .head:
+        case .head(let head):
             accumulator.removeAll(keepingCapacity: true)
+            recorder.storeHeaders(head.headers.map { ($0.name, $0.value) })
         case .body(let buffer):
             if let bytes = buffer.getBytes(at: buffer.readerIndex, length: buffer.readableBytes) {
                 accumulator.append(contentsOf: bytes)
@@ -368,7 +465,8 @@ enum ProxyDrivenClient {
         path: String,
         contentType: String,
         body: String,
-        trustRootPEM: String
+        trustRootPEM: String,
+        extraHeaders: [(String, String)] = []
     ) async throws -> Int {
         // Trust the throwaway CA both for the proxy's MITM leaf and the
         // upstream's own cert (same root signs both in this test).
@@ -381,6 +479,7 @@ enum ProxyDrivenClient {
         let group = MultiThreadedEventLoopGroup(numberOfThreads: 1)
 
         let collector = ResponseCollector()
+        let extras = extraHeaders.map { "\($0.0): \($0.1)\r\n" }.joined()
         let channel = try await ClientBootstrap(group: group)
             .channelInitializer { ch in
                 ch.pipeline.addHandler(ProxyConnectHandler(
@@ -388,7 +487,7 @@ enum ProxyDrivenClient {
                     upstreamPort: upstreamPort,
                     sslContext: sslContext,
                     collector: collector,
-                    requestLine: "\(method) \(path) HTTP/1.1\r\nHost: \(upstreamHost):\(upstreamPort)\r\nContent-Type: \(contentType)\r\nContent-Length: \(body.utf8.count)\r\nConnection: close\r\n\r\n\(body)"
+                    requestLine: "\(method) \(path) HTTP/1.1\r\nHost: \(upstreamHost):\(upstreamPort)\r\nContent-Type: \(contentType)\r\nContent-Length: \(body.utf8.count)\r\nConnection: close\r\n\(extras)\r\n\(body)"
                 ))
             }
             .connect(host: proxyHost, port: proxyPort)

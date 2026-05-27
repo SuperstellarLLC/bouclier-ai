@@ -46,7 +46,7 @@ enum RedactionReport {
 
         // Title
         draw(
-            "Bouclier.ai — PII Redaction Report",
+            "Bouclier.ai — Attachment PII Redaction Report",
             at: CGPoint(x: margin, y: y - 24),
             font: .systemFont(ofSize: 22, weight: .semibold)
         )
@@ -77,13 +77,13 @@ enum RedactionReport {
             ? String(format: "%.1f%%", Double(totals.redactions) / Double(totals.prompts) * 100)
             : "—"
         draw(
-            "PII items redacted: \(totals.redactions)",
+            "PII items found inside attachments: \(totals.redactions)",
             at: CGPoint(x: margin, y: y - 14),
             font: .systemFont(ofSize: 11)
         )
         y -= 16
         draw(
-            "Prompts scanned: \(totals.prompts)  ·  Redaction density: \(coverageRatio)",
+            "Requests scanned: \(totals.prompts)  ·  Hit density: \(coverageRatio)",
             at: CGPoint(x: margin, y: y - 14),
             font: .systemFont(ofSize: 11)
         )

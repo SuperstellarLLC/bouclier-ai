@@ -120,7 +120,7 @@ final class PatternManager: @unchecked Sendable {
         let scanner = PIIScanner(mlClassifier: classifier)
         lock.unlock()
         // Swap the process-wide active scanner so new and existing
-        // PIIRedactor calls pick up the ML tier on their next prompt.
+        // multimodal scans pick up the ML tier on their next attachment.
         PIIScanner.active.install(scanner)
         print("[bouclier.ai] PII ML classifier loaded — fused PII detection active (regex + native + Piiranha)")
         onChange?()

@@ -92,6 +92,26 @@ enum SystemProxy {
         return runNetworkSetup(["-setautoproxystate", interface, "off"])
     }
 
+    /// Nuclear PAC sweep: turns auto-proxy *and* manual HTTP/HTTPS
+    /// proxy off on every configured network service. `disable()` only
+    /// touches the active interface, which leaves stale Bouclier PAC
+    /// configs on every other location/service after a crash — so when
+    /// the user switches Wi-Fi networks the browser starts pointing at
+    /// a dead 127.0.0.1 port again. Used by the Settings → Reset all
+    /// proxies escape hatch.
+    @discardableResult
+    static func disableAll() -> Bool {
+        let interfaces = allNetworkInterfaces()
+        guard !interfaces.isEmpty else { return false }
+        var ok = true
+        for iface in interfaces {
+            if !runNetworkSetup(["-setautoproxystate", iface, "off"]) { ok = false }
+            _ = runNetworkSetup(["-setwebproxystate", iface, "off"])
+            _ = runNetworkSetup(["-setsecurewebproxystate", iface, "off"])
+        }
+        return ok
+    }
+
     /// Check if system proxy is currently enabled.
     static func isEnabled() -> Bool {
         guard let interface = activeNetworkInterface() else { return false }
@@ -117,7 +137,15 @@ enum SystemProxy {
     // MARK: - Private
 
     private static func activeNetworkInterface() -> String? {
-        // Get the primary network service (usually Wi-Fi or Ethernet)
+        let services = allNetworkInterfaces()
+        // Prefer Wi-Fi, then Ethernet, then first available
+        for preferred in ["Wi-Fi", "Ethernet", "USB 10/100/1000 LAN"] {
+            if services.contains(preferred) { return preferred }
+        }
+        return services.first
+    }
+
+    private static func allNetworkInterfaces() -> [String] {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/sbin/networksetup")
         process.arguments = ["-listallnetworkservices"]
@@ -130,16 +158,10 @@ enum SystemProxy {
             try process.run()
             process.waitUntilExit()
             let output = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-            let services = output.components(separatedBy: "\n")
+            return output.components(separatedBy: "\n")
                 .filter { !$0.hasPrefix("An asterisk") && !$0.isEmpty }
-
-            // Prefer Wi-Fi, then Ethernet, then first available
-            for preferred in ["Wi-Fi", "Ethernet", "USB 10/100/1000 LAN"] {
-                if services.contains(preferred) { return preferred }
-            }
-            return services.first
         } catch {
-            return nil
+            return []
         }
     }
 

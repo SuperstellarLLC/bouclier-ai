@@ -44,39 +44,6 @@ struct SecurityInvariantTests {
         #expect(HTTPRequestInspector.parseConnectTarget("api.openai.com:99999") == nil)
     }
 
-    // MARK: - PII session bound
-
-    @Test("Session refuses to grow past the per-session cap")
-    func sessionEntryCap() async {
-        let session = PIISession()
-        // Mint cap+1 distinct values; the last one should pass through
-        // unredacted rather than balloon the map.
-        let cap = PIISession.maxEntriesPerSession
-        let probeCount = min(cap + 2, 1000)  // smoke test, not full fill
-        for i in 0..<probeCount {
-            _ = await session.mintToken("value-\(i)", type: "EMAIL")
-        }
-        let stats = await session.stats()
-        #expect(stats.entries <= cap)
-    }
-
-    @Test("Spillover entries pass through unredacted rather than evict existing tokens")
-    func spilloverPreservesEarlierTokens() async {
-        // Build a session that's already a few entries deep, snapshot
-        // the minted token for the first value, then prove it survives
-        // even if we hammer the session with novel values. We can't
-        // realistically push past 50k in a unit test, so we use a
-        // shrunk fixture by reaching into the cap math.
-        let session = PIISession()
-        let first = await session.mintToken("anchor@example.com", type: "EMAIL")
-        for i in 0..<200 {
-            _ = await session.mintToken("filler-\(i)", type: "EMAIL")
-        }
-        // The anchor token must still reverse to its cleartext.
-        let reversed = await session.cleartext(for: first)
-        #expect(reversed == "anchor@example.com")
-    }
-
     // MARK: - SSE stream cap
 
     @Test("SSE inspector closes when the unflushed buffer crosses the cap")

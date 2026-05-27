@@ -61,7 +61,7 @@ struct OnboardingView: View {
                     .foregroundStyle(.orange)
                     .accessibilityLabel("Beta release")
             }
-            Text("A local firewall for AI traffic on your Mac. It scans every prompt before it leaves your machine — prompt injections, PII in text, and PII inside images, PDFs, and short audio clips. Nothing ever leaves your machine.")
+            Text("A local firewall for AI traffic on your Mac. It scans every outbound request for prompt injections and inspects the attachments you send — images, PDFs, short audio clips — for PII before they reach the model. Your text prompts are forwarded byte-for-byte. Nothing ever leaves your machine.")
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: 380)

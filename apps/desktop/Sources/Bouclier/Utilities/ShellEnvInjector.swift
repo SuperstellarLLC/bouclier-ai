@@ -312,9 +312,19 @@ enum ShellEnvInjector {
         // commands and shell scripts), which gave false positives
         // during live QA. A TCP connect to the listening port has no
         // such ambiguity.
+        //
+        // When the probe fails we clear *both* sides of the stale state:
+        // the `launchctl` session env (so GUI apps spawned via Spotlight
+        // don't inherit a dead pointer) AND macOS system PAC across every
+        // network service (so browsers and any URLSession-based app
+        // respecting system proxy settings stop trying to talk to a dead
+        // 127.0.0.1 port). PAC config is system-level and persists across
+        // reboot — without this sweep, a hard crash leaves the user
+        // unable to reach LLM APIs forever.
         let unsetCmd = Self.envVarKeys.map { "launchctl unsetenv \($0)" }.joined(separator: "; ")
+        let pacSweep = "/usr/sbin/networksetup -listallnetworkservices 2>/dev/null | tail -n +2 | grep -v '^\\*' | while IFS= read -r svc; do [ -n \"$svc\" ] && /usr/sbin/networksetup -setautoproxystate \"$svc\" off >/dev/null 2>&1; done"
         let probe = "/usr/bin/nc -z 127.0.0.1 \(proxyPort) >/dev/null 2>&1"
-        let script = "\(probe) || { \(unsetCmd); }"
+        let script = "\(probe) || { \(unsetCmd); \(pacSweep); }"
         return """
         <?xml version="1.0" encoding="UTF-8"?>
         <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">

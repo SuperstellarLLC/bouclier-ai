@@ -5,11 +5,11 @@ import SwiftUI
 /// `CFBundleShortVersionString` against a UserDefaults watermark; on
 /// mismatch the sheet appears once and the watermark advances.
 ///
-/// New PII and multimodal features ship off-by-default and live under
-/// a Settings tab, so without a release-notes surface a user can
-/// upgrade and never discover them. This sheet is the discovery
-/// surface. Copy is intentionally plain — value first, prototype
-/// caveat second, no superlatives.
+/// v0.6 changed Bouclier's scope: text prompts are no longer modified
+/// (the placeholder shape was tripping upstream abuse detectors and
+/// the JSON-blind rewriter risked touching `user` / `metadata` /
+/// auth fields). This sheet is what tells a returning user the
+/// previous text-PII feature is gone and what stayed.
 struct ReleaseNotesModal: View {
     let version: String
     let onOpenPrivacySettings: () -> Void
@@ -22,7 +22,7 @@ struct ReleaseNotesModal: View {
                     .foregroundStyle(.purple)
                     .font(.title2)
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Stop your PII from leaking to LLMs.")
+                    Text("Cleaner scope, safer defaults.")
                         .font(.title3.bold())
                     Text("New in Bouclier.ai v\(version)")
                         .font(.caption)
@@ -32,20 +32,20 @@ struct ReleaseNotesModal: View {
 
             VStack(alignment: .leading, spacing: 10) {
                 bullet(
-                    icon: "eye.slash.fill",
-                    text: "Emails, IBANs, NHS / SIRET / NIR numbers, credit cards, AWS keys, JWTs — replaced with reversible placeholders before the prompt leaves your Mac."
+                    icon: "text.alignleft",
+                    text: "Your text prompts now reach the LLM unchanged. Bouclier no longer rewrites prompt bodies — the placeholder approach was tripping upstream abuse detectors and risked touching auth / analytics fields inside JSON requests."
                 )
                 bullet(
-                    icon: "arrow.uturn.backward.circle",
-                    text: "The model's response is reversed locally, so you still read normal text."
+                    icon: "paperclip",
+                    text: "PII protection now focuses on attachments. Images, PDFs, and short audio clips still get scanned on-device; flagged attachments are replaced with a plain-English description so the model can still answer."
                 )
                 bullet(
-                    icon: "slider.horizontal.3",
-                    text: "Per-domain allow / deny lists let you bypass internal LLM gateways."
+                    icon: "shield.checkered",
+                    text: "Prompt-injection detection is unchanged — outbound prompts are still scanned and blocked when they match an attack pattern."
                 )
                 bullet(
-                    icon: "pause.circle",
-                    text: "One-click pause in the menu bar when a redaction breaks an agent loop."
+                    icon: "key.fill",
+                    text: "Auth headers, x-api-key, custom trace IDs, user-agent — all forwarded byte-for-byte. Pinned by a regression test so a future change can't drift."
                 )
             }
 

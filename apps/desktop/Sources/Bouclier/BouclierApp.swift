@@ -11,12 +11,11 @@ struct BouclierApp: App {
 
     init() {
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
-        // Pause TTLs from a previous run should never outlive a fresh
-        // launch — clear here so a paused app that was force-quit comes
-        // up unpaused. RedactionPause's stale-cleanup runs on read too,
-        // but this guarantees the menu bar shows the correct state
-        // immediately at launch.
-        RedactionPause.resume()
+        // One-shot scrub of UserDefaults keys orphaned by the v0.6
+        // scope cut (pre-v0.6 text-PII toggles, pause TTLs, per-host
+        // policy lists). Self-gates on a sentinel so subsequent
+        // launches are no-ops.
+        LegacyDefaultsCleanup.runIfNeeded()
     }
 
     var body: some Scene {

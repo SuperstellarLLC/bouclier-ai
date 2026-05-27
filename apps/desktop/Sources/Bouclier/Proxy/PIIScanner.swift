@@ -16,17 +16,17 @@ import Foundation
 ///
 /// The scanner is mutable across the app's lifetime because the ML
 /// tier (Piiranha) loads asynchronously after startup. We can't bake
-/// the classifier into the TLS handler chain at construction time
+/// the classifier into the multimodal handler chain at construction
 /// because by then no model has loaded yet; threading a provider
-/// closure through ConnectHandler → HandshakeWaiter → HTTPInspectionHandler
-/// would be three handlers of boilerplate for a single swap that
-/// happens exactly once per process.
+/// closure through every scanner would be boilerplate for a single
+/// swap that happens exactly once per process.
 ///
 /// Instead PatternManager owns the lifecycle and calls
-/// `PIIScanner.active.install(_:)` when the classifier is ready. Every
-/// `PIIRedactor.redact` call reads `PIIScanner.active.current()` lazily,
-/// so connections opened before the swap automatically pick up the
-/// ML tier on their next prompt.
+/// `PIIScanner.active.install(_:)` when the classifier is ready.
+/// Multimodal scans (`MediaPIIScanner` / `PDFPIIScanner` /
+/// `AudioPIIScanner`) read `PIIScanner.active.current()` lazily, so
+/// requests in flight before the swap automatically pick up the ML
+/// tier on their next attachment.
 final class ActivePIIScannerRegistry: @unchecked Sendable {
     private let lock = NSLock()
     private var scanner = PIIScanner()

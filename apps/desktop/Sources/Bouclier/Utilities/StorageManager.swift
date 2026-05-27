@@ -121,6 +121,19 @@ final class StorageManager: @unchecked Sendable {
             try db.create(indexOn: "pii_redactions", columns: ["entityType"])
         }
 
+        // v4 — scope-cut purge. Pre-v0.6 Bouclier redacted text prompt
+        // bodies, so existing rows have `startOffset` / `endOffset`
+        // defined against request-body byte positions. v0.6 only writes
+        // rows for PII found *inside file attachments*, where those
+        // offsets carry no meaning (always 0/0). Mixing the two would
+        // make the audit panel and the exported PDF dishonest — counts
+        // would aggregate two semantic universes. Wipe the table once
+        // on upgrade so every row a user sees from this point forward
+        // is from the file-inspection path.
+        migrator.registerMigration("v4_scope_cut_purge_prompt_pii_rows") { db in
+            try db.execute(sql: "DELETE FROM pii_redactions")
+        }
+
         try migrator.migrate(dbPool)
     }
 
