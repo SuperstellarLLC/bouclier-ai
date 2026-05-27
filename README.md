@@ -6,9 +6,9 @@
   <p><strong>A local-only macOS proxy that stops prompt injections and stops PII from leaking to LLMs — in text, images, PDFs, and audio.</strong></p>
 
   <p>
-    <a href="https://github.com/SuperstellarLLC/ilvarion/actions/workflows/ci.yml"><img src="https://github.com/SuperstellarLLC/ilvarion/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+    <a href="https://github.com/SuperstellarLLC/bouclier-ai/actions/workflows/ci.yml"><img src="https://github.com/SuperstellarLLC/bouclier-ai/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
     <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue.svg" alt="License: Apache-2.0"></a>
-    <a href="https://github.com/SuperstellarLLC/ilvarion/releases"><img src="https://img.shields.io/github/v/release/SuperstellarLLC/ilvarion?display_name=tag" alt="Latest release"></a>
+    <a href="https://github.com/SuperstellarLLC/bouclier-ai/releases"><img src="https://img.shields.io/github/v/release/SuperstellarLLC/bouclier-ai?display_name=tag" alt="Latest release"></a>
     <img src="https://img.shields.io/badge/platform-macOS%2015%2B-lightgrey" alt="macOS 15+">
     <img src="https://img.shields.io/badge/status-beta-orange" alt="Beta">
   </p>
@@ -60,8 +60,8 @@ curl https://api.openai.com/v1/models -H "Authorization: Bearer $OPENAI_API_KEY"
 Build from source:
 
 ```bash
-git clone https://github.com/SuperstellarLLC/ilvarion.git
-cd ilvarion
+git clone https://github.com/SuperstellarLLC/bouclier-ai.git
+cd bouclier-ai
 pnpm install
 cd apps/desktop && swift build -c release
 swift run Bouclier
@@ -125,7 +125,7 @@ The detection coverage and tested providers are listed in
 Bug reports, missed-detection reports, pattern contributions, and core
 proxy work are all welcome. Start with [CONTRIBUTING.md](CONTRIBUTING.md)
 for the dev setup, and see the
-[detection-miss template](https://github.com/SuperstellarLLC/ilvarion/issues/new/choose)
+[detection-miss template](https://github.com/SuperstellarLLC/bouclier-ai/issues/new/choose)
 if Bouclier let something through it shouldn't have.
 
 For security issues, follow [SECURITY.md](.github/SECURITY.md) — do not

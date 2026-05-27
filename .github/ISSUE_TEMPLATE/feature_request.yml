@@ -6,7 +6,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Before filing, check the [roadmap discussion](https://github.com/SuperstellarLLC/ilvarion/discussions/categories/ideas) — your idea may already be tracked.
+        Before filing, check the [roadmap discussion](https://github.com/SuperstellarLLC/bouclier-ai/discussions/categories/ideas) — your idea may already be tracked.
 
   - type: textarea
     id: problem

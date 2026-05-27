@@ -12,7 +12,7 @@ and that your contributions are licensed under
 ## Quick links
 
 - Found a security issue → [SECURITY.md](.github/SECURITY.md)
-- Have a question → [Discussions](https://github.com/SuperstellarLLC/ilvarion/discussions)
+- Have a question → [Discussions](https://github.com/SuperstellarLLC/bouclier-ai/discussions)
 - Architecture overview → [ARCHITECTURE.md](ARCHITECTURE.md)
 - Threat model → [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md)
 
@@ -40,8 +40,8 @@ Prerequisites:
 - `swift --version` must report 6.0 or later.
 
 ```bash
-git clone https://github.com/SuperstellarLLC/ilvarion.git
-cd ilvarion
+git clone https://github.com/SuperstellarLLC/bouclier-ai.git
+cd bouclier-ai
 pnpm install
 ```
 
