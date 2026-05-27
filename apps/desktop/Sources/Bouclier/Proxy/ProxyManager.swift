@@ -161,8 +161,10 @@ final class ProxyManager: ObservableObject {
         guard !isRunning else { return }
         errorMessage = nil
 
+        let boundPort = port
+
         let proxy = TLSProxy(
-            port: port,
+            port: boundPort,
             ca: ca,
             filter: patternManager.filter,
             onRequest: { [weak self] requestLog in
@@ -180,9 +182,22 @@ final class ProxyManager: ObservableObject {
                 await MainActor.run {
                     self.proxyChannel = channel
                     self.isRunning = true
-                    self.log("TLS proxy listening on 127.0.0.1:\(self.port)", blocked: false)
+                    self.log("TLS proxy listening on 127.0.0.1:\(boundPort)", blocked: false)
                 }
+                // Re-arm system PAC every successful bind, not just on
+                // first-run setup(). Idempotent in networksetup. This is
+                // load-bearing for crash recovery: the watchdog turns PAC
+                // off when the port goes unreachable, so without this
+                // re-arm a relaunch would silently leave PAC disabled
+                // and the user's browser would talk direct to LLM APIs.
+                _ = SystemProxy.enable(port: boundPort)
             } catch {
+                // Bind failed — usually a port conflict. Sweep PAC across
+                // every service so we don't strand the user with a dead
+                // 127.0.0.1 pointer that survives quit + reboot. Without
+                // this the "wrecks your setup" failure mode persists
+                // until the user finds the reset button.
+                _ = SystemProxy.disableAll()
                 await MainActor.run {
                     self.isRunning = false
                     let msg = Self.friendlyError(error)
@@ -212,7 +227,13 @@ final class ProxyManager: ObservableObject {
             await extensionManager.disableProxy()
             await MainActor.run { extensionActive = false }
         }
-        _ = SystemProxy.disable()
+        // disableAll, not disable: the active interface check only
+        // sweeps one service. On a multi-network setup (Wi-Fi + Ethernet,
+        // VPN profiles) the stale Bouclier PAC was surviving on the
+        // services we didn't touch, then re-biting the user when they
+        // swapped networks. Sweeping all services on every quit is the
+        // robust fix.
+        _ = SystemProxy.disableAll()
         // Drop the launchctl proxy env so processes spawned via `open`
         // / Spotlight don't keep pointing at a port we no longer listen
         // on. The dotfile block stays (fail-open TCP probe handles that
@@ -230,6 +251,20 @@ final class ProxyManager: ObservableObject {
         caInstalled = false
         extensionActive = false
         log("Bouclier fully uninstalled", blocked: false)
+    }
+
+    /// Nuclear reset for the cases where an unclean shutdown (or a
+    /// stale install from an older Bouclier build) leaves the user
+    /// unable to reach LLM APIs even with the app quit. Stops the
+    /// proxy, sweeps PAC + manual HTTP/HTTPS proxy off every network
+    /// service, drops the launchctl session env, removes the watchdog
+    /// LaunchAgent, and strips the shell-startup blocks. Protection is
+    /// off afterwards — re-enable from the Protection tab.
+    func resetAllProxies() {
+        if isRunning { stop() }
+        SystemProxy.disableAll()
+        ShellEnvInjector.remove()
+        log("All proxy settings reset", blocked: false)
     }
 
     func clearLogs() { logs.removeAll() }
@@ -296,21 +331,26 @@ final class ProxyManager: ObservableObject {
         // every GUI-launched process spawned after the crash inherits a
         // dead `HTTPS_PROXY=127.0.0.1:8484` pointer.
         signal(SIGTERM) { _ in
-            _ = SystemProxy.disable()
+            _ = SystemProxy.disableAll()
             ShellEnvInjector.unsetLaunchctl()
             exit(0)
         }
 
         // Same cleanup on normal exit (menubar Quit, ⌘Q, etc.).
         atexit {
-            _ = SystemProxy.disable()
+            _ = SystemProxy.disableAll()
             ShellEnvInjector.unsetLaunchctl()
         }
     }
 
     // MARK: - Private
 
-    private func handleRequestLog(_ requestLog: RequestLog) {
+    /// Drive the stats counters, the in-memory log feed, and the
+    /// audit-table writes for a single completed request. Internal
+    /// rather than private so the wiring test in
+    /// `ProxyManagerLifecycleTests` can exercise it without standing
+    /// up a full proxy + upstream.
+    func handleRequestLog(_ requestLog: RequestLog) {
         stats.requestsScanned += 1
 
         if requestLog.detected {
@@ -331,23 +371,31 @@ final class ProxyManager: ObservableObject {
             )
         }
 
-        if !requestLog.piiAudit.isEmpty {
-            stats.piiRedacted += requestLog.piiAudit.count
-            let types = requestLog.piiAudit.map(\.type).joined(separator: ", ")
-            log(
-                "Redacted \(requestLog.piiAudit.count) PII item(s) → \(requestLog.targetHost): \(types)",
-                blocked: false
-            )
-        }
-
+        // File-PII findings drive both counters and the audit log.
+        // `piiRedacted` counts individual entities (one IBAN inside an
+        // image is one) while `mediaBlocked` counts unique attachments
+        // (an image with five emails inside is still one strip event).
         if let mm = requestLog.multimodal, !mm.findings.isEmpty {
-            // One blocked image counts once per inspected image, not
-            // per finding — a single image with five emails inside is
-            // still one media-block event from the user's perspective.
-            let imagesWithFindings = Set(mm.findings.map { $0.imagePath })
-            stats.mediaBlocked += imagesWithFindings.count
+            let textPIIFindings = mm.findings.filter {
+                if case .textPII = $0.category { return true }
+                return false
+            }
+            if !textPIIFindings.isEmpty {
+                stats.piiRedacted += textPIIFindings.count
+                let types = textPIIFindings.compactMap { f -> String? in
+                    if case let .textPII(type) = f.category { return type }
+                    return nil
+                }.joined(separator: ", ")
+                log(
+                    "Redacted \(textPIIFindings.count) PII item(s) from attachments → \(requestLog.targetHost): \(types)",
+                    blocked: false
+                )
+            }
+
+            let attachmentsWithFindings = Set(mm.findings.map { $0.imagePath })
+            stats.mediaBlocked += attachmentsWithFindings.count
             log(
-                "Stripped \(imagesWithFindings.count) image(s) with PII → \(requestLog.targetHost): \(mm.findings.count) finding(s)",
+                "Stripped \(attachmentsWithFindings.count) attachment(s) → \(requestLog.targetHost): \(mm.findings.count) finding(s)",
                 blocked: false
             )
         }
@@ -366,24 +414,28 @@ final class ProxyManager: ObservableObject {
             mlAvailable: requestLog.mlAvailable
         )
 
-        // Per-entity audit rows. Stored after the parent scan_logs
-        // insert so the cascade FK is satisfied. Batched into one
-        // SQLite transaction — for a 50-entity request that's 1 commit
-        // instead of 50. Type, offsets, and hash prefix only; cleartext
-        // never reaches the database.
-        if !requestLog.piiAudit.isEmpty {
-            storage?.recordPIIRedactions(
-                requestLog.piiAudit.map { entry in
-                    StorageManager.PIIRedactionRow(
-                        targetHost: requestLog.targetHost,
-                        entityType: entry.type,
-                        startOffset: entry.start,
-                        endOffset: entry.end,
-                        valueHashPrefix: entry.valueHashPrefix,
-                        scanLogId: nil
-                    )
-                }
-            )
+        // Per-entity audit rows for file-PII findings. Stored after
+        // the parent scan_logs insert so the cascade FK is satisfied.
+        // Batched into one SQLite transaction. Type + hash prefix only;
+        // cleartext never reaches the database. Offsets are 0/0 because
+        // they were defined relative to a request-body byte range — for
+        // file PII (OCR'd from an image / PDF / audio transcript), no
+        // such body offset exists.
+        if let mm = requestLog.multimodal {
+            let rows: [StorageManager.PIIRedactionRow] = mm.findings.compactMap { finding in
+                guard case let .textPII(type) = finding.category else { return nil }
+                return StorageManager.PIIRedactionRow(
+                    targetHost: requestLog.targetHost,
+                    entityType: type,
+                    startOffset: 0,
+                    endOffset: 0,
+                    valueHashPrefix: PIIHash.prefix(of: finding.cleartextValue),
+                    scanLogId: nil
+                )
+            }
+            if !rows.isEmpty {
+                storage?.recordPIIRedactions(rows)
+            }
         }
     }
 
@@ -423,13 +475,13 @@ final class ProxyManager: ObservableObject {
 struct ProxyStats {
     var requestsScanned: Int = 0
     var injectionsBlocked: Int = 0
-    /// Cumulative count of PII entities redacted on outbound traffic
-    /// during this session. Surfaced in the menu bar as the "Redacted"
-    /// StatBadge — every demo needs this number visible.
+    /// Cumulative count of PII entities (emails, IBANs, NHS numbers,
+    /// etc.) detected inside outbound *attachments* — images, PDFs,
+    /// audio. Text prompts are never modified, so this counter only
+    /// ever reflects the file-inspection path.
     var piiRedacted: Int = 0
-    /// Cumulative count of multimodal items (images today; PDFs +
-    /// audio + files in later phases) that were inspected and
-    /// stripped of PII before forwarding to the model.
+    /// Cumulative count of attachments (images, PDFs, audio) that
+    /// were inspected and stripped of PII before forwarding.
     var mediaBlocked: Int = 0
     mutating func reset() {
         requestsScanned = 0

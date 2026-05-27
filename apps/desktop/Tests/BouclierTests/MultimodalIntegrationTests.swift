@@ -168,31 +168,4 @@ struct MultimodalIntegrationTests {
                 "Clean payload must be byte-stable through the orchestrator")
     }
 
-    @Test("Pause short-circuits multimodal inspection")
-    func pauseShortCircuits() async {
-        enableMultimodal()
-        defer { disableMultimodal() }
-        RedactionPause.pause(for: 60)
-        defer { RedactionPause.resume() }
-
-        let b64 = base64Fixture("image-with-iban")
-        let bodyStr = """
-        {"messages":[{"role":"user","content":[
-          {"type":"image_url","image_url":{"url":"data:image/png;base64,\(b64)"}}
-        ]}]}
-        """
-        let allocator = ByteBufferAllocator()
-        var buf = allocator.buffer(capacity: bodyStr.utf8.count)
-        buf.writeString(bodyStr)
-        let pass = await HTTPRequestInspector.applyMultimodalInspection(
-            body: buf,
-            contentType: "application/json",
-            method: .POST,
-            allocator: allocator
-        )
-        // Pause short-circuits FeatureFlags.multimodalInspection, so
-        // the scanner never runs and the body stays untouched.
-        #expect(pass.report.findings.isEmpty,
-                "Pause short-circuit: paused multimodal inspection must not produce findings")
-    }
 }

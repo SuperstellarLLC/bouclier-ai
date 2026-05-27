@@ -29,109 +29,48 @@ struct SettingsView: View {
     }
 }
 
-// MARK: - Privacy / PII redaction
+// MARK: - Privacy / File PII inspection
 
-/// Settings panel for the upstream PII redaction feature. Exposes the
-/// toggle, the preview-before-send opt-in, and a per-entity-type audit
-/// summary computed from the GRDB `pii_redactions` table. The summary
-/// shows counts only; cleartext is never displayed or stored.
+/// Settings panel for outbound file-attachment PII inspection. Bouclier
+/// does not modify text prompts — only attachments (images, PDFs,
+/// audio) are scanned and stripped of PII before forwarding. This
+/// scopes the trust surface to "files Bouclier rewrote", which is
+/// unambiguously user-attached content rather than fields like `user`
+/// or `metadata.user_id` that some upstream LLM APIs read for abuse
+/// monitoring.
 struct PrivacySettingsView: View {
     @ObservedObject var proxyManager: ProxyManager
 
-    /// User-facing override for `FeatureFlags.piiRedaction`. Ships off
-    /// by default; users opt in while the detector set matures.
-    @AppStorage("piiRedactionEnabled") private var piiRedactionEnabled: Bool = false
-    /// Show the preview modal before forwarding any prompt that contains
-    /// detected PII. Recommended-on for the first sessions so users build
-    /// confidence in what gets redacted; can be turned off once trusted.
-    @AppStorage("piiPreviewBeforeSend") private var previewBeforeSend: Bool = true
-    /// Whether image attachments in multimodal LLM requests get OCR'd
-    /// for PII before forwarding. Off by default in v0.4.0 to mirror
-    /// the text-PII toggle's opt-in posture.
+    /// Whether image / PDF / audio attachments in outbound LLM requests
+    /// get scanned and rewritten when they contain PII.
     @AppStorage("multimodalInspectionEnabled") private var multimodalInspectionEnabled: Bool = false
-    /// Strict mode: also strip credentials (API keys, JWTs, secrets) on
-    /// requests to AI APIs. Off by default — pasting a key while asking
-    /// a model "what's wrong with this?" is usually functional context
-    /// the model needs. See `PIICategory` for the long-form rationale.
-    @AppStorage("strictCredentialRedactionEnabled") private var strictCredentialRedactionEnabled: Bool = false
     /// Days to retain redaction audit entries. Mirrors the cleanup
     /// window in `StorageManager.cleanup()`; surfaced here so users can
     /// see what the retention is (the value itself is informational).
     @AppStorage("piiAuditRetentionDays") private var auditRetentionDays: Int = 30
 
     @State private var auditCounts: [String: Int] = [:]
-    @State private var allowDomainsText: String = ""
-    @State private var denyDomainsText: String = ""
 
     var body: some View {
         Form {
             Section {
-                Toggle("Strip PII from outbound prompts", isOn: $piiRedactionEnabled)
-                Toggle("Preview redactions before sending", isOn: $previewBeforeSend)
-                    .disabled(!piiRedactionEnabled)
-                Toggle("Also strip credentials (strict mode)", isOn: $strictCredentialRedactionEnabled)
-                    .disabled(!piiRedactionEnabled)
-                    .help("By default Bouclier leaves API keys, JWTs, and other credentials in your prompts because they're usually functional context when you're debugging with the LLM. Strict mode also strips them — turn this on if you're worried about supply-chain leaks.")
+                Toggle("Inspect images, PDFs, and audio in outbound attachments", isOn: $multimodalInspectionEnabled)
                 Button("Export redaction report…") {
                     exportRedactionReport()
                 }
-                .disabled(!piiRedactionEnabled)
-                .help("Generate a PDF summarising redaction activity. Hand to a compliance officer or attach to an audit binder.")
+                .disabled(!multimodalInspectionEnabled)
+                .help("Generate a PDF summarising attachment-redaction activity. Hand to a compliance officer or attach to an audit binder.")
             } header: {
-                Text("PII redaction (beta)")
+                Text("File PII inspection (beta)")
             } footer: {
-                Text("Replaces detected PII (emails, IBANs, NHS numbers, etc.) with reversible placeholders before the prompt leaves your Mac. The model's response is reversed locally so you see normal text. All detection runs on-device — nothing about your PII is sent to Bouclier.ai or any third party.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            Section {
-                Toggle("Inspect images, PDFs, and audio in outbound multimodal prompts", isOn: $multimodalInspectionEnabled)
-            } header: {
-                Text("Media inspection (beta)")
-            } footer: {
-                Text("Runs Apple's Vision OCR on every image, PDFKit on every PDF, and on-device Apple Speech on every audio clip attached to an outbound prompt (OpenAI, Anthropic, Gemini, plus Files-API uploads). When PII or faces appear inside an attachment, the attachment is replaced with a descriptive placeholder so the model still answers but never sees the cleartext. Encrypted PDFs and unreadable audio are stripped because they can't be inspected. Nothing about your attachments leaves your Mac.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            Section {
-                TextEditor(text: $allowDomainsText)
-                    .font(.system(.callout, design: .monospaced))
-                    .frame(minHeight: 44)
-                    .overlay(allowDomainsText.isEmpty ? placeholder("openai.com, anthropic.com") : nil, alignment: .topLeading)
-                    .disabled(!piiRedactionEnabled)
-                    .onChange(of: allowDomainsText) { _, new in
-                        PIIPolicy.saveUserList(parseDomains(new), forKey: PIIPolicy.allowDomainsKey)
-                    }
-            } header: {
-                Text("Allow only these hosts")
-            } footer: {
-                Text("Leave blank to redact for every host. Suffix-matches: 'openai.com' matches api.openai.com, eu.api.openai.com, etc.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            Section {
-                TextEditor(text: $denyDomainsText)
-                    .font(.system(.callout, design: .monospaced))
-                    .frame(minHeight: 44)
-                    .overlay(denyDomainsText.isEmpty ? placeholder("llm.internal, embeddings.acme.io") : nil, alignment: .topLeading)
-                    .disabled(!piiRedactionEnabled)
-                    .onChange(of: denyDomainsText) { _, new in
-                        PIIPolicy.saveUserList(parseDomains(new), forKey: PIIPolicy.denyDomainsKey)
-                    }
-            } header: {
-                Text("Never redact for these hosts")
-            } footer: {
-                Text("Use this for internal LLM gateways that already enforce compliance, or for endpoints where redaction would break the request (embeddings destroy the semantic vector). Always wins over the allow list.")
+                Text("Runs Apple's Vision OCR on every image, PDFKit on every PDF, and on-device Apple Speech on every audio clip attached to an outbound prompt (OpenAI, Anthropic, Gemini, plus Files-API uploads). When PII or faces appear inside an attachment, the attachment is replaced with a descriptive placeholder so the model still answers but never sees the cleartext. Encrypted PDFs and unreadable audio are stripped because they can't be inspected. Text prompts are never modified — only attachments. All inspection runs on-device; nothing about your attachments leaves your Mac.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
 
             Section {
                 if auditCounts.isEmpty {
-                    Text("No PII redactions in the last \(auditRetentionDays) days.")
+                    Text("No attachment redactions in the last \(auditRetentionDays) days.")
                         .foregroundStyle(.secondary)
                         .font(.callout)
                 } else {
@@ -148,47 +87,15 @@ struct PrivacySettingsView: View {
             } header: {
                 Text("Audit (last \(auditRetentionDays) days)")
             } footer: {
-                Text("Counts per entity type. Bouclier.ai never logs the redacted values themselves, only the type and position.")
+                Text("Counts per entity type detected inside outbound attachments. Bouclier.ai never logs the redacted values themselves, only the type and a hash.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)
         .padding()
-        .onAppear {
-            refreshAudit()
-            loadDomainsText()
-        }
-        .onChange(of: piiRedactionEnabled) { _, _ in refreshAudit() }
-    }
-
-    private func loadDomainsText() {
-        if let raw = UserDefaults.standard.string(forKey: PIIPolicy.allowDomainsKey),
-           let data = raw.data(using: .utf8),
-           let arr = try? JSONDecoder().decode([String].self, from: data) {
-            allowDomainsText = arr.joined(separator: "\n")
-        }
-        if let raw = UserDefaults.standard.string(forKey: PIIPolicy.denyDomainsKey),
-           let data = raw.data(using: .utf8),
-           let arr = try? JSONDecoder().decode([String].self, from: data) {
-            denyDomainsText = arr.joined(separator: "\n")
-        }
-    }
-
-    private func parseDomains(_ text: String) -> [String] {
-        text
-            .replacingOccurrences(of: ",", with: "\n")
-            .split(whereSeparator: \.isNewline)
-            .map { $0.trimmingCharacters(in: .whitespaces).lowercased() }
-            .filter { !$0.isEmpty }
-    }
-
-    private func placeholder(_ text: String) -> some View {
-        Text(text)
-            .foregroundStyle(.tertiary)
-            .padding(.horizontal, 5)
-            .padding(.vertical, 8)
-            .allowsHitTesting(false)
+        .onAppear { refreshAudit() }
+        .onChange(of: multimodalInspectionEnabled) { _, _ in refreshAudit() }
     }
 
     private func exportRedactionReport() {
@@ -252,6 +159,7 @@ struct GeneralSettingsView: View {
     /// custom corporate proxies that conflict.
     @AppStorage(ShellEnvInjector.autoConfigureKey) private var autoConfigureShell: Bool = true
     @State private var showResetConfirm = false
+    @State private var showResetProxiesConfirm = false
 
     var body: some View {
         Form {
@@ -305,6 +213,28 @@ struct GeneralSettingsView: View {
                 Text("Diagnostics")
             } footer: {
                 Text("Resets are local to this session — the audit database keeps the history.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section {
+                Button("Reset all proxy settings", role: .destructive) {
+                    showResetProxiesConfirm = true
+                }
+                .confirmationDialog(
+                    "Reset all proxy settings?",
+                    isPresented: $showResetProxiesConfirm,
+                    titleVisibility: .visible
+                ) {
+                    Button("Reset", role: .destructive) { proxyManager.resetAllProxies() }
+                    Button("Cancel", role: .cancel) {}
+                } message: {
+                    Text("Clears every proxy artifact Bouclier may have left on this Mac — PAC settings on every network service, launchctl session env, the crash watchdog, and the shell startup blocks. Protection turns off until you re-enable it from the Protection tab.")
+                }
+            } header: {
+                Text("Proxy recovery")
+            } footer: {
+                Text("Use this if an unclean shutdown left CLI tools or your browser unable to reach LLM APIs. Open a new terminal afterwards so it picks up the cleared shell env.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -495,7 +425,7 @@ struct AboutView: View {
                     .foregroundStyle(.orange)
             }
 
-            Text("Stop prompt injections. Stop PII from leaking to LLMs.")
+            Text("Stop prompt injections. Stop PII from leaking through your attachments.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)

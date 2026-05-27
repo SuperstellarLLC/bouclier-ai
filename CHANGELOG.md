@@ -8,6 +8,19 @@ The `[VERSION]` section for each release is extracted verbatim by
 `apps/desktop/scripts/publish-update.sh` and injected into the Sparkle
 appcast. Write for end users, not for internal engineering notes.
 
+## [0.6.0] — 2026-05-27
+
+### Changed
+
+- **Bouclier no longer modifies your text prompts.** Earlier versions replaced detected PII with reversible placeholders before forwarding; that approach was tripping Anthropic's abuse detection and risked touching analytics fields (like OpenAI's `user`) inside JSON bodies. Text bodies now reach the LLM unchanged. A new end-to-end test pins this against future regressions.
+- **PII protection is now attachment-focused.** Images, PDFs, and short audio clips you attach to LLM requests are still scanned on-device for PII; flagged attachments are replaced with a plain-English description so the model can still answer.
+- **Auth, API keys, and trace headers are forwarded byte-for-byte.** A new regression test sends `Authorization`, `x-api-key`, `X-Trace-ID`, and `User-Agent` through the proxy and asserts the upstream sees them unmodified.
+- **Settings → Privacy is one screen.** The text-redaction toggles, preview-before-send, strict-credentials mode, and per-host allow/deny lists are gone — the file-inspection toggle, audit counts, and PDF report stay.
+
+### Removed
+
+- Text-prompt PII redaction, the per-connection token session, the response-path reverser, the SSE stream reverser, the per-host PII policy, the operator pause switch, and the pre-send preview modal. Pre-v0.6 audit rows from these are wiped on first launch; orphan UserDefaults keys are cleared in the same one-shot migration.
+
 ## [0.5.3] — 2026-05-25
 
 ### Fixed

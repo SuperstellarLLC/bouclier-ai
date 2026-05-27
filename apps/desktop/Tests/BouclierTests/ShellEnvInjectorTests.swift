@@ -166,6 +166,10 @@ struct ShellEnvInjectorTests {
                 "Probe must TCP-test the port (not pgrep — that false-positives on any command-line containing the bundle path)")
         #expect(plist.contains("launchctl unsetenv HTTPS_PROXY"),
                 "Failure branch must unset the proxy env vars")
+        #expect(plist.contains("networksetup -listallnetworkservices"),
+                "Failure branch must also sweep PAC across every network service — system PAC persists across reboot and is the load-bearing failure mode after a hard crash")
+        #expect(plist.contains("-setautoproxystate"),
+                "Sweep must turn auto-proxy off, not just enumerate services")
         #expect(plist.contains("RunAtLoad"),
                 "Agent must run on load so a stale env from a previous boot is cleared at login")
     }

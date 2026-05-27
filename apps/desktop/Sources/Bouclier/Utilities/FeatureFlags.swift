@@ -52,42 +52,14 @@ enum FeatureFlags {
         #endif
     }
 
-    /// Whether the PII redactor runs on outbound chat-completion
-    /// bodies. Ships off so users opt in explicitly while the
-    /// detector set matures; MDM admins can flip it on for the whole
-    /// org. The default will flip on once the ML tier and streaming
-    /// reversal have shipped and bedded in.
-    ///
-    /// The user-facing pause button (RedactionPause) layers on top of
-    /// this: even when the flag is on, an active pause short-circuits
-    /// the resolver to false. Per-domain policy adds a second gate at
-    /// the call site (`PIIPolicy.shouldRedact(host:)`).
-    static var piiRedaction: Bool {
-        if RedactionPause.isPaused() { return false }
-        return resolve(key: "piiRedaction", default: false)
-    }
-
-    /// Whether outbound multimodal requests (images + PDFs today;
-    /// audio in a later release) get inspected for PII via Vision +
-    /// PDFKit + downstream scanners and have flagged media stripped
-    /// before forwarding. Off by default in v0.4.0 so users opt in
-    /// alongside the existing text PII redaction. Subject to the
-    /// same pause switch.
+    /// Whether outbound multimodal *attachments* (images, PDFs,
+    /// audio) get inspected for PII via Vision + PDFKit + Speech and
+    /// have flagged media replaced with a descriptive text placeholder
+    /// before forwarding. This is the only PII rewrite path Bouclier
+    /// runs — text prompts are forwarded unchanged. Off by default;
+    /// users opt in via Settings → Privacy or MDM.
     static var multimodalInspection: Bool {
-        if RedactionPause.isPaused() { return false }
-        return resolve(key: "multimodalInspection", default: false)
-    }
-
-    /// When true, the PII redactor also strips credential-class entities
-    /// (API keys, JWTs, secrets, DB URLs, private keys) on requests
-    /// bound for AI APIs. Off by default — see `PIICategory` for the
-    /// rationale: pasting an API key into a Claude prompt while asking
-    /// "why doesn't this work?" is usually functional context the model
-    /// needs to help; redacting it both breaks the debugging session
-    /// and trips upstream abuse detection. Opt-in for users with
-    /// supply-chain-leak concerns.
-    static var strictCredentialRedaction: Bool {
-        resolve(key: "strictCredentialRedaction", default: false)
+        resolve(key: "multimodalInspection", default: false)
     }
 
     // MARK: - Resolution
@@ -115,8 +87,7 @@ enum FeatureFlags {
         //      a power user opt in to the feature on a non-managed
         //      Mac without the Settings UI being purely cosmetic.
         //      AppStorage writes to standard UserDefaults under the
-        //      key `<flag>Enabled` (mirroring the existing convention
-        //      for `piiRedactionEnabled` and `multimodalInspectionEnabled`).
+        //      key `<flag>Enabled` (e.g. `multimodalInspectionEnabled`).
         //   4. Compile-time default — the conservative posture that
         //      ships in the public DMG.
         if let override = testOverrides[key] { return override }
