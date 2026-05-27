@@ -3,7 +3,7 @@
 
   <h1>Bouclier.ai</h1>
 
-  <p><strong>A local-only macOS proxy that stops prompt injections and stops PII from leaking to LLMs — in text, images, PDFs, and audio.</strong></p>
+  <p><strong>A local-only macOS proxy that stops prompt injections and scans the images, PDFs, and audio you attach to LLM requests for PII before they leave your Mac.</strong></p>
 
   <p>
     <a href="https://github.com/SuperstellarLLC/bouclier-ai/actions/workflows/ci.yml"><img src="https://github.com/SuperstellarLLC/bouclier-ai/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
@@ -18,11 +18,21 @@
 
 ---
 
-> **Beta software.** Bouclier.ai is a prototype intended for evaluation, research,
-> and personal experimentation. Detection is best-effort and probabilistic —
-> false positives and false negatives will occur. **Not** intended for
-> production, regulated workloads, or environments where a detection failure
-> could cause harm. See [Terms](https://www.bouclier.ai/terms) before installing.
+> [!WARNING]
+> **Beta — research prototype. Not for live use.**
+>
+> Bouclier.ai is published for evaluation, security research, academic study,
+> and personal experimentation only. It is **not a commercial product**, is
+> **not sold or supported**, and is **not meant to be used live** — that is,
+> not in production, not as a security control anyone or anything relies on,
+> and not in regulated workloads (healthcare, payments, identity, fraud
+> prevention, anything safety-critical). Detection is best-effort and
+> probabilistic; false positives and false negatives will occur. APIs and
+> detection behaviour may change without notice between releases.
+>
+> If a detection failure could cause harm, financial loss, or regulatory
+> consequence in your environment, do not deploy Bouclier. See
+> [Terms](https://www.bouclier.ai/terms) before installing.
 
 ## What it does
 
@@ -34,16 +44,18 @@ exfiltration, and nothing ever leaves the machine for inspection.
 - **Prompt-injection scanner.** 150+ patterns across 20+ attack categories,
   fused with Meta Llama Prompt Guard 2 running on-device for a probabilistic
   second opinion.
-- **PII redaction.** Emails, IBANs, NHS numbers, SIRET/SIREN/NIR, NINO,
-  postcodes, NPI, AWS keys, JWTs, IPs, and 50+ secret detectors. Replaced
-  with reversible per-connection placeholders so the model still answers
-  correctly.
-- **Multimodal inspection.** Outbound images, PDFs, and audio clips are
+- **Attachment PII inspection.** Outbound images, PDFs, and audio clips are
   opened on-device with Apple Vision (OCR + face detection), PDFKit, and
-  SFSpeechRecognizer (`requiresOnDeviceRecognition`). Flagged attachments
-  are stripped before the request leaves your Mac.
+  SFSpeechRecognizer (`requiresOnDeviceRecognition`). When an attachment
+  contains PII (emails, IBANs, NHS numbers, SIRET/SIREN/NIR, NINO,
+  postcodes, NPI, AWS keys, JWTs, etc.), the attachment is replaced with a
+  plain-English description before the request leaves your Mac.
+- **Text prompts and headers untouched.** Prompt bodies and HTTP request
+  headers (`Authorization`, `x-api-key`, custom trace IDs, `User-Agent`)
+  traverse the proxy byte-for-byte. Pinned by an end-to-end test so a
+  future change can't drift.
 - **Local only.** No cloud calls, no telemetry, no accounts. The audit log
-  records type and offsets, never cleartext.
+  records entity type and a hash prefix, never cleartext.
 
 ## Quickstart
 
@@ -78,8 +90,8 @@ A full developer setup is in [CONTRIBUTING.md](CONTRIBUTING.md).
 │  ChatGPT,   │ ◄────────── │                     │ ◄────────── │  Claude, │
 │  curl, …)   │             │  ┌───────────────┐  │             │  Gemini) │
 └─────────────┘             │  │ Injection scan│  │             └──────────┘
-                            │  │ Multimodal    │  │
-                            │  │ PII redact    │  │
+                            │  │ Attachment PII│  │
+                            │  │ inspection    │  │
                             │  │ Audit log     │  │
                             │  └───────────────┘  │
                             └─────────────────────┘

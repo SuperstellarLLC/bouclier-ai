@@ -147,10 +147,25 @@ export default function Home() {
               auth headers and API keys are never touched. All inspection runs locally on your Mac.
             </p>
 
-            <p className="mt-3 inline-flex items-center gap-2 rounded-full border border-amber-300 bg-amber-50 px-3 py-1 text-xs font-medium text-amber-900">
-              <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
-              Experimental software — not intended for production use
-            </p>
+            <div className="mx-auto mt-5 max-w-2xl rounded-xl border-2 border-amber-300 bg-amber-50 p-4 text-left">
+              <p className="text-sm font-semibold text-amber-900">
+                Beta — research prototype. Not meant to be used live.
+              </p>
+              <p className="mt-1 text-xs leading-relaxed text-amber-900">
+                Bouclier is published for evaluation, security research, and personal
+                experimentation. It is <strong>not a commercial product</strong>, is{" "}
+                <strong>not supported</strong>, and is{" "}
+                <strong>
+                  not meant for production, regulated workloads, or any environment where a
+                  detection failure could cause harm
+                </strong>
+                . Detection is best-effort; false positives and false negatives will occur. See the{" "}
+                <Link href="/terms" className="underline">
+                  Terms
+                </Link>{" "}
+                before installing.
+              </p>
+            </div>
 
             <div className="mt-10 flex items-center justify-center gap-4">
               <a
