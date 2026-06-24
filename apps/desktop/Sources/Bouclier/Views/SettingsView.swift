@@ -615,8 +615,15 @@ struct ProtectionSettingsView: View {
             }
             .font(.callout)
 
-            // Intercepted-domain list + PAC are extreme-mode concepts.
+            // Detection (ML + self-test) + intercepted-domain list are
+            // extreme-mode concepts — injection filtering only runs there.
             if modeRaw == ProxyMode.extreme.rawValue {
+                Divider()
+
+                Text("Detection")
+                    .font(.headline)
+                DetectionStatusView(proxyManager: proxyManager)
+
                 Divider()
 
                 Text("Intercepted Domains")
