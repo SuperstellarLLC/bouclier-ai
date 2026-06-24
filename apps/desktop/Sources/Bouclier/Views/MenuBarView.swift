@@ -81,11 +81,20 @@ struct MenuBarView: View {
                 if FeatureFlags.secretInjection {
                     HStack(spacing: 24) {
                         StatBadge(
-                            value: "\(proxyManager.stats.secretsInjected)",
-                            label: "Injected",
-                            icon: "key.fill",
-                            color: proxyManager.stats.secretsInjected > 0 ? .blue : .secondary
+                            value: "\(proxyManager.stats.secretsScrubbed)",
+                            label: "Scrubbed",
+                            icon: "eraser.fill",
+                            color: proxyManager.stats.secretsScrubbed > 0 ? .blue : .secondary
                         )
+                        // "Injected" only applies in extreme mode.
+                        if ProxyMode.current == .extreme {
+                            StatBadge(
+                                value: "\(proxyManager.stats.secretsInjected)",
+                                label: "Injected",
+                                icon: "key.fill",
+                                color: proxyManager.stats.secretsInjected > 0 ? .blue : .secondary
+                            )
+                        }
                         StatBadge(
                             value: "\(proxyManager.stats.secretsBlocked)",
                             label: "Exfil",
@@ -194,15 +203,23 @@ struct MenuBarView: View {
 
             Divider()
 
-            if !proxyManager.caInstalled {
-                Button(action: { proxyManager.setup() }) {
-                    Label("Enable Protection", systemImage: "lock.shield")
-                }
-            } else if proxyManager.isRunning {
+            // Branch on the actual mode + running state — NOT on caInstalled
+            // (standard mode never installs a CA, so keying off it stranded
+            // the standard user on "Enable Protection" → the extreme CA path).
+            if proxyManager.isRunning {
                 Button(action: { proxyManager.stop() }) {
                     Label("Stop Protection", systemImage: "stop.fill")
                 }
                 .keyboardShortcut("s")
+            } else if ProxyMode.current == .standard {
+                Button(action: { proxyManager.enableStandard() }) {
+                    Label("Enable Protection", systemImage: "lock.shield")
+                }
+                .keyboardShortcut("s")
+            } else if !proxyManager.caInstalled {
+                Button(action: { proxyManager.setup() }) {
+                    Label("Enable Protection", systemImage: "lock.shield")
+                }
             } else {
                 Button(action: { proxyManager.start() }) {
                     Label("Start Protection", systemImage: "play.fill")

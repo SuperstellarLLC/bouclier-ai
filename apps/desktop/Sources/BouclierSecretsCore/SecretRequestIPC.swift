@@ -48,6 +48,7 @@ public struct SecretResponseIPC: Codable, Sendable, Equatable {
         case provided   // at least one value entered
         case cancelled  // user dismissed / declined
         case timeout    // no one answered in time
+        case invalid    // app rejected the request (stale / bad names) — no dialog shown
     }
     public let id: String
     public let status: Status

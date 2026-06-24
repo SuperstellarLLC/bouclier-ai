@@ -171,6 +171,17 @@ final class ProxyManager: ObservableObject {
         log("Standard protection enabled (no CA)", blocked: false)
     }
 
+    /// Turn off standard protection: stop the gateway and clear the
+    /// auto-start opt-in. Deliberately NOT the nuclear `resetAllProxies`
+    /// (which sweeps PAC across every network service and strips shell
+    /// blocks) — the shell env fail-opens on its own when the gateway is
+    /// down, and re-enabling just re-applies it.
+    func disableStandard() {
+        UserDefaults.standard.set(false, forKey: Self.protectionEnabledKey)
+        stop()
+        log("Standard protection disabled", blocked: false)
+    }
+
     /// Switch proxy mode at runtime: persist the choice, restart the
     /// active server, and re-point shell/GUI env. Extreme mode still
     /// requires the CA onboarding in `setup()`; this only re-arms env when
@@ -186,11 +197,14 @@ final class ProxyManager: ObservableObject {
             ShellEnvInjector.applyStandard(gatewayPort: port)
             log("Switched to standard mode (no CA)", blocked: false)
         case .extreme:
-            // Only auto-start if the CA is already trusted; otherwise the
-            // user goes through onboarding (setup()) which installs it.
             if caInstalled {
                 start()
                 ShellEnvInjector.apply(proxyPort: port, caCertPath: ca.caCertFilePath)
+            } else {
+                // No CA yet — run extreme onboarding now (installs the CA and
+                // starts), instead of leaving the user with nothing running
+                // and a stray "Enable Protection" button to hunt for.
+                setup()
             }
             log("Switched to extreme mode (full interception)", blocked: false)
         }

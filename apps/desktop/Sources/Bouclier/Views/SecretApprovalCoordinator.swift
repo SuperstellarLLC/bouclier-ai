@@ -24,10 +24,9 @@ final class SecretApprovalCoordinator {
 
     /// Present a dialog for a (validated) request and return the names-only
     /// outcome. The values are stored here and never returned.
-    func present(_ request: SecretRequestIPC, timeout: Duration = .seconds(120)) async -> SecretResponseIPC {
+    func present(_ request: SecretRequestIPC) async -> SecretResponseIPC {
         await withCheckedContinuation { cont in
             queue.append((request, cont))
-            scheduleTimeout(for: request.id, timeout: timeout)
             pump()
         }
     }
@@ -37,6 +36,7 @@ final class SecretApprovalCoordinator {
     private func pump() {
         guard !presenting, let (request, _) = queue.first else { return }
         presenting = true
+        scheduleTimeout(for: request)   // start the clock when shown, not when queued
         showPanel(for: request)
     }
 
@@ -51,10 +51,16 @@ final class SecretApprovalCoordinator {
         pump()
     }
 
-    private func scheduleTimeout(for id: String, timeout: Duration) {
+    private func scheduleTimeout(for request: SecretRequestIPC) {
+        // Align the dialog's death with the agent's client-side deadline
+        // (measured from when the request was created), so a request that
+        // waited behind another doesn't outlive the agent's ~120s and let
+        // the user provide a secret the agent already gave up on.
+        let elapsed = max(0, Date().timeIntervalSince1970 - request.createdAt)
+        let remaining = max(1, 120 - elapsed)
+        let id = request.id
         Task { @MainActor in
-            try? await Task.sleep(for: timeout)
-            // Only fire if this request is still the one on screen.
+            try? await Task.sleep(for: .seconds(remaining))
             guard presenting, queue.first?.0.id == id else { return }
             finishFront { SecretResponseIPC(id: $0.id, status: .timeout, provided: [], skipped: $0.envVars) }
         }
@@ -158,7 +164,22 @@ private struct SecretApprovalForm: View {
 
     @State private var values: [String: String]
     @State private var persist: Bool
+    @State private var revealed: Set<String> = []
+    @State private var genError: String?
     @FocusState private var focused: String?
+
+    private func binding(_ name: String) -> Binding<String> {
+        Binding(get: { values[name] ?? "" }, set: { values[name] = $0 })
+    }
+
+    private func generate(into name: String) {
+        if let v = SecretGenerator.generate() {
+            values[name] = v
+            genError = nil
+        } else {
+            genError = "Couldn't generate a value — check the generator command in Settings → Secrets."
+        }
+    }
 
     init(request: SecretRequestIPC, persistDefault: Bool,
          onProvide: @escaping ([String: String], Bool) -> Void, onCancel: @escaping () -> Void) {
@@ -172,7 +193,7 @@ private struct SecretApprovalForm: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Label("Claude is requesting \(request.envVars.count == 1 ? "a credential" : "credentials")", systemImage: "key.horizontal.fill")
+            Label("Your AI agent is requesting \(request.envVars.count == 1 ? "a credential" : "credentials")", systemImage: "key.horizontal.fill")
                 .font(.headline)
 
             // The reason is supplied by the agent — quarantine it as untrusted.
@@ -190,7 +211,7 @@ private struct SecretApprovalForm: View {
             }
 
             if request.generate {
-                Text("Bouclier generated these — review and approve, or regenerate with ↻.")
+                Text("Bouclier generated these — tap the eye to review, ↻ to regenerate, then approve.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -199,28 +220,50 @@ private struct SecretApprovalForm: View {
                 VStack(alignment: .leading, spacing: 3) {
                     Text("$\(name)").font(.system(.caption, design: .monospaced)).foregroundStyle(.secondary)
                     HStack(spacing: 6) {
-                        SecureField("Paste value for \(name)", text: Binding(
-                            get: { values[name] ?? "" },
-                            set: { values[name] = $0 }))
-                            .textFieldStyle(.roundedBorder)
-                            .focused($focused, equals: name)
-                            .onSubmit { advance(after: name) }
+                        Group {
+                            if revealed.contains(name) {
+                                TextField("Paste value for \(name)", text: binding(name))
+                            } else {
+                                SecureField("Paste value for \(name)", text: binding(name))
+                            }
+                        }
+                        .textFieldStyle(.roundedBorder)
+                        .focused($focused, equals: name)
+                        .onSubmit { advance(after: name) }
+
                         Button {
-                            if let v = SecretGenerator.generate() { values[name] = v }
+                            if revealed.contains(name) { revealed.remove(name) } else { revealed.insert(name) }
                         } label: {
+                            Image(systemName: revealed.contains(name) ? "eye.slash" : "eye")
+                        }
+                        .buttonStyle(.borderless)
+                        .help(revealed.contains(name) ? "Hide" : "Show")
+
+                        Button { generate(into: name) } label: {
                             Image(systemName: "arrow.clockwise")
                         }
                         .buttonStyle(.borderless)
-                        .help("Generate a random value (\(SecretGenerator.command))")
+                        .help("Generate a random value")
                     }
                 }
             }
 
-            Toggle("Keep after this session", isOn: $persist)
-                .toggleStyle(.checkbox)
-                .font(.callout)
+            if let genError {
+                Text(genError).font(.caption).foregroundStyle(.red)
+            }
 
-            Text("Values are stored in your Keychain and used directly by your tools. Claude never sees them.")
+            VStack(alignment: .leading, spacing: 2) {
+                Toggle("Keep for future sessions", isOn: $persist)
+                    .toggleStyle(.checkbox)
+                    .font(.callout)
+                if !persist {
+                    Text("Removed when Bouclier next restarts.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            Text("Values are stored in your Keychain and used directly by your tools. The agent never sees them.")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
 
@@ -241,7 +284,7 @@ private struct SecretApprovalForm: View {
             // reviews/approves.
             if request.generate {
                 for name in request.envVars where (values[name] ?? "").isEmpty {
-                    if let v = SecretGenerator.generate() { values[name] = v }
+                    generate(into: name)
                 }
             }
             focused = request.envVars.first

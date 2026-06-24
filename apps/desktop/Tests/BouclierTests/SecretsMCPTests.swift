@@ -322,6 +322,9 @@ struct SecretsMCPHandlerTests {
         let r = callRequestSecret(unreachable, envVar: "STRIPE_KEY")
         #expect(result(r)?["isError"] as? Bool == true)
         #expect(toolText(r).contains("isn't running"))
+
+        let invalid = handlerWithRequest { _, _, _ in SecretResponseIPC(id: "x", status: .invalid, provided: [], skipped: ["STRIPE_KEY"]) }
+        #expect(result(callRequestSecret(invalid, envVar: "STRIPE_KEY"))?["isError"] as? Bool == true)
     }
 
     @Test("request_secret missing env_var → in-band error")

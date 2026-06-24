@@ -133,14 +133,14 @@ public struct SecretsMCPHandler: Sendable {
     /// and active for new shells; the agent just uses $ENV_VAR.
     private func requestSecretsTool(_ id: Any?, _ envVars: [String], reason: String, generate: Bool) -> [String: Any] {
         guard let resp = requestSecrets(envVars, reason, generate) else {
-            return toolText(id, "Bouclier isn't running, so it can't prompt the user for secrets. Ask the user to open the Bouclier app, then try again.", isError: true)
+            return toolText(id, "Bouclier isn't running, so it can't prompt the user for secrets. Ask the user to open the Bouclier app and tell you when it's ready before retrying.", isError: true)
         }
         switch resp.status {
         case .provided:
             guard !resp.provided.isEmpty else {
-                return toolText(id, "The user submitted the dialog but left every field blank — no secrets were set.", isError: true)
+                return toolText(id, "No secrets were set — the user left the fields blank, or the values couldn't be stored. Don't assume they're available.", isError: true)
             }
-            var msg = "The user provided \(resp.provided.map { "$\($0)" }.joined(separator: ", ")) — now available in NEW shells you spawn (run your command in a fresh shell). The values were entered by the user and were never shown to you."
+            var msg = "The user provided \(resp.provided.map { "$\($0)" }.joined(separator: ", ")) — now available in NEW shells you spawn (run your command in a fresh shell; an already-open shell won't have them). The values were entered by the user and were never shown to you."
             if !resp.skipped.isEmpty {
                 msg += " Left blank: \(resp.skipped.map { "$\($0)" }.joined(separator: ", "))."
             }
@@ -148,7 +148,9 @@ public struct SecretsMCPHandler: Sendable {
         case .cancelled:
             return toolText(id, "The user declined the secret request. Do not retry unless asked.", isError: true)
         case .timeout:
-            return toolText(id, "The secret request timed out — no response from the user.", isError: true)
+            return toolText(id, "The secret request timed out — the user may be away. Don't re-request automatically; ask them to retry when they're ready.", isError: true)
+        case .invalid:
+            return toolText(id, "Bouclier rejected the request before showing it (the env-var names may be malformed or the request expired). Check the names and try once — don't loop.", isError: true)
         }
     }
 
@@ -257,7 +259,7 @@ public struct SecretsMCPHandler: Sendable {
         ],
         [
             "name": "request_secrets",
-            "description": "Like request_secret but for several at once: Bouclier shows ONE dialog with a field per name, the user fills in what they have, and each provided value becomes available as $ENV_VAR in new shells. You never see the values. Ideal for setting up a project that needs many secrets. Set generate=true to have Bouclier create new random values for all of them (e.g. provisioning fresh keys to push to a deployment).",
+            "description": "Like request_secret but for several at once: Bouclier shows ONE dialog with a field per name, the user fills in what they have, and each provided value becomes available as $ENV_VAR in new shells. You never see the values. Ideal for setting up a project that needs many secrets. Set generate=true to have Bouclier create new random values (e.g. a signing key) the user approves — you still never receive the value; reference it later as $ENV_VAR in your shell commands.",
             "inputSchema": [
                 "type": "object",
                 "properties": [

@@ -123,7 +123,13 @@ final class SecretRequestResponder: @unchecked Sendable {
         guard let data = try? Data(contentsOf: url) else { return }
         switch SecretRequestValidator.validate(data: data) {
         case .failure:
-            try? FileManager.default.removeItem(at: url)   // malformed/stale → drop, no dialog
+            // Reply immediately (don't make the agent wait out its timeout)
+            // when we can still recover the request id; otherwise just drop.
+            if let req = try? JSONDecoder().decode(SecretRequestIPC.self, from: data), !req.id.isEmpty {
+                writeResponse(SecretResponseIPC(id: req.id, status: .invalid, provided: [], skipped: req.envVars), requestURL: url)
+            } else {
+                try? FileManager.default.removeItem(at: url)
+            }
         case .success(let req):
             Task { @MainActor [weak self] in
                 let resp = await SecretApprovalCoordinator.shared.present(req)

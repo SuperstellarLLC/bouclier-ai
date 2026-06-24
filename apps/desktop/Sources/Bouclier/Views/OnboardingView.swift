@@ -83,7 +83,7 @@ struct OnboardingView: View {
                     .accessibilityHidden(true)
                 Text("You're Protected")
                     .font(.title2.bold())
-                Text("Bouclier.ai is scanning all AI traffic. Look for the shield icon in your menubar.")
+                Text("Bouclier.ai is protecting your AI traffic. Look for the shield icon in your menubar.")
                     .multilineTextAlignment(.center)
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: 380)
@@ -94,7 +94,7 @@ struct OnboardingView: View {
                     .accessibilityHidden(true)
                 Text("Enable Protection")
                     .font(.title2.bold())
-                Text("Bouclier.ai will generate a local CA certificate (stored in your login Keychain, unique to this device, removable anytime) and install a System Extension to route AI traffic through the scanner.")
+                Text("Bouclier routes your AI tools (Claude Code, Cursor, …) through a local gateway — no certificate to install. It keeps your secrets out of the model and lets your agent request and use credentials without ever seeing them. (Advanced full-interception mode is available later in Settings.)")
                     .multilineTextAlignment(.center)
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: 380)
@@ -120,7 +120,7 @@ struct OnboardingView: View {
             } else {
                 Button(action: {
                     isSettingUp = true
-                    proxyManager.setup()
+                    proxyManager.enableStandard()
                 }) {
                     if isSettingUp {
                         ProgressView()

@@ -182,7 +182,7 @@ struct SecretsSettingsView: View {
                         VStack(alignment: .leading, spacing: 2) {
                             Text("Secret keeper disabled by a safety self-test")
                                 .font(.callout.weight(.semibold))
-                            Text("A startup integrity check failed, so secret injection is off and all traffic is forwarded untouched. This protects your LLM connections. Please report this — it shouldn't happen.")
+                            Text("A startup integrity check failed, so secret injection is off and all traffic is forwarded untouched. This protects your LLM connections. To retry, quit and relaunch Bouclier; if it persists, please report it — it shouldn't happen.")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
@@ -191,14 +191,36 @@ struct SecretsSettingsView: View {
             }
 
             Section {
+                // The secret keeper only does anything while protection is
+                // actually running. Without this, a user could flip the
+                // toggle on, add secrets, and believe they're protected while
+                // the gateway is off — the worst failure mode for a security
+                // product. Surface it inline with a one-click fix.
+                if !proxyManager.isRunning {
+                    HStack(alignment: .top, spacing: 8) {
+                        Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Protection is off — secrets aren't protected yet")
+                                .font(.callout.weight(.semibold))
+                            Text("Managed secrets are only scrubbed while the gateway is running.")
+                                .font(.caption).foregroundStyle(.secondary)
+                            Button("Turn on Protection") { proxyManager.enableStandard() }
+                                .buttonStyle(.borderedProminent)
+                                .controlSize(.small)
+                        }
+                    }
+                }
                 Toggle("Protect managed secrets from the model", isOn: $secretInjectionEnabled)
-                    .disabled(!proxyManager.secretKeeperHealthy)
+                    .disabled(!proxyManager.secretKeeperHealthy || !proxyManager.isRunning)
                     .onChange(of: secretInjectionEnabled) { _, _ in reArmProxy() }
                 HStack(spacing: 16) {
                     Label("\(proxyManager.stats.secretsScrubbed) scrubbed", systemImage: "eraser.fill")
                         .foregroundStyle(.secondary)
-                    Label("\(proxyManager.stats.secretsInjected) injected", systemImage: "key.fill")
-                        .foregroundStyle(.secondary)
+                    // "injected" only happens in extreme mode.
+                    if ProxyMode.current == .extreme {
+                        Label("\(proxyManager.stats.secretsInjected) injected", systemImage: "key.fill")
+                            .foregroundStyle(.secondary)
+                    }
                     Label("\(proxyManager.stats.secretsBlocked) blocked", systemImage: "hand.raised.fill")
                         .foregroundStyle(proxyManager.stats.secretsBlocked > 0 ? .red : .secondary)
                 }
@@ -225,7 +247,7 @@ struct SecretsSettingsView: View {
             } header: {
                 Text("Managed secrets")
             } footer: {
-                Text("Use the placeholder verbatim in your agent's config or tool call. Bouclier starts intercepting each bound host while the secret keeper is on — if a tool certificate-pins that host it may reject Bouclier's certificate; remove the secret to undo. Your LLM providers (OpenAI, Anthropic, …) are never blocked for authenticating normally.")
+                Text("A secret's `$ENV_VAR` appears in shells you open after adding it — open a new terminal to pick it up. Use the placeholder verbatim in your agent's config or tool call. Binding a host (extreme mode) makes Bouclier intercept it; a certificate-pinned tool may reject that — remove the secret to undo. Your LLM providers are never blocked for authenticating normally.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -516,6 +538,7 @@ struct ProtectionSettingsView: View {
     @ObservedObject var proxyManager: ProxyManager
     @State private var showUninstallConfirm = false
     @AppStorage(ProxyMode.userDefaultsKey) private var modeRaw: String = ProxyMode.compileDefault.rawValue
+    @AppStorage("secretInjectionEnabled") private var secretInjectionEnabled: Bool = false
     /// Extreme mode is hidden by default — hold ⌥ Option to reveal it. It's
     /// experimental and can alter system network configuration.
     @State private var optionHeld = false
@@ -571,33 +594,48 @@ struct ProtectionSettingsView: View {
                 .font(.headline)
 
             Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 8) {
-                StatusRow(label: "CA Certificate", active: proxyManager.caInstalled,
-                          detail: proxyManager.caInstalled ? "Installed & Trusted" : "Not installed")
-                StatusRow(label: "TLS Proxy", active: proxyManager.isRunning,
-                          detail: proxyManager.isRunning ? "Port \(proxyManager.port)" : "Stopped")
-                StatusRow(label: "System Extension", active: proxyManager.extensionActive,
-                          detail: proxyManager.extensionActive ? "Capturing all AI traffic" : "Not active")
+                if modeRaw == ProxyMode.standard.rawValue {
+                    // Standard mode uses no CA / extension / TLS interception —
+                    // show what's actually true rather than three permanently
+                    // "off" extreme-mode rows.
+                    StatusRow(label: "Gateway", active: proxyManager.isRunning,
+                              detail: proxyManager.isRunning ? "Listening on port \(proxyManager.port)" : "Stopped")
+                    StatusRow(label: "Certificate", active: true,
+                              detail: "Not needed in standard mode")
+                    StatusRow(label: "Secret keeper", active: secretInjectionEnabled,
+                              detail: secretInjectionEnabled ? "On" : "Off")
+                } else {
+                    StatusRow(label: "CA Certificate", active: proxyManager.caInstalled,
+                              detail: proxyManager.caInstalled ? "Installed & Trusted" : "Not installed")
+                    StatusRow(label: "TLS Proxy", active: proxyManager.isRunning,
+                              detail: proxyManager.isRunning ? "Port \(proxyManager.port)" : "Stopped")
+                    StatusRow(label: "System Extension", active: proxyManager.extensionActive,
+                              detail: proxyManager.extensionActive ? "Capturing all AI traffic" : "Not active")
+                }
             }
             .font(.callout)
 
-            Divider()
+            // Intercepted-domain list + PAC are extreme-mode concepts.
+            if modeRaw == ProxyMode.extreme.rawValue {
+                Divider()
 
-            Text("Intercepted Domains")
-                .font(.headline)
-            Text("Bouclier.ai only inspects traffic to these AI API domains. All other traffic is unaffected.")
-                .foregroundStyle(.secondary)
-                .font(.callout)
+                Text("Intercepted Domains")
+                    .font(.headline)
+                Text("Bouclier.ai only inspects traffic to these AI API domains. All other traffic is unaffected.")
+                    .foregroundStyle(.secondary)
+                    .font(.callout)
 
-            ScrollView {
-                VStack(alignment: .leading, spacing: 4) {
-                    ForEach(Array(SystemProxy.interceptedDomains).sorted(), id: \.self) { domain in
-                        Text(domain)
-                            .font(.system(.caption, design: .monospaced))
-                            .foregroundStyle(.secondary)
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 4) {
+                        ForEach(Array(SystemProxy.interceptedDomains).sorted(), id: \.self) { domain in
+                            Text(domain)
+                                .font(.system(.caption, design: .monospaced))
+                                .foregroundStyle(.secondary)
+                        }
                     }
                 }
+                .frame(maxHeight: 100)
             }
-            .frame(maxHeight: 100)
 
             Spacer()
 
@@ -638,7 +676,7 @@ struct ProtectionSettingsView: View {
                             .foregroundStyle(.green)
                             .font(.callout)
                         Spacer()
-                        Button("Disable", role: .destructive) { proxyManager.resetAllProxies() }
+                        Button("Disable", role: .destructive) { proxyManager.disableStandard() }
                     } else {
                         Button("Enable Protection") { proxyManager.enableStandard() }
                             .buttonStyle(.borderedProminent)
