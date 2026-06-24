@@ -1,3 +1,4 @@
+import BouclierSecretsCore
 import Foundation
 import NIOCore
 import ServiceManagement
@@ -29,6 +30,11 @@ final class ProxyManager: ObservableObject {
     /// banner auto-dismisses.
     @Published var selfTestResult: SelfTestResult?
 
+    /// False once the secret-keeper runtime self-test has failed and the
+    /// circuit breaker has tripped. Surfaced in Settings → Secrets so the
+    /// user sees the feature was auto-disabled for safety. Starts true.
+    @Published var secretKeeperHealthy = true
+
     var port: Int {
         let p = UserDefaults.standard.object(forKey: "proxyPort") as? Int ?? 8484
         return (1...65535).contains(p) ? p : 8484
@@ -48,6 +54,12 @@ final class ProxyManager: ObservableObject {
     var patternsSHA256Prefix: String? { nil }
 
     private var tlsProxy: TLSProxy?
+    private var gatewayServer: GatewayServer?
+    /// Watches for just-in-time secret requests from the MCP server and
+    /// presents the approval dialog. Independent of the proxy: runs for the
+    /// whole app lifetime so an agent can request a secret even with
+    /// protection off. Started once in `initializeStorage`.
+    private var secretRequestResponder: SecretRequestResponder?
     private var proxyChannel: Channel?
     let ca = CertificateAuthority()
     let extensionManager = ExtensionManager()
@@ -97,23 +109,90 @@ final class ProxyManager: ObservableObject {
         storage = try? StorageManager()
         caInstalled = ca.isInstalled
 
+        // Verify the secret keeper's safety invariants hold in THIS binary
+        // before any traffic flows. If a logic regression ever escaped CI,
+        // the breaker trips here and the feature is disabled — the proxy
+        // forwards everything untouched rather than risk corrupting a live
+        // LLM connection. Runs every launch, even when the feature is off.
+        runSecretKeeperSelfTest()
+
+        // Purge any session-only secrets left by a prior run (the user
+        // unchecked "keep after this session"), then start the responder
+        // that handles agent secret requests + advertises app liveness.
+        SessionSecrets.purge()
+        secretRequestResponder = SecretRequestResponder()
+        secretRequestResponder?.start()
+
         Task {
             await extensionManager.checkStatus()
             extensionActive = extensionManager.proxyEnabled
         }
 
-        // If the user has already gone through onboarding (CA present),
-        // turn protection on at launch — the menu-bar shield otherwise
-        // shows the disarmed icon and the user has to manually re-arm
-        // every restart, which the "seatbelt made of paper" feedback
-        // called out as a credibility risk.
-        if caInstalled && !isRunning {
+        // If the user has already gone through onboarding, turn protection
+        // on at launch — the menu-bar shield otherwise shows the disarmed
+        // icon and the user has to manually re-arm every restart, which the
+        // "seatbelt made of paper" feedback called out as a credibility
+        // risk. launchctl setenv values don't survive logout, so re-apply
+        // env every launch (the dotfile portion is idempotent, so cheap).
+        switch ProxyMode.current {
+        case .extreme:
+            // Extreme mode needs the CA installed first.
+            if caInstalled && !isRunning {
+                start()
+                ShellEnvInjector.apply(proxyPort: port, caCertPath: ca.caCertFilePath)
+            }
+        case .standard:
+            // Standard mode needs no CA, but we still don't reconfigure the
+            // user's shell/GUI env on first launch without consent. Only
+            // auto-start if the user has explicitly enabled protection
+            // before (the Protection tab's "Enable Protection" button).
+            if Self.protectionEnabled && !isRunning {
+                start()
+                ShellEnvInjector.applyStandard(gatewayPort: port)
+            }
+        }
+    }
+
+    /// One-time opt-in: persists across launches so standard mode can
+    /// auto-start without surprising a brand-new user on first run.
+    static let protectionEnabledKey = "protectionEnabled"
+    static var protectionEnabled: Bool {
+        UserDefaults.standard.bool(forKey: protectionEnabledKey)
+    }
+
+    /// Enable standard (non-CA) protection: start the gateway and point the
+    /// agent's SDKs at it. No CA, no PAC, no system extension. This is the
+    /// frictionless default path from the Protection tab.
+    func enableStandard() {
+        UserDefaults.standard.set(true, forKey: Self.protectionEnabledKey)
+        UserDefaults.standard.set(ProxyMode.standard.rawValue, forKey: ProxyMode.userDefaultsKey)
+        if !isRunning { start() }
+        ShellEnvInjector.applyStandard(gatewayPort: port)
+        log("Standard protection enabled (no CA)", blocked: false)
+    }
+
+    /// Switch proxy mode at runtime: persist the choice, restart the
+    /// active server, and re-point shell/GUI env. Extreme mode still
+    /// requires the CA onboarding in `setup()`; this only re-arms env when
+    /// the prerequisites for the chosen mode are already met.
+    func selectMode(_ mode: ProxyMode) {
+        UserDefaults.standard.set(mode.rawValue, forKey: ProxyMode.userDefaultsKey)
+        // Choosing a mode is itself an opt-in to protection.
+        UserDefaults.standard.set(true, forKey: Self.protectionEnabledKey)
+        if isRunning { stop() }
+        switch mode {
+        case .standard:
             start()
-            // launchctl setenv values don't survive logout — re-apply
-            // every launch so GUI apps started later in the session
-            // still inherit the proxy/CA pointers. The dotfile portion
-            // of the injector is idempotent so this is cheap.
-            ShellEnvInjector.apply(proxyPort: port, caCertPath: ca.caCertFilePath)
+            ShellEnvInjector.applyStandard(gatewayPort: port)
+            log("Switched to standard mode (no CA)", blocked: false)
+        case .extreme:
+            // Only auto-start if the CA is already trusted; otherwise the
+            // user goes through onboarding (setup()) which installs it.
+            if caInstalled {
+                start()
+                ShellEnvInjector.apply(proxyPort: port, caCertPath: ca.caCertFilePath)
+            }
+            log("Switched to extreme mode (full interception)", blocked: false)
         }
     }
 
@@ -129,6 +208,11 @@ final class ProxyManager: ObservableObject {
             }
             log("CA certificate installed and trusted", blocked: false)
         }
+
+        // Mark protection enabled only after onboarding actually succeeds —
+        // a cancelled CA install must not leave the flag set (which would
+        // otherwise trigger a standard-mode auto-start without consent).
+        UserDefaults.standard.set(true, forKey: Self.protectionEnabledKey)
 
         start()
 
@@ -158,9 +242,53 @@ final class ProxyManager: ObservableObject {
     }
 
     func start() {
-        guard !isRunning else { return }
+        // `isRunning` is only set true asynchronously after bind, so also
+        // guard on the server ivars (assigned synchronously by start*()) to
+        // prevent a second start() — e.g. enableStandard() racing the
+        // initializeStorage auto-start — from binding twice and orphaning a
+        // channel.
+        guard !isRunning, tlsProxy == nil, gatewayServer == nil else { return }
         errorMessage = nil
 
+        switch ProxyMode.current {
+        case .standard: startStandard()
+        case .extreme: startExtreme()
+        }
+    }
+
+    /// Standard (non-CA) mode: bind the base-URL gateway. No CA, no PAC,
+    /// no system extension — the agent reaches us via `ANTHROPIC_BASE_URL`.
+    private func startStandard() {
+        let boundPort = port
+        let gateway = GatewayServer(
+            port: boundPort,
+            onRequest: { [weak self] requestLog in
+                Task { @MainActor in self?.handleRequestLog(requestLog) }
+            }
+        )
+        gatewayServer = gateway
+
+        Task.detached { [weak self] in
+            guard let self else { return }
+            do {
+                let channel = try await gateway.start()
+                await MainActor.run {
+                    self.proxyChannel = channel
+                    self.isRunning = true
+                    self.log("Gateway (standard mode) listening on 127.0.0.1:\(boundPort)", blocked: false)
+                }
+            } catch {
+                await MainActor.run {
+                    self.isRunning = false
+                    let msg = Self.friendlyError(error)
+                    self.errorMessage = msg
+                    self.log("Gateway failed: \(msg)", blocked: true)
+                }
+            }
+        }
+    }
+
+    private func startExtreme() {
         let boundPort = port
 
         let proxy = TLSProxy(
@@ -213,11 +341,16 @@ final class ProxyManager: ObservableObject {
         proxyChannel?.close(mode: .all, promise: nil)
         proxyChannel = nil
 
-        // Shutdown NIO on a background thread to avoid deadlock
+        // Shutdown NIO on a background thread to avoid deadlock. Both
+        // server types may be nil depending on the active mode; close
+        // whichever ran.
         let proxy = tlsProxy
+        let gateway = gatewayServer
         tlsProxy = nil
+        gatewayServer = nil
         Task.detached {
             proxy?.shutdown()
+            gateway?.shutdown()
         }
 
         isRunning = false
@@ -245,6 +378,7 @@ final class ProxyManager: ObservableObject {
 
     func uninstall() {
         stop()
+        UserDefaults.standard.set(false, forKey: Self.protectionEnabledKey)
         extensionManager.removeExtension()
         ca.uninstallCA()
         ShellEnvInjector.remove()
@@ -262,6 +396,7 @@ final class ProxyManager: ObservableObject {
     /// off afterwards — re-enable from the Protection tab.
     func resetAllProxies() {
         if isRunning { stop() }
+        UserDefaults.standard.set(false, forKey: Self.protectionEnabledKey)
         SystemProxy.disableAll()
         ShellEnvInjector.remove()
         log("All proxy settings reset", blocked: false)
@@ -333,6 +468,7 @@ final class ProxyManager: ObservableObject {
         signal(SIGTERM) { _ in
             _ = SystemProxy.disableAll()
             ShellEnvInjector.unsetLaunchctl()
+            try? FileManager.default.removeItem(at: SecretEnvPaths.responderPidFile)
             exit(0)
         }
 
@@ -340,6 +476,8 @@ final class ProxyManager: ObservableObject {
         atexit {
             _ = SystemProxy.disableAll()
             ShellEnvInjector.unsetLaunchctl()
+            // Drop the liveness pid file so the MCP client fails fast.
+            try? FileManager.default.removeItem(at: SecretEnvPaths.responderPidFile)
         }
     }
 
@@ -351,6 +489,14 @@ final class ProxyManager: ObservableObject {
     /// `ProxyManagerLifecycleTests` can exercise it without standing
     /// up a full proxy + upstream.
     func handleRequestLog(_ requestLog: RequestLog) {
+        // Secret-keeper events are a side-channel for an already-counted
+        // request — route them separately so they don't double-count
+        // `requestsScanned` or run the injection/PII accounting below.
+        if let secret = requestLog.secret {
+            handleSecretEvent(secret)
+            return
+        }
+
         stats.requestsScanned += 1
 
         if requestLog.detected {
@@ -464,6 +610,105 @@ final class ProxyManager: ObservableObject {
         }
     }
 
+    /// Drive the activity feed, counters, notification, SIEM audit, and
+    /// on-disk stats for one secret-keeper event. Mirrors the injection
+    /// path so secrets get first-class treatment in every surface.
+    private func handleSecretEvent(_ event: SecretEvent) {
+        switch event.kind {
+        case .injected(let names):
+            stats.secretsInjected += names.count
+            let list = names.joined(separator: ", ")
+            log("Injected secret\(names.count > 1 ? "s" : "") (\(list)) → \(event.host)", blocked: false)
+            AuditLogger.shared.logEvent("secret-injected", detail: "\(list) → \(event.host)")
+            storage?.recordScan(
+                source: "secret-injection",
+                targetHost: event.host,
+                detected: false,
+                matchCount: 0,
+                patternIds: names,
+                severity: nil,
+                requestSize: 0,
+                mlScore: nil,
+                entropyAnomaly: 0,
+                fusedScore: 0,
+                mlAvailable: false
+            )
+            Task { await Metrics.shared.recordSecretInjected(count: names.count) }
+
+        case .scrubbed(let names):
+            stats.secretsScrubbed += names.count
+            let list = names.joined(separator: ", ")
+            log("Scrubbed secret\(names.count > 1 ? "s" : "") (\(list)) before model → \(event.host)", blocked: false)
+            AuditLogger.shared.logEvent("secret-scrubbed", detail: "\(list) → \(event.host)")
+            storage?.recordScan(
+                source: "secret-scrub",
+                targetHost: event.host,
+                detected: false,
+                matchCount: 0,
+                patternIds: names,
+                severity: nil,
+                requestSize: 0,
+                mlScore: nil,
+                entropyAnomaly: 0,
+                fusedScore: 0,
+                mlAvailable: false
+            )
+
+        case .blocked(let reason):
+            stats.secretsBlocked += 1
+            log("Blocked secret exfil → \(event.host): \(reason.auditDescription)", blocked: true)
+            sendSecretBlockNotification(host: event.host, reason: reason.auditDescription)
+            AuditLogger.shared.logEvent("secret-blocked", detail: "\(reason.auditDescription) → \(event.host)")
+            storage?.recordScan(
+                source: "secret-injection",
+                targetHost: event.host,
+                detected: true,
+                matchCount: 1,
+                patternIds: [reason.ruleName],
+                severity: "high",
+                requestSize: 0,
+                mlScore: nil,
+                entropyAnomaly: 0,
+                fusedScore: 0,
+                mlAvailable: false
+            )
+            Task { await Metrics.shared.recordSecretBlocked() }
+        }
+    }
+
+    /// Run the secret-keeper invariant self-test and, on any failure,
+    /// trip the circuit breaker (disable the feature process-wide) and
+    /// alert. Idempotent and cheap.
+    private func runSecretKeeperSelfTest() {
+        let report = SecretKeeperMonitor.runSelfTest()
+        guard report.passed else {
+            let detail = report.failures.joined(separator: "; ")
+            SecretKeeperMonitor.trip(reason: detail)
+            secretKeeperHealthy = false
+            log("Secret keeper self-test FAILED — feature disabled for safety: \(detail)", blocked: true)
+            AuditLogger.shared.logEvent("secret-keeper-selftest-failed", detail: detail)
+            let content = UNMutableNotificationContent()
+            content.title = "Secret Keeper Disabled"
+            content.body = "A safety self-test failed; secret injection is off and all traffic is forwarded untouched."
+            UNUserNotificationCenter.current().add(
+                UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
+            )
+            return
+        }
+        secretKeeperHealthy = true
+    }
+
+    private func sendSecretBlockNotification(host: String, reason: String) {
+        guard UserDefaults.standard.object(forKey: "showNotifications") as? Bool ?? true else { return }
+        let content = UNMutableNotificationContent()
+        content.title = "Secret Exfiltration Blocked"
+        content.body = "\(reason) → \(host)"
+        let quiet = UserDefaults.standard.object(forKey: "quietMode") as? Bool ?? true
+        content.sound = quiet ? nil : .default
+        let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
+        UNUserNotificationCenter.current().add(request)
+    }
+
     private func log(_ message: String, blocked: Bool) {
         let entry = LogEntry(message: message, blocked: blocked)
         logs.insert(entry, at: 0)
@@ -508,11 +753,23 @@ struct ProxyStats {
     /// Cumulative count of attachments (images, PDFs, audio) that
     /// were inspected and stripped of PII before forwarding.
     var mediaBlocked: Int = 0
+    /// Cumulative count of managed secrets injected at egress (the agent
+    /// only ever held the placeholder).
+    var secretsInjected: Int = 0
+    /// Cumulative count of requests blocked by a secret tripwire
+    /// (exfil to a disallowed host, or plaintext secret present).
+    var secretsBlocked: Int = 0
+    /// Cumulative count of managed secrets scrubbed (real value → placeholder)
+    /// out of requests to model providers in standard mode.
+    var secretsScrubbed: Int = 0
     mutating func reset() {
         requestsScanned = 0
         injectionsBlocked = 0
         piiRedacted = 0
         mediaBlocked = 0
+        secretsInjected = 0
+        secretsBlocked = 0
+        secretsScrubbed = 0
     }
 }
 

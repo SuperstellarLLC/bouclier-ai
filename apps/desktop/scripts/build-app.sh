@@ -56,6 +56,7 @@ mkdir -p "$CONTENTS/Library/SystemExtensions"
 cp "$BUILD_DIR/Bouclier" "$CONTENTS/MacOS/"
 cp "$BUILD_DIR/bouclier-ai-mcp-wrapper" "$CONTENTS/MacOS/"
 cp "$BUILD_DIR/bouclier-ai-env" "$CONTENTS/MacOS/"
+cp "$BUILD_DIR/bouclier-ai-secrets-mcp" "$CONTENTS/MacOS/"
 
 # Resources (patterns.json bundle)
 if [ -d "$BUILD_DIR/Bouclier_Bouclier.bundle" ]; then
@@ -238,7 +239,15 @@ if [ "$SIGN" = true ]; then
   # 2. Helper executables
   echo "Signing helper binaries..."
   $CODESIGN "$IDENTITY" "$CONTENTS/MacOS/bouclier-ai-mcp-wrapper"
-  $CODESIGN "$IDENTITY" "$CONTENTS/MacOS/bouclier-ai-env"
+  # env + secrets-mcp share the app's Keychain access group so the agent
+  # can use stored secrets without a per-access prompt (see
+  # BouclierHelpers.entitlements).
+  $CODESIGN "$IDENTITY" \
+    --entitlements "$PROJECT_DIR/BouclierHelpers.entitlements" \
+    "$CONTENTS/MacOS/bouclier-ai-env"
+  $CODESIGN "$IDENTITY" \
+    --entitlements "$PROJECT_DIR/BouclierHelpers.entitlements" \
+    "$CONTENTS/MacOS/bouclier-ai-secrets-mcp"
 
   # 3. System Extension
   echo "Signing System Extension..."

@@ -76,6 +76,26 @@ struct MenuBarView: View {
                     )
                 }
 
+                // Secret-keeper counters — shown only when the feature is
+                // on so the default view stays uncluttered.
+                if FeatureFlags.secretInjection {
+                    HStack(spacing: 24) {
+                        StatBadge(
+                            value: "\(proxyManager.stats.secretsInjected)",
+                            label: "Injected",
+                            icon: "key.fill",
+                            color: proxyManager.stats.secretsInjected > 0 ? .blue : .secondary
+                        )
+                        StatBadge(
+                            value: "\(proxyManager.stats.secretsBlocked)",
+                            label: "Exfil",
+                            icon: "hand.raised.fill",
+                            color: proxyManager.stats.secretsBlocked > 0 ? .red : .green
+                        )
+                        Spacer()
+                    }
+                }
+
                 // ML classifier status — small inline badge so users
                 // can see whether the on-device fused detection layer
                 // is active. Three states:

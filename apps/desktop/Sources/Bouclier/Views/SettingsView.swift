@@ -1,3 +1,4 @@
+import BouclierSecretsCore
 import SwiftUI
 
 struct SettingsView: View {
@@ -15,6 +16,9 @@ struct SettingsView: View {
 
             PrivacySettingsView(proxyManager: proxyManager)
                 .tabItem { Label("Privacy", systemImage: "eye.slash") }
+
+            SecretsSettingsView(proxyManager: proxyManager)
+                .tabItem { Label("Secrets", systemImage: "key.fill") }
 
             GeneralSettingsView(proxyManager: proxyManager)
                 .tabItem { Label("General", systemImage: "gear") }
@@ -146,6 +150,270 @@ struct PrivacySettingsView: View {
     }
 }
 
+// MARK: - Secrets (secret keeper)
+
+/// Settings panel for the secret keeper. The agent/LLM only ever holds
+/// an opaque placeholder; Bouclier swaps in the real value (from the
+/// Keychain) at egress, bound to the rule's allowlisted host, and blocks
+/// exfil/plaintext tripwires. See `docs/secret-injection.md`.
+struct SecretsSettingsView: View {
+    @ObservedObject var proxyManager: ProxyManager
+
+    /// Drives `FeatureFlags.secretInjection` via UserDefaults (the flag's
+    /// resolution order reads `<key>Enabled`).
+    @AppStorage("secretInjectionEnabled") private var secretInjectionEnabled: Bool = false
+
+    @State private var rules: [SecretRule] = []
+    @State private var newName: String = ""
+    @State private var newValue: String = ""
+    @State private var newHosts: String = ""
+    @State private var newEnvVar: String = ""
+    @State private var newAgentAccess: Bool = true
+    @AppStorage(SecretGenerator.commandKey) private var genCommand: String = SecretGenerator.defaultCommand
+    @State private var addError: String?
+
+    var body: some View {
+        Form {
+            if !proxyManager.secretKeeperHealthy {
+                Section {
+                    HStack(alignment: .top, spacing: 8) {
+                        Image(systemName: "exclamationmark.octagon.fill")
+                            .foregroundStyle(.red)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Secret keeper disabled by a safety self-test")
+                                .font(.callout.weight(.semibold))
+                            Text("A startup integrity check failed, so secret injection is off and all traffic is forwarded untouched. This protects your LLM connections. Please report this — it shouldn't happen.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
+
+            Section {
+                Toggle("Protect managed secrets from the model", isOn: $secretInjectionEnabled)
+                    .disabled(!proxyManager.secretKeeperHealthy)
+                    .onChange(of: secretInjectionEnabled) { _, _ in reArmProxy() }
+                HStack(spacing: 16) {
+                    Label("\(proxyManager.stats.secretsScrubbed) scrubbed", systemImage: "eraser.fill")
+                        .foregroundStyle(.secondary)
+                    Label("\(proxyManager.stats.secretsInjected) injected", systemImage: "key.fill")
+                        .foregroundStyle(.secondary)
+                    Label("\(proxyManager.stats.secretsBlocked) blocked", systemImage: "hand.raised.fill")
+                        .foregroundStyle(proxyManager.stats.secretsBlocked > 0 ? .red : .secondary)
+                }
+                .font(.caption)
+                .monospacedDigit()
+            } header: {
+                Text("Secret keeper (beta)")
+            } footer: {
+                Text("Keeps your real credentials out of the model. In Standard mode a managed secret is scrubbed to a placeholder before the request reaches the model provider and restored in the response, so your local tools still work while the vendor never sees it. Bind a secret to a host to also inject it into that third party in Extreme mode. Secrets live in your macOS Keychain and never leave this Mac.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section {
+                if rules.isEmpty {
+                    Text("No managed secrets yet. Add one below.")
+                        .foregroundStyle(.secondary)
+                        .font(.callout)
+                } else {
+                    ForEach(rules, id: \.name) { rule in
+                        SecretRow(rule: rule, onCopy: { copyPlaceholder(rule) }, onDelete: { delete(rule) }, onToggleAccess: { toggleAccess(rule) })
+                    }
+                }
+            } header: {
+                Text("Managed secrets")
+            } footer: {
+                Text("Use the placeholder verbatim in your agent's config or tool call. Bouclier starts intercepting each bound host while the secret keeper is on — if a tool certificate-pins that host it may reject Bouclier's certificate; remove the secret to undo. Your LLM providers (OpenAI, Anthropic, …) are never blocked for authenticating normally.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section {
+                TextField("Name (lowercase, e.g. stripe)", text: $newName)
+                    .textFieldStyle(.roundedBorder)
+                HStack(spacing: 6) {
+                    SecureField("Secret value", text: $newValue)
+                        .textFieldStyle(.roundedBorder)
+                    Button("Generate") {
+                        if let v = SecretGenerator.generate() { newValue = v }
+                    }
+                    .help("Generate a random value (\(genCommand))")
+                }
+                TextField("Generator command", text: $genCommand)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.system(.caption, design: .monospaced))
+                TextField("Allowed hosts — optional (e.g. api.stripe.com). Blank = scrub-only.", text: $newHosts)
+                    .textFieldStyle(.roundedBorder)
+                TextField("Env var name — optional (default \(newName.isEmpty ? "NAME" : newName.trimmedLowercasedName.uppercased())), e.g. STRIPE_KEY", text: $newEnvVar)
+                    .textFieldStyle(.roundedBorder)
+                Toggle("Let an AI agent use this via MCP (value never shown to the model)", isOn: $newAgentAccess)
+                if let addError {
+                    Text(addError)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                }
+                Button("Add secret") { add() }
+                    .disabled(newName.isEmpty || newValue.isEmpty)
+                if !newName.isEmpty {
+                    Text("Placeholder: \(SecretRule.placeholder(for: newName.trimmedLowercasedName))")
+                        .font(.system(.caption, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                }
+            } header: {
+                Text("Add a secret")
+            } footer: {
+                Text("The value is written to the Keychain and never shown again. Name must be lowercase letters, digits, or underscores.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .formStyle(.grouped)
+        .padding()
+        .onAppear { reload() }
+    }
+
+    private func reload() {
+        rules = SecretStore.shared.rules().sorted { $0.name < $1.name }
+    }
+
+    private func add() {
+        let name = newName.trimmedLowercasedName
+        guard SecretRule.isValidName(name) else {
+            addError = "Name must be lowercase letters, digits, or underscores."
+            return
+        }
+        guard SecretRule.isValidValue(newValue) else {
+            addError = "Secret value is empty, too long, or contains line breaks."
+            return
+        }
+        let rawHosts = newHosts
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+        // Hosts are OPTIONAL. With no host the secret is "scrub-only"
+        // (standard mode): scrubbed out of model-provider requests and
+        // restored in the response, never injected into a third party.
+        // With a host it's also injectable in extreme mode.
+        // Surface rejected hosts rather than silently dropping them.
+        let invalid = rawHosts.filter { SecretRule.validatedHost($0) == nil }
+        guard invalid.isEmpty else {
+            addError = "Can't bind to: \(invalid.joined(separator: ", ")). Use a public domain (no localhost, raw IPs, or metadata endpoints)."
+            return
+        }
+        let envVar = newEnvVar.trimmingCharacters(in: .whitespaces)
+        if !envVar.isEmpty, !SecretRule.isValidEnvVar(envVar) {
+            addError = "Env var name must start with a letter or _ and contain only letters, digits, and _."
+            return
+        }
+        guard SecretStore.shared.addSecret(name: name, value: newValue, allowedHosts: rawHosts, agentAccess: newAgentAccess, envVar: envVar.isEmpty ? nil : envVar) else {
+            addError = "Couldn't save the secret. Check the name, value, hosts, and env var name."
+            return
+        }
+        addError = nil
+        newName = ""; newValue = ""; newHosts = ""; newEnvVar = ""; newAgentAccess = true
+        reload()
+        reArmProxy()
+    }
+
+    private func delete(_ rule: SecretRule) {
+        SecretStore.shared.removeSecret(name: rule.name)
+        reload()
+        reArmProxy()
+    }
+
+    private func toggleAccess(_ rule: SecretRule) {
+        SecretStore.shared.setAgentAccess(name: rule.name, !rule.agentAccess)
+        reload()
+    }
+
+    private func copyPlaceholder(_ rule: SecretRule) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(rule.placeholder, forType: .string)
+    }
+
+    /// Rewrite the system PAC so newly bound hosts are routed through the
+    /// proxy (and removed ones stop being intercepted).
+    ///
+    /// Two safety properties: (1) no-op unless the proxy is already
+    /// running, so toggling secrets never *enables* a proxy the user
+    /// hasn't turned on — we only refresh an already-armed PAC, which is
+    /// idempotent. (2) Runs off the main thread because `networksetup`
+    /// shells out and could otherwise stall the Settings UI; the result
+    /// is intentionally ignored (a failed refresh leaves the prior
+    /// working PAC in place rather than breaking connectivity).
+    private func reArmProxy() {
+        guard proxyManager.isRunning else { return }
+        let port = proxyManager.port
+        DispatchQueue.global(qos: .utility).async {
+            _ = SystemProxy.enable(port: port)
+        }
+    }
+}
+
+private struct SecretRow: View {
+    let rule: SecretRule
+    let onCopy: () -> Void
+    let onDelete: () -> Void
+
+    let onToggleAccess: () -> Void
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 8) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(rule.name)
+                    .font(.callout.weight(.medium))
+                Text(rule.placeholder)
+                    .font(.system(.caption, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+                HStack(spacing: 6) {
+                    Text(rule.isScrubOnly ? "scrub-only" : rule.allowedHosts.joined(separator: ", "))
+                    Text("·")
+                    Text("$\(rule.environmentVariable)")
+                    Text("·")
+                    Text(rule.agentAccess ? "agent-usable" : "locked")
+                        .foregroundStyle(rule.agentAccess ? Color.secondary : Color.orange)
+                }
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+            }
+            Spacer()
+            Button {
+                onToggleAccess()
+            } label: {
+                Image(systemName: rule.agentAccess ? "person.fill" : "lock.fill")
+            }
+            .buttonStyle(.borderless)
+            .help(rule.agentAccess ? "Agent (MCP) access on — click to lock" : "Locked — click to allow agent (MCP) access")
+            Button {
+                onCopy()
+            } label: {
+                Image(systemName: "doc.on.doc")
+            }
+            .buttonStyle(.borderless)
+            .help("Copy placeholder")
+            Button(role: .destructive) {
+                onDelete()
+            } label: {
+                Image(systemName: "trash")
+            }
+            .buttonStyle(.borderless)
+            .help("Delete secret")
+        }
+        .padding(.vertical, 2)
+    }
+}
+
+private extension String {
+    /// Normalised secret-rule name: trimmed + lowercased.
+    var trimmedLowercasedName: String {
+        trimmingCharacters(in: .whitespaces).lowercased()
+    }
+}
+
 struct GeneralSettingsView: View {
     @ObservedObject var proxyManager: ProxyManager
     @AppStorage("proxyPort") private var port: Int = 8484
@@ -247,9 +515,58 @@ struct GeneralSettingsView: View {
 struct ProtectionSettingsView: View {
     @ObservedObject var proxyManager: ProxyManager
     @State private var showUninstallConfirm = false
+    @AppStorage(ProxyMode.userDefaultsKey) private var modeRaw: String = ProxyMode.compileDefault.rawValue
+    /// Extreme mode is hidden by default — hold ⌥ Option to reveal it. It's
+    /// experimental and can alter system network configuration.
+    @State private var optionHeld = false
+    @State private var flagsMonitor: Any?
+    @State private var showExtremeConfirm = false
+
+    private var extremeVisible: Bool { optionHeld || modeRaw == ProxyMode.extreme.rawValue }
+
+    /// Intercepts selection so Extreme is never applied until the user
+    /// confirms the experimental warning; Standard applies immediately.
+    private var modeSelection: Binding<String> {
+        Binding(
+            get: { modeRaw },
+            set: { new in
+                if new == ProxyMode.extreme.rawValue {
+                    if modeRaw != ProxyMode.extreme.rawValue { showExtremeConfirm = true }
+                } else {
+                    modeRaw = ProxyMode.standard.rawValue
+                    proxyManager.selectMode(.standard)
+                }
+            }
+        )
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
+            Text("Proxy Mode")
+                .font(.headline)
+            Picker("Mode", selection: modeSelection) {
+                Text("Standard — no CA, secrets only").tag(ProxyMode.standard.rawValue)
+                if extremeVisible {
+                    Text("Extreme — full interception (experimental)").tag(ProxyMode.extreme.rawValue)
+                }
+            }
+            .pickerStyle(.radioGroup)
+            .labelsHidden()
+
+            if !extremeVisible {
+                Text("Hold ⌥ Option to reveal Extreme mode.")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+            }
+
+            Text(modeRaw == ProxyMode.standard.rawValue
+                 ? "Routes your agents through a local gateway via ANTHROPIC_BASE_URL — no certificate to install. Protects the LLM channel: your managed secrets are scrubbed before the model sees them and restored in the response. Injection filtering and file PII stripping are off in this mode."
+                 : "Installs a trusted root CA and intercepts all AI TLS traffic. Adds injection filtering, file PII stripping, and third-party secret injection on top of the secrets sandwich.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+
+            Divider()
+
             Text("Protection Status")
                 .font(.headline)
 
@@ -314,7 +631,19 @@ struct ProtectionSettingsView: View {
             Spacer()
 
             HStack {
-                if !proxyManager.caInstalled {
+                if modeRaw == ProxyMode.standard.rawValue {
+                    // Standard (no CA): a simple enable/disable.
+                    if proxyManager.isRunning {
+                        Label("Protection active", systemImage: "checkmark.shield.fill")
+                            .foregroundStyle(.green)
+                            .font(.callout)
+                        Spacer()
+                        Button("Disable", role: .destructive) { proxyManager.resetAllProxies() }
+                    } else {
+                        Button("Enable Protection") { proxyManager.enableStandard() }
+                            .buttonStyle(.borderedProminent)
+                    }
+                } else if !proxyManager.caInstalled {
                     Button("Enable Protection") { proxyManager.setup() }
                         .buttonStyle(.borderedProminent)
                 } else {
@@ -335,6 +664,26 @@ struct ProtectionSettingsView: View {
             }
         }
         .padding()
+        .onAppear {
+            optionHeld = NSEvent.modifierFlags.contains(.option)
+            flagsMonitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { event in
+                optionHeld = event.modifierFlags.contains(.option)
+                return event
+            }
+        }
+        .onDisappear {
+            if let m = flagsMonitor { NSEvent.removeMonitor(m) }
+            flagsMonitor = nil
+        }
+        .alert("Enable Extreme mode?", isPresented: $showExtremeConfirm) {
+            Button("Cancel", role: .cancel) {}
+            Button("Enable Extreme mode", role: .destructive) {
+                modeRaw = ProxyMode.extreme.rawValue
+                proxyManager.selectMode(.extreme)
+            }
+        } message: {
+            Text("Experimental — use at your own risk. Extreme mode installs a trusted root certificate and reroutes your system's network traffic to inspect all AI connections. This can interfere with other apps, break certificate-pinned tools, conflict with corporate proxies, and may require manual cleanup. Only enable it if you understand these risks.")
+        }
     }
 }
 

@@ -220,6 +220,146 @@ struct E2EProxyTests {
                     "Header \(name) was rewritten in transit: client sent \"\(value)\", upstream received \"\(received ?? "<missing>")\"")
         }
     }
+
+    // MARK: - Secret keeper E2E
+
+    /// THE load-bearing safety test. With the secret keeper ON and a
+    /// secret configured (bound to a *different* host), a normal request
+    /// to a provider — carrying no placeholder and no secret value —
+    /// must reach the upstream byte-for-byte: body intact, Authorization
+    /// intact, 200. This is the regression that would break live LLM
+    /// connections, proven end-to-end through the real proxy.
+    @Test("Secret keeper ON: a clean provider request is forwarded untouched")
+    func secretKeeperLeavesCleanTrafficUntouched() async throws {
+        let stripe = SecretRule(name: "stripe", allowedHosts: ["api.stripe.com"])
+        let body = #"{"model":"claude","messages":[{"role":"user","content":"hello, no secrets here"}]}"#
+        let userAuth = "Bearer sk-ant-user-OWN-unmanaged-key-001"
+        let result = try await runSecretE2E(
+            seedRules: [stripe],
+            seedValues: ["stripe": "sk_live_CLEANTEST_00000000"],
+            body: body,
+            extraHeaders: [("Authorization", userAuth)]
+        )
+        #expect(result.status == 200, "Clean request must reach the upstream")
+        #expect(result.body == body, "Body was altered in transit: \(result.body)")
+        #expect(result.headers["authorization"] == userAuth, "Auth header was altered: \(result.headers["authorization"] ?? "<missing>")")
+    }
+
+    /// A third-party secret value heading to a host it isn't bound to is
+    /// blocked at the proxy and never reaches the upstream.
+    @Test("Secret keeper ON: a leaking secret is blocked, upstream sees nothing")
+    func secretKeeperBlocksLeak() async throws {
+        let stripe = SecretRule(name: "stripe", allowedHosts: ["api.stripe.com"])
+        let value = "sk_live_EXFILTEST_0000000"
+        let result = try await runSecretE2E(
+            seedRules: [stripe],
+            seedValues: ["stripe": value],
+            body: #"{"q":"\#(value)"}"#
+        )
+        #expect(result.status == 403, "Leak should be blocked with 403, got \(result.status)")
+        #expect(result.body.isEmpty, "Upstream should have received nothing, got: \(result.body)")
+    }
+
+    /// A placeholder bound to the destination host is replaced with the
+    /// real secret before it reaches the upstream.
+    @Test("Secret keeper ON: a bound placeholder is injected end-to-end")
+    func secretKeeperInjectsBoundPlaceholder() async throws {
+        // Bound to "localhost" (the test upstream). seedForTesting bypasses
+        // the normal host validation that would reject loopback.
+        let rule = SecretRule(name: "localkey", allowedHosts: ["localhost"])
+        let value = "sk_live_INJECTTEST_111111"
+        let result = try await runSecretE2E(
+            seedRules: [rule],
+            seedValues: ["localkey": value],
+            body: #"{"ok":true}"#,
+            extraHeaders: [("Authorization", "Bearer \(SecretRule.placeholder(for: "localkey"))")]
+        )
+        #expect(result.status == 200)
+        #expect(result.headers["authorization"] == "Bearer \(value)", "Placeholder wasn't injected: \(result.headers["authorization"] ?? "<missing>")")
+    }
+
+    /// A body over the scan cap is forwarded untouched even with a
+    /// placeholder in it — big LLM media requests are never rewritten.
+    @Test("Secret keeper ON: an over-cap body is forwarded untouched")
+    func secretKeeperSkipsLargeBodies() async throws {
+        let rule = SecretRule(name: "localkey", allowedHosts: ["localhost"])
+        let value = "sk_live_BIGTEST_2222222222"
+        let placeholder = SecretRule.placeholder(for: "localkey")
+        let bodyString = placeholder + String(repeating: "x", count: 1_100_000) // > 1 MiB cap
+        let result = try await runSecretE2E(
+            seedRules: [rule],
+            seedValues: ["localkey": value],
+            body: bodyString
+        )
+        #expect(result.status == 200)
+        #expect(result.body == bodyString, "Over-cap body must be byte-identical")
+        #expect(result.body.contains(placeholder), "Placeholder must remain (not injected) in an over-cap body")
+        #expect(!result.body.contains(value), "Real secret must not appear in an over-cap body")
+    }
+
+    /// Shared harness: stand up the real proxy with the secret keeper on
+    /// and `SecretStore.shared` seeded in-memory (no Keychain), send one
+    /// request, and report what the upstream observed. Restores all
+    /// global test state on exit.
+    private func runSecretE2E(
+        seedRules: [SecretRule],
+        seedValues: [String: String],
+        method: String = "POST",
+        path: String = "/v1/messages",
+        body: String,
+        extraHeaders: [(String, String)] = []
+    ) async throws -> (status: Int, body: String, headers: [String: String]) {
+        for key in ["HTTPS_PROXY", "HTTP_PROXY", "NODE_EXTRA_CA_CERTS", "SSL_CERT_FILE", "REQUESTS_CA_BUNDLE"] {
+            unsetenv(key)
+        }
+        let pki = try TestPKI.generate(upstreamHost: "localhost")
+        let upstream = try await UpstreamRecorder.start(certificatePEM: pki.upstreamCertPEM, keyPEM: pki.upstreamKeyPEM)
+        defer { upstream.shutdown() }
+
+        SystemProxy.testAdditionalDomains.insert("localhost")
+        FeatureFlags.setTestOverride("secretInjection", true)
+        SecretKeeperMonitor.resetForTesting()
+        SecretStore.shared.seedForTesting(rules: seedRules, values: seedValues)
+        defer {
+            SystemProxy.testAdditionalDomains.remove("localhost")
+            FeatureFlags.clearTestOverrides()
+            SecretStore.shared.clearForTesting()
+        }
+
+        let ca = CertificateAuthority(testingKeyPEM: pki.caKeyPEM, certPEM: pki.caCertPEM)
+        let proxy = TLSProxy(
+            port: 0,
+            ca: ca,
+            filter: InjectionFilter(),
+            upstreamTrustRootsPEM: [pki.caCertPEM],
+            onRequest: { _ in }
+        )
+        let proxyChannel = try await proxy.start()
+        defer { proxy.shutdown() }
+        guard let proxyPort = proxyChannel.localAddress?.port else {
+            Issue.record("Proxy didn't bind a port")
+            return (0, "", [:])
+        }
+
+        let status = try await ProxyDrivenClient.sendThroughProxy(
+            proxyHost: "127.0.0.1",
+            proxyPort: proxyPort,
+            upstreamHost: "localhost",
+            upstreamPort: upstream.port,
+            method: method,
+            path: path,
+            contentType: "application/json",
+            body: body,
+            trustRootPEM: pki.caCertPEM,
+            extraHeaders: extraHeaders
+        )
+        let obsBody = String(data: await upstream.observedRequestBody(), encoding: .utf8) ?? ""
+        let obsHeaders = Dictionary(
+            await upstream.observedRequestHeaders().map { ($0.0.lowercased(), $0.1) },
+            uniquingKeysWith: { _, latest in latest }
+        )
+        return (status, obsBody, obsHeaders)
+    }
 }
 
 /// Thread-safe accumulator for `RequestLog` callbacks fired from NIO.

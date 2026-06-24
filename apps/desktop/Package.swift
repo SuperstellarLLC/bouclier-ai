@@ -10,6 +10,7 @@ let package = Package(
         .executable(name: "Bouclier", targets: ["Bouclier"]),
         .executable(name: "bouclier-ai-mcp-wrapper", targets: ["MCPWrapper"]),
         .executable(name: "bouclier-ai-env", targets: ["EnvHelper"]),
+        .executable(name: "bouclier-ai-secrets-mcp", targets: ["SecretsMCP"]),
     ],
     dependencies: [
         .package(url: "https://github.com/groue/GRDB.swift.git", from: "7.0.0"),
@@ -28,6 +29,7 @@ let package = Package(
         .executableTarget(
             name: "Bouclier",
             dependencies: [
+                "BouclierSecretsCore",
                 .product(name: "GRDB", package: "GRDB.swift"),
                 .product(name: "NIO", package: "swift-nio"),
                 .product(name: "NIOCore", package: "swift-nio"),
@@ -54,10 +56,26 @@ let package = Package(
                 .swiftLanguageMode(.v6),
             ]
         ),
+        .target(
+            name: "BouclierSecretsCore",
+            dependencies: [],
+            path: "Sources/BouclierSecretsCore",
+            swiftSettings: [
+                .swiftLanguageMode(.v6),
+            ]
+        ),
         .executableTarget(
             name: "EnvHelper",
-            dependencies: [],
+            dependencies: ["BouclierSecretsCore"],
             path: "Sources/EnvHelper",
+            swiftSettings: [
+                .swiftLanguageMode(.v6),
+            ]
+        ),
+        .executableTarget(
+            name: "SecretsMCP",
+            dependencies: ["BouclierSecretsCore"],
+            path: "Sources/SecretsMCP",
             swiftSettings: [
                 .swiftLanguageMode(.v6),
             ]
@@ -79,6 +97,7 @@ let package = Package(
             name: "BouclierTests",
             dependencies: [
                 "Bouclier",
+                "BouclierSecretsCore",
                 .product(name: "NIO", package: "swift-nio"),
                 .product(name: "NIOCore", package: "swift-nio"),
                 .product(name: "NIOPosix", package: "swift-nio"),

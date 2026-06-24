@@ -58,6 +58,24 @@ enum ManagedConfig {
         return ManagedConfigValidator.validatedWebhookURL(raw)?.absoluteString
     }
 
+    /// Fail-closed egress: when true, hosts Bouclier does NOT intercept
+    /// are refused a tunnel unless they appear in `egressAllowlist`. Off
+    /// by default so the single-developer posture keeps git/npm/brew
+    /// working; enterprises flip it on to guarantee no agent traffic
+    /// escapes inspection. See `SystemProxy.tunnelAllowed`.
+    static var failClosedEgress: Bool {
+        managedDefaults?.bool(forKey: "failClosedEgress") ?? false
+    }
+
+    /// Hosts permitted to tunnel when `failClosedEgress` is on (in
+    /// addition to the always-inspected AI + secret hosts). Malformed
+    /// hostnames are dropped.
+    static var egressAllowlist: Set<String> {
+        Set(ManagedConfigValidator.validatedHostnames(
+            (managedDefaults?.array(forKey: "egressAllowlist") as? [String]) ?? []
+        ).map { $0.lowercased() })
+    }
+
     /// Whether users are prevented from uninstalling/disabling protection.
     static var preventUninstall: Bool {
         managedDefaults?.bool(forKey: "preventUninstall") ?? false

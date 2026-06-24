@@ -31,7 +31,8 @@ enum SystemProxy {
     /// async for production code that never touches this property.
     nonisolated(unsafe) static var testAdditionalDomains: Set<String> = []
 
-    /// All intercepted domains (built-in + MDM-configured).
+    /// All intercepted domains (built-in + MDM-configured + secret-rule
+    /// hosts). A host is MITM'd and PAC-routed iff it appears here.
     static var interceptedDomains: Set<String> {
         var domains = builtinDomains
         for domain in ManagedConfig.additionalDomains {
@@ -40,7 +41,32 @@ enum SystemProxy {
         for domain in testAdditionalDomains {
             domains.insert(domain.lowercased())
         }
+        // Secret-keeper: hosts bound to a managed secret must be
+        // intercepted so the injection pass can swap the placeholder for
+        // the real value at egress. Gated on the flag so the default
+        // posture is unchanged — no rule, no extra MITM.
+        if FeatureFlags.secretInjection {
+            for host in SecretStore.shared.allHosts() {
+                domains.insert(host)
+            }
+        }
         return domains
+    }
+
+    /// Fail-closed egress decision for a non-intercepted host (i.e. one
+    /// we don't MITM and would normally blind-tunnel). Pure so it's unit
+    /// testable without MDM defaults or a live channel.
+    ///
+    /// - When `failClosed` is off (the default, single-dev posture) every
+    ///   host tunnels — the proxy stays out of the way of git/npm/brew.
+    /// - When an MDM profile turns it on, only hosts on the operator's
+    ///   `allowlist` may tunnel; everything else is refused. This closes
+    ///   the "agent unsets HTTPS_PROXY isn't the only bypass — it can
+    ///   also just talk to an un-inspected host" exfiltration gap that
+    ///   Agent Vault flags as inherent to credential proxies.
+    static func tunnelAllowed(host: String, failClosed: Bool, allowlist: Set<String>) -> Bool {
+        guard failClosed else { return true }
+        return allowlist.contains(host.lowercased())
     }
 
     static func pacFileContent(port: Int) -> String {

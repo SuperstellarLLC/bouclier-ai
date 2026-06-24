@@ -154,6 +154,47 @@ struct ShellEnvInjectorTests {
         #expect(content.contains("end"), "Fish if/end block must close")
     }
 
+    @Test("POSIX env file re-syncs on every interactive prompt so a live shell self-heals")
+    func posixFileReSyncsPerPrompt() {
+        // The bug this guards against: a terminal opened while Bouclier
+        // was alive exports HTTPS_PROXY into its process env. Killing
+        // Bouclier can't touch that live shell, so the next `claude` in
+        // the same tab hits the dead port → 'connection refused'.
+        // Re-running the check before each prompt fixes it. Reported by
+        // a user on 2026-06-04.
+        let exports = ShellEnvInjector.buildExports(
+            proxyURL: "http://127.0.0.1:8484",
+            caCertPath: "/tmp/ca.pem"
+        )
+        let content = ShellEnvInjector.posixEnvFileContent(exports: exports)
+
+        #expect(content.contains("__bouclier_sync()"),
+                "Check must be wrapped in a function so it can be both called once and re-bound to a prompt hook")
+        #expect(content.contains("add-zsh-hook precmd __bouclier_sync"),
+                "zsh interactive shells must re-sync via a precmd hook")
+        #expect(content.contains("PROMPT_COMMAND="),
+                "bash interactive shells must re-sync via PROMPT_COMMAND")
+        // The function must also be invoked directly — non-interactive
+        // shells (Claude Code, editor-spawned tools) never fire a prompt
+        // hook, so defining the function alone would protect nothing.
+        let lines = content.split(separator: "\n", omittingEmptySubsequences: false)
+        #expect(lines.contains("__bouclier_sync"),
+                "Function must be invoked once at source time for non-interactive shells")
+    }
+
+    @Test("Fish env file re-syncs on every prompt via fish_prompt event")
+    func fishFileReSyncsPerPrompt() {
+        let exports = ShellEnvInjector.buildExports(
+            proxyURL: "http://127.0.0.1:8484",
+            caCertPath: "/tmp/ca.pem"
+        )
+        let content = ShellEnvInjector.fishEnvFileContent(exports: exports)
+
+        #expect(content.contains("function __bouclier_sync"))
+        #expect(content.contains("--on-event fish_prompt"),
+                "Fish must re-sync on every prompt so a live shell self-heals when Bouclier dies")
+    }
+
     @Test("Watchdog plist runs every minute and unsets env when the proxy port isn't reachable")
     func watchdogPlistShape() {
         let plist = ShellEnvInjector.watchdogPlist(proxyPort: 8484)

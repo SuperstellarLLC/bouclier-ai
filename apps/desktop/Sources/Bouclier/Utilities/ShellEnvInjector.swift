@@ -60,8 +60,8 @@ enum ShellEnvInjector {
         let envSh = configDir().appendingPathComponent("env.sh")
         let envFish = configDir().appendingPathComponent("env.fish")
         _ = ensureConfigDir()
-        writeAtomically(content: posixEnvFileContent(exports: exports), to: envSh)
-        writeAtomically(content: fishEnvFileContent(exports: exports), to: envFish)
+        writeAtomically(content: posixEnvFileContent(exports: exports, secretsHelperPath: envHelperExecutablePath()), to: envSh)
+        writeAtomically(content: fishEnvFileContent(exports: exports, secretsHelperPath: envHelperExecutablePath()), to: envFish)
 
         let posixSource = "[ -f \"\(envSh.path)\" ] && . \"\(envSh.path)\""
         let fishSource = "if test -f \"\(envFish.path)\"; source \"\(envFish.path)\"; end"
@@ -116,16 +116,67 @@ enum ShellEnvInjector {
 
     // MARK: - Content builders
 
+    // Union of every key either mode sets. `unsetLaunchctl` and the
+    // watchdog clear all of them, so switching extreme↔standard (or a
+    // crash) never strands a stale var from the other mode.
     private static let envVarKeys = [
         "HTTPS_PROXY",
         "HTTP_PROXY",
         "NODE_EXTRA_CA_CERTS",
         "SSL_CERT_FILE",
         "REQUESTS_CA_BUNDLE",
+        "ANTHROPIC_BASE_URL",
+        "OPENAI_BASE_URL",
     ]
 
     struct Exports {
         let pairs: [(String, String)]
+    }
+
+    /// Standard (non-CA) mode: point the agent's SDKs at the gateway via
+    /// base-URL overrides instead of `HTTPS_PROXY`. We deliberately do NOT
+    /// set `HTTPS_PROXY` — the gateway is an LLM origin, not a CONNECT
+    /// proxy, so routing all HTTPS through it would break everything else.
+    /// And no CA-bundle vars: the front hop is plaintext loopback, so
+    /// there's no Bouclier cert for runtimes to trust.
+    ///
+    /// `ANTHROPIC_BASE_URL` is the host root (the SDK appends
+    /// `/v1/messages`); `OPENAI_BASE_URL` conventionally includes `/v1`
+    /// (the SDK appends `/chat/completions`). The gateway's router accepts
+    /// both shapes.
+    static func buildStandardExports(gatewayPort: Int) -> Exports {
+        let base = "http://127.0.0.1:\(gatewayPort)"
+        return Exports(pairs: [
+            ("ANTHROPIC_BASE_URL", base),
+            ("OPENAI_BASE_URL", base + "/v1"),
+        ])
+    }
+
+    /// Apply standard-mode env injection. Mirrors `apply` (dotfiles +
+    /// launchctl + watchdog, all fail-open) but with base-URL exports.
+    @discardableResult
+    static func applyStandard(gatewayPort: Int) -> Bool {
+        guard isEnabled else { return false }
+        let exports = buildStandardExports(gatewayPort: gatewayPort)
+
+        let envSh = configDir().appendingPathComponent("env.sh")
+        let envFish = configDir().appendingPathComponent("env.fish")
+        _ = ensureConfigDir()
+        writeAtomically(content: posixEnvFileContent(exports: exports, secretsHelperPath: envHelperExecutablePath()), to: envSh)
+        writeAtomically(content: fishEnvFileContent(exports: exports, secretsHelperPath: envHelperExecutablePath()), to: envFish)
+
+        let posixSource = "[ -f \"\(envSh.path)\" ] && . \"\(envSh.path)\""
+        let fishSource = "if test -f \"\(envFish.path)\"; source \"\(envFish.path)\"; end"
+        injectBlock(into: home(".zshenv"), payload: posixSource)
+        injectBlock(into: home(".bash_profile"), payload: posixSource)
+        injectBlock(into: home(".bashrc"), payload: posixSource)
+        injectBlock(into: home(".profile"), payload: posixSource)
+        injectBlock(into: fishConfigPath(), payload: fishSource, createParent: true)
+
+        unsetLaunchctl()
+        applyLaunchctlSetenv(exports: exports)
+        installWatchdog(proxyPort: gatewayPort)
+        return true
     }
 
     static func buildExports(proxyURL: String, caCertPath: String?) -> Exports {
@@ -151,8 +202,22 @@ enum ShellEnvInjector {
         return 8484
     }
 
-    static func posixEnvFileContent(exports: Exports) -> String {
-        let port = proxyPort(from: exports.pairs.first(where: { $0.0 == "HTTPS_PROXY" })?.1 ?? "")
+    /// Absolute path to the bundled `bouclier-ai-env` helper, or nil if it
+    /// can't be located. Used to materialize agent-activated secrets into
+    /// each new shell.
+    static func envHelperExecutablePath() -> String? {
+        let fm = FileManager.default
+        if let exe = Bundle.main.executableURL {
+            let sibling = exe.deletingLastPathComponent().appendingPathComponent("bouclier-ai-env")
+            if fm.isExecutableFile(atPath: sibling.path) { return sibling.path }
+        }
+        let macos = Bundle.main.bundleURL.appendingPathComponent("Contents/MacOS/bouclier-ai-env")
+        if fm.isExecutableFile(atPath: macos.path) { return macos.path }
+        return nil
+    }
+
+    static func posixEnvFileContent(exports: Exports, secretsHelperPath: String? = nil) -> String {
+        let port = proxyPort(from: exports.pairs.first(where: { $0.1.contains("127.0.0.1:") })?.1 ?? "")
         let keys = exports.pairs.map(\.0).joined(separator: " ")
         var lines = [
             "# Bouclier.ai — auto-generated. Do not edit by hand.",
@@ -164,34 +229,81 @@ enum ShellEnvInjector {
             "# 'connection refused'. Explicit unset matters because a stale",
             "# value can be inherited from launchctl setenv, the parent",
             "# shell, or a previous Bouclier session — without the unset",
-            "# the conditional `export` doesn't override it. ~5ms TCP probe,",
-            "# runs once per shell start.",
-            "if /usr/bin/nc -z 127.0.0.1 \(port) 2>/dev/null; then",
+            "# the conditional `export` doesn't override it. ~5ms TCP probe.",
+            "__bouclier_sync() {",
+            "    if /usr/bin/nc -z 127.0.0.1 \(port) 2>/dev/null; then",
         ]
         for (k, v) in exports.pairs {
-            lines.append("    export \(k)=\"\(shellEscape(v))\"")
+            lines.append("        export \(k)=\"\(shellEscape(v))\"")
         }
-        lines.append("else")
-        lines.append("    unset \(keys)")
-        lines.append("fi")
+        lines.append("    else")
+        lines.append("        unset \(keys)")
+        lines.append("    fi")
+        lines.append("}")
+        // Run once now (this is the only path non-interactive shells —
+        // Claude Code, editor-spawned tools — ever take).
+        lines.append("__bouclier_sync")
+        // Re-sync before every interactive prompt so a *live* shell
+        // self-heals when Bouclier is killed mid-session. Without this,
+        // the vars exported at shell start keep pointing at the dead
+        // proxy and the next `claude`/`curl` in that same tab fails with
+        // 'connection refused' until the tab is closed. The probe is a
+        // loopback TCP connect — sub-millisecond — so per-prompt cost is
+        // negligible. add-zsh-hook de-dupes; the bash branch guards
+        // against double-registration on re-source.
+        lines.append(contentsOf: [
+            "if [ -n \"$ZSH_VERSION\" ]; then",
+            "    autoload -Uz add-zsh-hook 2>/dev/null && add-zsh-hook precmd __bouclier_sync 2>/dev/null",
+            "elif [ -n \"$BASH_VERSION\" ]; then",
+            "    case \"$PROMPT_COMMAND\" in",
+            "        *__bouclier_sync*) ;;",
+            "        *) PROMPT_COMMAND=\"__bouclier_sync${PROMPT_COMMAND:+; $PROMPT_COMMAND}\" ;;",
+            "    esac",
+            "fi",
+        ])
+        // Materialize any agent-activated secrets (Bouclier MCP set_env)
+        // into this shell by reading them from the Keychain at shell-init.
+        // No-op when nothing is active. Independent of the proxy — the
+        // agent's commands need the secret whether or not protection is on.
+        if let helper = secretsHelperPath {
+            lines.append("# Bouclier MCP secrets — agent-activated env vars (values from Keychain).")
+            lines.append("if [ -x \"\(helper)\" ]; then eval \"$(\"\(helper)\" --secrets 2>/dev/null)\"; fi")
+        }
         return lines.joined(separator: "\n") + "\n"
     }
 
-    static func fishEnvFileContent(exports: Exports) -> String {
-        let port = proxyPort(from: exports.pairs.first(where: { $0.0 == "HTTPS_PROXY" })?.1 ?? "")
+    static func fishEnvFileContent(exports: Exports, secretsHelperPath: String? = nil) -> String {
+        let port = proxyPort(from: exports.pairs.first(where: { $0.1.contains("127.0.0.1:") })?.1 ?? "")
         let keys = exports.pairs.map(\.0).joined(separator: " ")
         var lines = [
             "# Bouclier.ai — auto-generated. Do not edit by hand.",
             "# Fail-open: unset proxy vars when Bouclier isn't listening so",
             "# `git push`, `curl`, etc. don't break when the proxy is down.",
-            "if /usr/bin/nc -z 127.0.0.1 \(port) 2>/dev/null",
+            "function __bouclier_sync",
+            "    if /usr/bin/nc -z 127.0.0.1 \(port) 2>/dev/null",
         ]
         for (k, v) in exports.pairs {
-            lines.append("    set -gx \(k) \"\(shellEscape(v))\"")
+            lines.append("        set -gx \(k) \"\(shellEscape(v))\"")
         }
-        lines.append("else")
-        lines.append("    set -e \(keys)")
+        lines.append("    else")
+        lines.append("        set -e \(keys)")
+        lines.append("    end")
         lines.append("end")
+        // Run once now, then re-sync on every prompt so a live shell
+        // self-heals when Bouclier is killed mid-session (see the POSIX
+        // file for the full rationale).
+        lines.append("__bouclier_sync")
+        lines.append(contentsOf: [
+            "function __bouclier_sync_prompt --on-event fish_prompt",
+            "    __bouclier_sync",
+            "end",
+        ])
+        // Materialize agent-activated secrets (Bouclier MCP) into this fish
+        // shell, in fish syntax. No-op when nothing is active.
+        if let helper = secretsHelperPath {
+            lines.append("# Bouclier MCP secrets — agent-activated env vars (values from Keychain).")
+            lines.append("if test -x \"\(helper)\"; \"\(helper)\" --secrets --fish 2>/dev/null | source; end")
+        }
         return lines.joined(separator: "\n") + "\n"
     }
 

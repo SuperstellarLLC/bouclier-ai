@@ -196,8 +196,22 @@ private final class ConnectHandler: ChannelInboundHandler, RemovableChannelHandl
                 context.pipeline.removeHandler(self, promise: nil)
                 self.setupTLS(context: context, host: host, port: port)
             }
-        } else {
+        } else if SystemProxy.tunnelAllowed(
+            host: host,
+            failClosed: ManagedConfig.failClosedEgress,
+            allowlist: ManagedConfig.egressAllowlist
+        ) {
             setupPassthrough(context: context, host: host, port: port)
+        } else {
+            // Fail-closed egress (MDM): a host we don't inspect and isn't
+            // on the operator's allowlist gets refused rather than blindly
+            // tunnelled — so an agent can't exfiltrate to an un-inspected
+            // endpoint even with a valid HTTPS_PROXY.
+            let resp = "HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n"
+            var errBuf = context.channel.allocator.buffer(capacity: resp.utf8.count)
+            errBuf.writeString(resp)
+            context.writeAndFlush(wrapOutboundOut(errBuf), promise: nil)
+            context.close(promise: nil)
         }
     }
 
@@ -403,6 +417,12 @@ private final class HTTPInspectionHandler: ChannelInboundHandler, RemovableChann
     typealias InboundIn = HTTPServerRequestPart
     typealias OutboundOut = ByteBuffer
 
+    /// Above this body size the secret keeper scans only the URI +
+    /// headers and forwards the body untouched (see `forwardUpstream`).
+    /// 1 MiB comfortably covers tool-call / chat JSON while excluding
+    /// vision images and file uploads, which must not be slowed.
+    static let maxSecretScanBytes = 1 * 1024 * 1024
+
     private let host: String
     private let port: Int
     private let filter: InjectionFilter
@@ -411,6 +431,11 @@ private final class HTTPInspectionHandler: ChannelInboundHandler, RemovableChann
     private let eventLoop: EventLoop
 
     private var upstreamChannel: Channel?
+    /// The client side of this MITM'd connection. Stashed in
+    /// `handlerAdded` so paths without a `context` (the async multimodal
+    /// continuation, the secret-injection block branch) can still send a
+    /// synthetic response to the client and tear the connection down.
+    private var clientChannel: Channel?
     private var requestHead: HTTPRequestHead?
     private var bodyBuffer = ByteBuffer()
     private var pendingRawWrites: [ByteBuffer] = []
@@ -432,6 +457,7 @@ private final class HTTPInspectionHandler: ChannelInboundHandler, RemovableChann
     }
 
     func handlerAdded(context: ChannelHandlerContext) {
+        clientChannel = context.channel
         connectToUpstream(context: context)
     }
 
@@ -595,6 +621,75 @@ private final class HTTPInspectionHandler: ChannelInboundHandler, RemovableChann
     private func forwardUpstream(head: HTTPRequestHead, body: ByteBuffer, allocator: ByteBufferAllocator) {
         var mutableBody = body
         var headers = head.headers
+        var requestURI = head.uri
+
+        // Secret keeper: swap managed placeholders (in URI, headers, or
+        // body) for the real secret bound to this host, and block
+        // exfil/plaintext tripwires. Runs last, after all inspection, so
+        // the real value lives in the request for exactly one hop to
+        // exactly one allowed host. Off unless `secretInjection` is set
+        // and at least one rule exists.
+        // The breaker (`SecretKeeperMonitor.isTripped`) short-circuits the
+        // entire feature if the runtime self-test ever failed, forwarding
+        // everything untouched.
+        if FeatureFlags.secretInjection, !SecretKeeperMonitor.isTripped {
+            let rules = SecretStore.shared.rules()
+            if !rules.isEmpty {
+                let inHeaders = headers.map { SecretInjectionPass.Header($0.name, $0.value) }
+                // Bound the body we scan/rewrite. Placeholders and
+                // key-shaped secrets live in small tool-call bodies; large
+                // bodies are LLM media (vision images, file uploads).
+                // Scanning those per-secret on the event loop would add
+                // latency to legitimate LLM requests and risk client
+                // timeouts, so above the cap we scan only the URI +
+                // headers and forward the original body untouched.
+                let bodyScannable = mutableBody.readableBytes <= Self.maxSecretScanBytes
+                let scanBody = bodyScannable ? Data(mutableBody.readableBytesView) : Data()
+                let resolve: (String) -> String? = { SecretStore.shared.resolve($0) }
+
+                // INTEGRITY GATE. The rewriter (`apply`) runs ONLY when an
+                // independent, deliberately-simple check confirms the
+                // request actually contains secret material. A request
+                // with none — the overwhelming majority of LLM-provider
+                // traffic — never reaches `apply` at all, so a bug in the
+                // rewrite logic cannot corrupt or block it. This is the
+                // structural guarantee that clean LLM connections survive.
+                if SecretInjectionPass.hasTrigger(uri: requestURI, headers: inHeaders, body: scanBody, rules: rules, resolve: resolve) {
+                    let outcome = SecretInjectionPass.apply(
+                        host: host,
+                        uri: requestURI,
+                        headers: inHeaders,
+                        body: scanBody,
+                        rules: rules,
+                        resolve: resolve
+                    )
+                    switch outcome.action {
+                    case .block:
+                        if let reason = outcome.blockReason {
+                            onRequest(RequestLog(secretEvent: SecretEvent(host: host, kind: .blocked(reason: reason))))
+                        }
+                        rejectToClient(status: "403 Forbidden", allocator: allocator)
+                        return
+                    case .forward where !outcome.injected.isEmpty:
+                        requestURI = outcome.uri
+                        var rebuilt = HTTPHeaders()
+                        for h in outcome.headers { rebuilt.add(name: h.name, value: h.value) }
+                        headers = rebuilt
+                        // Only adopt the rewritten body when we actually
+                        // scanned it; the large-body path keeps the original.
+                        if bodyScannable {
+                            var nb = allocator.buffer(capacity: outcome.body.count)
+                            nb.writeBytes(outcome.body)
+                            mutableBody = nb
+                        }
+                        onRequest(RequestLog(secretEvent: SecretEvent(host: host, kind: .injected(names: outcome.injected))))
+                    case .forward:
+                        break
+                    }
+                }
+            }
+        }
+
         // Always re-derive Content-Length from the final body, not the
         // header. Redaction (injection or PII) may have changed the size,
         // and the upstream rejects mismatches with a 400.
@@ -606,13 +701,16 @@ private final class HTTPInspectionHandler: ChannelInboundHandler, RemovableChann
         // the request line would smuggle a second request to the
         // upstream. Reject the entire request rather than forward
         // something that could be reinterpreted as two requests.
-        guard isWireSafe(head: head, headers: headers) else {
+        // `requestURI` is checked (not `head.uri`) because secret
+        // injection may have rewritten it.
+        guard HTTPRequestInspector.containsControlBytes(requestURI) == false,
+              isWireSafe(head: head, headers: headers) else {
             sendRejectionToClient(status: "400 Bad Request", allocator: allocator)
             return
         }
 
         var raw = allocator.buffer(capacity: 1024 + mutableBody.readableBytes)
-        raw.writeString("\(head.method) \(head.uri) HTTP/1.1\r\n")
+        raw.writeString("\(head.method) \(requestURI) HTTP/1.1\r\n")
         for (name, value) in headers {
             raw.writeString("\(name): \(value)\r\n")
         }
@@ -651,6 +749,24 @@ private final class HTTPInspectionHandler: ChannelInboundHandler, RemovableChann
             client.writeAndFlush(buf, promise: nil)
             client.close(promise: nil)
         }
+        requestHead = nil
+        bodyBuffer.clear()
+    }
+
+    /// Send a synthetic response to the *client* (agent) and tear the
+    /// connection down without forwarding anything upstream. Used by the
+    /// secret-injection block branch, which must reach the client even
+    /// though `forwardUpstream` has no `context`. Distinct from
+    /// `sendRejectionToClient`, which writes onto the upstream channel.
+    private func rejectToClient(status: String, allocator: ByteBufferAllocator) {
+        let resp = "HTTP/1.1 \(status)\r\nConnection: close\r\nContent-Length: 0\r\n\r\n"
+        if let client = clientChannel {
+            var buf = allocator.buffer(capacity: resp.utf8.count)
+            buf.writeString(resp)
+            client.writeAndFlush(buf, promise: nil)
+            client.close(promise: nil)
+        }
+        upstreamChannel?.close(promise: nil)
         requestHead = nil
         bodyBuffer.clear()
     }
@@ -904,6 +1020,24 @@ enum CorporateProxy {
 
 // MARK: - Request Log
 
+/// A secret-keeper outcome for one request: either the real value was
+/// injected for the bound host, or the request was blocked by a tripwire.
+/// Surfaced through `RequestLog.secret` so the existing
+/// `ProxyManager.handleRequestLog` pipeline drives the activity feed,
+/// notifications, SIEM audit log, and on-disk stats uniformly.
+struct SecretEvent: Sendable, Equatable {
+    enum Kind: Sendable, Equatable {
+        case injected(names: [String])
+        case blocked(reason: SecretInjectionPass.BlockReason)
+        /// Standard-mode scrub: a managed real secret value was replaced
+        /// with its placeholder on the request to the model provider, so
+        /// the model never sees the secret. Restored in the response.
+        case scrubbed(names: [String])
+    }
+    let host: String
+    let kind: Kind
+}
+
 struct RequestLog: Sendable {
     let timestamp: Date
     let targetHost: String
@@ -922,6 +1056,10 @@ struct RequestLog: Sendable {
     /// run for this request (feature off, etc.); empty findings when
     /// it ran and the attachments were clean.
     let multimodal: MultimodalPIIInspector.Report?
+    /// Secret-keeper event. Non-nil only on the dedicated secret-event
+    /// emissions, which carry no scan telemetry — `handleRequestLog`
+    /// routes these separately so they don't double-count requests.
+    let secret: SecretEvent?
 
     init(
         timestamp: Date,
@@ -934,7 +1072,8 @@ struct RequestLog: Sendable {
         entropyAnomaly: Double,
         fusedScore: Double,
         mlAvailable: Bool,
-        multimodal: MultimodalPIIInspector.Report? = nil
+        multimodal: MultimodalPIIInspector.Report? = nil,
+        secret: SecretEvent? = nil
     ) {
         self.timestamp = timestamp
         self.targetHost = targetHost
@@ -947,5 +1086,25 @@ struct RequestLog: Sendable {
         self.fusedScore = fusedScore
         self.mlAvailable = mlAvailable
         self.multimodal = multimodal
+        self.secret = secret
+    }
+
+    /// Dedicated initializer for a secret-keeper event. All scan fields
+    /// are zeroed — this log is a side-channel, not a scanned request.
+    init(secretEvent: SecretEvent, timestamp: Date = Date()) {
+        self.init(
+            timestamp: timestamp,
+            targetHost: secretEvent.host,
+            detected: false,
+            matchCount: 0,
+            patternNames: [],
+            bodySize: 0,
+            mlScore: nil,
+            entropyAnomaly: 0,
+            fusedScore: 0,
+            mlAvailable: false,
+            multimodal: nil,
+            secret: secretEvent
+        )
     }
 }

@@ -62,6 +62,17 @@ enum FeatureFlags {
         resolve(key: "multimodalInspection", default: false)
     }
 
+    /// Whether the proxy injects managed secrets at egress: the agent
+    /// only ever holds an opaque placeholder, and Bouclier swaps in the
+    /// real value (from the Keychain) bound to the rule's allowlisted
+    /// host, blocking exfil/plaintext tripwires. Off by default; users
+    /// opt in via Settings → Secrets or MDM. See
+    /// `docs/secret-injection.md`. When off, no secret hosts are
+    /// intercepted and the injection pass never runs.
+    static var secretInjection: Bool {
+        resolve(key: "secretInjection", default: false)
+    }
+
     // MARK: - Resolution
 
     /// Test-only override: set a value here to force a flag regardless

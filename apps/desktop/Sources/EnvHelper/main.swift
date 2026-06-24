@@ -1,3 +1,4 @@
+import BouclierSecretsCore
 import Foundation
 
 /// bouclier-ai-env — outputs environment variables for shell eval.
@@ -28,6 +29,26 @@ let caExists = FileManager.default.fileExists(atPath: caCertPath)
 
 let isUnset = CommandLine.arguments.contains("--unset")
 let isHelp = CommandLine.arguments.contains("--help") || CommandLine.arguments.contains("-h")
+
+// Secrets mode: emit `export NAME='value'` for every secret the agent has
+// activated via the Bouclier MCP server (the active manifest), reading the
+// real value from the Keychain. This is the ONLY place secret values are
+// materialized — at shell-init, into the subprocess env. The values never
+// pass through the MCP server or the model's context. Empty (no active
+// secrets) ⇒ prints nothing.
+if CommandLine.arguments.contains("--secrets") {
+    let active = SecretEnvManifest.load()
+    let metas = SecretRulesReader.load()
+    let result = SecretEnvResolver.resolve(active: active, metas: metas) {
+        KeychainSecretReader.value(forName: $0)
+    }
+    let fish = CommandLine.arguments.contains("--fish")
+    let lines = fish
+        ? SecretEnvResolver.exportLinesFish(result.exports)
+        : SecretEnvResolver.exportLines(result.exports)
+    if !lines.isEmpty { print(lines) }
+    exit(0)
+}
 
 if isHelp {
     fputs("""
