@@ -1,27 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
-<!--
-  Entitlements for the sibling CLI helpers bundled in the app:
-  bouclier-ai-env and bouclier-ai-secrets-mcp.
-
-  They share the app's Keychain access group so `bouclier-ai-env --secrets`
-  can read secret values the app stored (service "ai.bouclier.app") without
-  triggering a per-access user prompt. The group is Team-ID-prefixed, which
-  is what authorizes sharing for Developer ID-signed binaries from the same
-  team — no provisioning profile required.
-
-  Network client is needed by bouclier-ai-env --check (health probe).
--->
 <dict>
     <key>com.apple.developer.team-identifier</key>
     <string>U86PR842AK</string>
     <key>com.apple.security.network.client</key>
     <true/>
-    <!-- Both groups: `shared` is where the app writes new items (its first
-         group, the default write target); `ai.bouclier.app` is the legacy
-         app-identifier group where items written before this change live, so
-         the helpers can still read a user's pre-existing secrets. -->
     <key>keychain-access-groups</key>
     <array>
         <string>U86PR842AK.ai.bouclier.shared</string>

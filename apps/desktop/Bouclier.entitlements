@@ -12,11 +12,6 @@
     <true/>
     <key>com.apple.developer.system-extension.install</key>
     <true/>
-    <!-- Shared Keychain group so the sibling helpers (bouclier-ai-env,
-         bouclier-ai-secrets-mcp) can read secret values the app stores,
-         without a per-access prompt. Listing it here makes it the default
-         write group; reads still search the app-identifier group too, so
-         existing items remain readable. -->
     <key>keychain-access-groups</key>
     <array>
         <string>U86PR842AK.ai.bouclier.shared</string>
