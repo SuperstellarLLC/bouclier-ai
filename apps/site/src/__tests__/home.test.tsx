@@ -6,8 +6,14 @@ import { APP_VERSION, CATEGORY_COUNT, PATTERN_COUNT } from "@/lib/constants";
 describe("Home page", () => {
   it("renders the hero heading", () => {
     render(<Home />);
-    expect(screen.getByText(/stop prompt injections/i)).toBeInTheDocument();
-    expect(screen.getByText(/inspect what you upload to llms/i)).toBeInTheDocument();
+    expect(screen.getByText(/your ai agent can use your secrets/i)).toBeInTheDocument();
+    expect(screen.getByText(/it never sees them/i)).toBeInTheDocument();
+  });
+
+  it("leads with the secret keeper and the agent surface", () => {
+    render(<Home />);
+    expect(screen.getByText(/you keep the secret/i)).toBeInTheDocument();
+    expect(screen.getByText(/drive it from claude code/i)).toBeInTheDocument();
   });
 
   it("flags the product as beta", () => {
@@ -22,14 +28,12 @@ describe("Home page", () => {
 
   it("renders the privacy section", () => {
     render(<Home />);
-    expect(screen.getAllByText(/your prompts never leave your mac/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/nothing leaves your mac/i).length).toBeGreaterThan(0);
   });
 
   it("surfaces the trust section that pins prompt + header passthrough", () => {
     render(<Home />);
-    expect(
-      screen.getByText(/your prompts and headers reach the model unchanged/i),
-    ).toBeInTheDocument();
+    expect(screen.getByText(/what reaches the model — and what doesn/i)).toBeInTheDocument();
   });
 
   it("surfaces the attachment PII inspection section", () => {

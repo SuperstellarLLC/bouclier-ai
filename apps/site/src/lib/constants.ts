@@ -1,7 +1,7 @@
 export const APP_NAME = "Bouclier.ai";
 export const APP_VERSION = "0.6.0";
 export const APP_DESCRIPTION =
-  "Local prompt injection firewall for macOS. Scans AI API traffic, MCP tool results, and streaming responses. No data leaves your machine.";
+  "Let your AI coding agent use your secrets without ever seeing them. Bouclier runs on your Mac: keeps API keys out of the model, blocks prompt-injection attacks, and strips PII from uploads. No certificate required.";
 export const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? "https://www.bouclier.ai";
 
 /**

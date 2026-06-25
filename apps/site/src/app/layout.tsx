@@ -5,17 +5,17 @@ import { APP_NAME, APP_URL } from "@/lib/constants";
 import "./globals.css";
 
 const DESCRIPTION =
-  "Stop prompt injections. Stop PII from leaking to LLMs. Local-only macOS app. Experimental beta — not for production.";
+  "Let your AI coding agent use your secrets without ever seeing them. Local-only macOS app — keeps API keys out of the model, blocks prompt injection, strips PII. Experimental beta — not for production.";
 
 export const metadata: Metadata = {
   title: {
-    default: `${APP_NAME} (Beta) — Stop PII from leaking to LLMs`,
+    default: `${APP_NAME} (Beta) — Your AI agent uses your secrets, never sees them`,
     template: `%s | ${APP_NAME} (Beta)`,
   },
   description: DESCRIPTION,
   metadataBase: new URL(APP_URL),
   openGraph: {
-    title: `${APP_NAME} (Beta) — Stop PII from leaking to LLMs`,
+    title: `${APP_NAME} (Beta) — Your AI agent uses your secrets, never sees them`,
     description: DESCRIPTION,
     siteName: APP_NAME,
     locale: "en_US",
