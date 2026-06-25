@@ -35,6 +35,9 @@ public enum SecretEnvPaths {
     public static var rulesFile: URL { appSupportDir.appendingPathComponent("secret-rules.json") }
     /// Active env secrets the agent has requested (names only, no values).
     public static var manifestFile: URL { appSupportDir.appendingPathComponent("active-env-secrets.json") }
+    /// Read-only state snapshot the app publishes for the MCP server / CLI
+    /// to answer "is Bouclier installed/running/healthy?" (no values).
+    public static var statusFile: URL { appSupportDir.appendingPathComponent("status.json") }
 
     // MARK: - Just-in-time secret request IPC (agent ↔ app)
     //

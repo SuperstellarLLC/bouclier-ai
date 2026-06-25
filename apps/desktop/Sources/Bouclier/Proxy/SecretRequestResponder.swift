@@ -121,6 +121,15 @@ final class SecretRequestResponder: @unchecked Sendable {
             try? FileManager.default.removeItem(at: url); return
         }
         guard let data = try? Data(contentsOf: url) else { return }
+
+        // An "action" key marks a generalized approval-action envelope
+        // (e.g. enable_protection) rather than a secret request. Both live
+        // in requests/; route by shape.
+        if let peek = try? JSONDecoder().decode(IPCEnvelopePeek.self, from: data), peek.action != nil {
+            handleAction(data: data, url: url)
+            return
+        }
+
         switch SecretRequestValidator.validate(data: data) {
         case .failure:
             // Reply immediately (don't make the agent wait out its timeout)
@@ -135,6 +144,39 @@ final class SecretRequestResponder: @unchecked Sendable {
                 let resp = await SecretApprovalCoordinator.shared.present(req)
                 self?.writeResponse(resp, requestURL: url)
             }
+        }
+    }
+
+    private func handleAction(data: Data, url: URL) {
+        guard let req = try? JSONDecoder().decode(ActionRequestIPC.self, from: data), !req.id.isEmpty else {
+            try? FileManager.default.removeItem(at: url); return
+        }
+        // Reject stale actions outright (clock-skew tolerant), same spirit as
+        // the secret validator — an old enable request shouldn't fire.
+        if Date().timeIntervalSince1970 - req.createdAt > 150 {
+            writeActionResponse(ActionResponseIPC(id: req.id, action: req.action, status: .invalid,
+                                                  message: "Request expired before it was seen."), requestURL: url)
+            return
+        }
+        // Clamp untrusted agent-supplied text before it reaches the dialog
+        // (the secret path clamps via SecretRequestValidator; mirror it here).
+        let safe = ActionRequestIPC(
+            id: req.id, schemaVersion: req.schemaVersion, action: req.action,
+            params: req.params.filter { $0.key.count <= 64 }.mapValues { String($0.prefix(256)) },
+            reason: String(req.reason.prefix(2000)), createdAt: req.createdAt)
+        Task { @MainActor [weak self] in
+            let resp = await ActionApprovalRouter.present(safe)
+            self?.writeActionResponse(resp, requestURL: url)
+        }
+    }
+
+    private func writeActionResponse(_ resp: ActionResponseIPC, requestURL: URL) {
+        queue.async { [weak self] in
+            guard let self else { return }
+            if let data = try? JSONEncoder().encode(resp) {
+                try? AtomicFile.write(data, to: self.responsesDir.appendingPathComponent("\(resp.id).json"))
+            }
+            try? FileManager.default.removeItem(at: requestURL)
         }
     }
 

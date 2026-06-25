@@ -11,6 +11,7 @@ let package = Package(
         .executable(name: "bouclier-ai-mcp-wrapper", targets: ["MCPWrapper"]),
         .executable(name: "bouclier-ai-env", targets: ["EnvHelper"]),
         .executable(name: "bouclier-ai-secrets-mcp", targets: ["SecretsMCP"]),
+        .executable(name: "bouclier", targets: ["BouclierCLI"]),
     ],
     dependencies: [
         .package(url: "https://github.com/groue/GRDB.swift.git", from: "7.0.0"),
@@ -76,6 +77,14 @@ let package = Package(
             name: "SecretsMCP",
             dependencies: ["BouclierSecretsCore"],
             path: "Sources/SecretsMCP",
+            swiftSettings: [
+                .swiftLanguageMode(.v6),
+            ]
+        ),
+        .executableTarget(
+            name: "BouclierCLI",
+            dependencies: ["BouclierSecretsCore"],
+            path: "Sources/BouclierCLI",
             swiftSettings: [
                 .swiftLanguageMode(.v6),
             ]

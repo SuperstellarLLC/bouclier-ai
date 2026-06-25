@@ -21,17 +21,28 @@ public struct SecretsMCPHandler: Sendable {
     /// Bouclier's own dialog. Returns nil if Bouclier isn't reachable. The
     /// response carries only names/status — never values.
     public var requestSecrets: @Sendable (_ envVars: [String], _ reason: String, _ generate: Bool) -> SecretResponseIPC?
+    /// Read the app's published status snapshot (running/mode/health/counts).
+    /// Read-only — the agent's orientation primitive.
+    public var loadStatus: @Sendable () -> StatusReader.State
+    /// Propose a protection-ENABLE the user approves out-of-band. Returns nil
+    /// if Bouclier isn't reachable. There is deliberately NO propose-disable:
+    /// the agent can never weaken its own firewall.
+    public var proposeEnable: @Sendable (_ mode: String, _ reason: String) -> ActionResponseIPC?
 
     public init(
         loadRules: @escaping @Sendable () -> [SecretRuleMeta],
         loadActive: @escaping @Sendable () -> [String],
         saveActive: @escaping @Sendable ([String]) -> Void,
-        requestSecrets: @escaping @Sendable (_ envVars: [String], _ reason: String, _ generate: Bool) -> SecretResponseIPC? = { _, _, _ in nil }
+        requestSecrets: @escaping @Sendable (_ envVars: [String], _ reason: String, _ generate: Bool) -> SecretResponseIPC? = { _, _, _ in nil },
+        loadStatus: @escaping @Sendable () -> StatusReader.State = { .notRunning(reason: "Bouclier is not running") },
+        proposeEnable: @escaping @Sendable (_ mode: String, _ reason: String) -> ActionResponseIPC? = { _, _ in nil }
     ) {
         self.loadRules = loadRules
         self.loadActive = loadActive
         self.saveActive = saveActive
         self.requestSecrets = requestSecrets
+        self.loadStatus = loadStatus
+        self.proposeEnable = proposeEnable
     }
 
     /// Production wiring: rules from `secret-rules.json`, manifest from
@@ -44,6 +55,10 @@ public struct SecretsMCPHandler: Sendable {
             requestSecrets: { envVars, reason, generate in
                 // Unreachable app / I/O error ⇒ nil (the tool reports it).
                 try? SecretRequestClient.request(envVars: envVars, reason: reason, generate: generate)
+            },
+            loadStatus: { StatusReader.read() },
+            proposeEnable: { mode, reason in
+                try? ActionClient.request(action: "enable_protection", params: ["mode": mode], reason: reason)
             }
         )
     }
@@ -93,6 +108,12 @@ public struct SecretsMCPHandler: Sendable {
         let args = params["arguments"] as? [String: Any] ?? [:]
 
         switch name {
+        case "status":
+            return toolText(id, statusText())
+
+        case "enable_protection":
+            return enableProtectionTool(id, mode: args["mode"] as? String ?? "standard", reason: args["reason"] as? String ?? "")
+
         case "list_secrets":
             return toolText(id, listSecretsText())
 
@@ -151,6 +172,44 @@ public struct SecretsMCPHandler: Sendable {
             return toolText(id, "The secret request timed out — the user may be away. Don't re-request automatically; ask them to retry when they're ready.", isError: true)
         case .invalid:
             return toolText(id, "Bouclier rejected the request before showing it (the env-var names may be malformed or the request expired). Check the names and try once — don't loop.", isError: true)
+        }
+    }
+
+    /// Human-readable orientation summary. Counts only — never a value.
+    private func statusText() -> String {
+        switch loadStatus() {
+        case .notRunning(let reason):
+            return "Bouclier is installed but not active: \(reason). Ask the user to open the Bouclier app (or call enable_protection to propose turning it on). Until then, secrets aren't protected."
+        case .running(let s):
+            var lines = ["Bouclier \(s.appVersion) — \(s.running ? "protection ON" : "protection OFF") (\(s.mode) mode)."]
+            let sk = s.secretKeeper
+            if sk.circuitBreakerTripped {
+                lines.append("⚠️ Secret keeper tripped a safety self-test — secrets are NOT being protected right now.")
+            } else {
+                lines.append("Secret keeper: \(sk.enabled ? (sk.healthy ? "on and healthy" : "on but unhealthy") : "off").")
+            }
+            lines.append("Secrets: \(s.secrets.total) stored, \(s.secrets.agentAccessible) you can use, \(s.secrets.active) active in shells.")
+            lines.append("Activity: \(s.activity.requestsScanned) requests inspected, \(s.activity.secretsScrubbed) secrets scrubbed, \(s.activity.injectionsBlocked + s.activity.secretsBlocked) blocked.")
+            if !s.running {
+                lines.append("Protection is OFF — call enable_protection to propose turning it on (the user approves).")
+            }
+            return lines.joined(separator: "\n")
+        }
+    }
+
+    private func enableProtectionTool(_ id: Any?, mode: String, reason: String) -> [String: Any] {
+        guard let resp = proposeEnable(mode, reason) else {
+            return toolText(id, "Bouclier isn't running, so it can't ask the user. Ask them to open the Bouclier app, then retry once.", isError: true)
+        }
+        switch resp.status {
+        case .approved:
+            return toolText(id, resp.message)
+        case .declined:
+            return toolText(id, "The user declined to enable protection. Don't retry unless they ask.", isError: true)
+        case .timeout:
+            return toolText(id, "No response — the user may be away. Don't auto-retry; ask them to enable Bouclier when ready.", isError: true)
+        case .invalid, .unsupported:
+            return toolText(id, resp.message.isEmpty ? "Bouclier could not enable protection." : resp.message, isError: true)
         }
     }
 
@@ -220,9 +279,28 @@ public struct SecretsMCPHandler: Sendable {
 
     public static var toolDefinitions: [[String: Any]] { [
         [
+            "name": "status",
+            "description": "Read Bouclier's current state so you can orient yourself before acting: whether protection is on, which mode (standard/extreme), secret-keeper health, how many secrets you can use, and activity counts. Call this FIRST. Secret values are never returned. If it reports protection is off, you can call enable_protection to propose turning it on.",
+            "inputSchema": ["type": "object", "properties": [String: Any](), "additionalProperties": false],
+            "annotations": ["title": "Bouclier Status", "readOnlyHint": true, "openWorldHint": false],
+        ],
+        [
             "name": "list_secrets",
             "description": "List the secret names Bouclier can inject into your shell environment, with the environment-variable name each maps to and whether you're allowed to use it. Secret VALUES are never returned — only names. Call this first to discover what's available.",
             "inputSchema": ["type": "object", "properties": [String: Any](), "additionalProperties": false],
+            "annotations": ["title": "List Secrets", "readOnlyHint": true, "openWorldHint": false],
+        ],
+        [
+            "name": "enable_protection",
+            "description": "Propose turning Bouclier protection ON. Bouclier asks the USER to approve in a dialog — you cannot enable it yourself. Use when status reports protection is off and the user wants their AI traffic protected. (Bouclier never lets an agent DISABLE protection or change modes — that's the user's job, by design.)",
+            "inputSchema": [
+                "type": "object",
+                "properties": [
+                    "mode": ["type": "string", "description": "Requested mode; only \"standard\" is honored from an agent."],
+                    "reason": ["type": "string", "description": "A short, honest explanation shown to the user."],
+                ],
+            ],
+            "annotations": ["title": "Enable Protection (user approval)", "readOnlyHint": false, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false],
         ],
         [
             "name": "set_env",
@@ -238,11 +316,13 @@ public struct SecretsMCPHandler: Sendable {
                 ],
                 "required": ["secrets"],
             ],
+            "annotations": ["title": "Activate Secrets", "readOnlyHint": false, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false],
         ],
         [
             "name": "clear_env",
             "description": "Deactivate all secret environment variables previously set via set_env.",
             "inputSchema": ["type": "object", "properties": [String: Any]()],
+            "annotations": ["title": "Deactivate Secrets", "readOnlyHint": false, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false],
         ],
         [
             "name": "request_secret",
@@ -256,6 +336,7 @@ public struct SecretsMCPHandler: Sendable {
                 ],
                 "required": ["env_var"],
             ],
+            "annotations": ["title": "Request a Secret (user approval)", "readOnlyHint": false, "destructiveHint": false, "idempotentHint": false, "openWorldHint": false],
         ],
         [
             "name": "request_secrets",
@@ -273,6 +354,7 @@ public struct SecretsMCPHandler: Sendable {
                 ],
                 "required": ["env_vars"],
             ],
+            "annotations": ["title": "Request Secrets (user approval)", "readOnlyHint": false, "destructiveHint": false, "idempotentHint": false, "openWorldHint": false],
         ],
     ] }
 }

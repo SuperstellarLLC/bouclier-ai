@@ -60,6 +60,7 @@ final class ProxyManager: ObservableObject {
     /// whole app lifetime so an agent can request a secret even with
     /// protection off. Started once in `initializeStorage`.
     private var secretRequestResponder: SecretRequestResponder?
+    private var statusPublisher: StatusPublisher?
     private var proxyChannel: Channel?
     let ca = CertificateAuthority()
     let extensionManager = ExtensionManager()
@@ -123,6 +124,19 @@ final class ProxyManager: ObservableObject {
         secretRequestResponder = SecretRequestResponder()
         secretRequestResponder?.start()
 
+        // Publish the read-only status snapshot for the MCP server / CLI, and
+        // wire the one agent-proposable state change (enable protection) to
+        // the approval dialog. The agent proposes; the human approves here;
+        // the app — never the agent — performs the enable.
+        statusPublisher = StatusPublisher(snapshot: { [weak self] in self?.statusSnapshot() ?? Self.emptyStatus() })
+        statusPublisher?.start()
+        ProtectionApprovalCoordinator.shared.onEnable = { [weak self] mode in
+            guard let self else { return (false, "Bouclier is not available.") }
+            self.enableStandard()
+            self.statusPublisher?.refresh()
+            return (true, "Protection enabled in \(mode) mode. Open a new terminal so your tools pick it up.")
+        }
+
         Task {
             await extensionManager.checkStatus()
             extensionActive = extensionManager.proxyEnabled
@@ -180,6 +194,41 @@ final class ProxyManager: ObservableObject {
         UserDefaults.standard.set(false, forKey: Self.protectionEnabledKey)
         stop()
         log("Standard protection disabled", blocked: false)
+    }
+
+    /// Build the read-only snapshot the StatusPublisher writes. Counts only —
+    /// never a secret value.
+    func statusSnapshot() -> BouclierStatus {
+        let rules = SecretStore.shared.rules()
+        let active = SecretEnvManifest.load()
+        return BouclierStatus(
+            writtenAt: Date().timeIntervalSince1970,
+            pid: getpid(),
+            appVersion: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—",
+            running: isRunning,
+            mode: ProxyMode.current.rawValue,
+            caInstalled: caInstalled,
+            protectionEnabled: UserDefaults.standard.bool(forKey: Self.protectionEnabledKey),
+            secretKeeper: .init(enabled: FeatureFlags.secretInjection,
+                                healthy: secretKeeperHealthy,
+                                circuitBreakerTripped: SecretKeeperMonitor.isTripped),
+            secrets: .init(total: rules.count,
+                           agentAccessible: rules.filter { $0.agentAccess }.count,
+                           active: active.count),
+            activity: .init(requestsScanned: stats.requestsScanned,
+                            injectionsBlocked: stats.injectionsBlocked,
+                            secretsScrubbed: stats.secretsScrubbed,
+                            secretsInjected: stats.secretsInjected,
+                            secretsBlocked: stats.secretsBlocked))
+    }
+
+    static func emptyStatus() -> BouclierStatus {
+        BouclierStatus(
+            writtenAt: Date().timeIntervalSince1970, pid: getpid(), appVersion: "—",
+            running: false, mode: ProxyMode.current.rawValue, caInstalled: false, protectionEnabled: false,
+            secretKeeper: .init(enabled: false, healthy: true, circuitBreakerTripped: false),
+            secrets: .init(total: 0, agentAccessible: 0, active: 0),
+            activity: .init(requestsScanned: 0, injectionsBlocked: 0, secretsScrubbed: 0, secretsInjected: 0, secretsBlocked: 0))
     }
 
     /// Switch proxy mode at runtime: persist the choice, restart the
@@ -483,6 +532,7 @@ final class ProxyManager: ObservableObject {
             _ = SystemProxy.disableAll()
             ShellEnvInjector.unsetLaunchctl()
             try? FileManager.default.removeItem(at: SecretEnvPaths.responderPidFile)
+            try? FileManager.default.removeItem(at: SecretEnvPaths.statusFile)
             exit(0)
         }
 
@@ -490,8 +540,9 @@ final class ProxyManager: ObservableObject {
         atexit {
             _ = SystemProxy.disableAll()
             ShellEnvInjector.unsetLaunchctl()
-            // Drop the liveness pid file so the MCP client fails fast.
+            // Drop the liveness pid + status files so readers fail fast.
             try? FileManager.default.removeItem(at: SecretEnvPaths.responderPidFile)
+            try? FileManager.default.removeItem(at: SecretEnvPaths.statusFile)
         }
     }
 

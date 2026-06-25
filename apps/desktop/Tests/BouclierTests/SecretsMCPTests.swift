@@ -178,11 +178,51 @@ struct SecretsMCPHandlerTests {
         #expect(info?["name"] as? String == "bouclier-secrets")
     }
 
-    @Test("tools/list exposes all five tools")
+    @Test("tools/list exposes all tools with correct safety annotations")
     func toolsList() {
         let r = makeHandler(Box()).handle(["jsonrpc": "2.0", "id": 2, "method": "tools/list"])
-        let tools = (result(r)?["tools"] as? [[String: Any]])?.compactMap { $0["name"] as? String } ?? []
-        #expect(Set(tools) == ["list_secrets", "set_env", "clear_env", "request_secret", "request_secrets"])
+        let defs = (result(r)?["tools"] as? [[String: Any]]) ?? []
+        let tools = defs.compactMap { $0["name"] as? String }
+        #expect(Set(tools) == ["status", "list_secrets", "enable_protection", "set_env", "clear_env", "request_secret", "request_secrets"])
+        // There is NO disable / install-CA / read-value tool by construction.
+        #expect(!tools.contains("disable_protection"))
+        #expect(!tools.contains { $0.contains("value") })
+
+        func ann(_ name: String) -> [String: Any] { (defs.first { $0["name"] as? String == name }?["annotations"] as? [String: Any]) ?? [:] }
+        #expect(ann("status")["readOnlyHint"] as? Bool == true)
+        #expect(ann("list_secrets")["readOnlyHint"] as? Bool == true)
+        #expect(ann("enable_protection")["readOnlyHint"] as? Bool == false)
+        // Nothing is openWorld — it's all local.
+        for name in tools { #expect(ann(name)["openWorldHint"] as? Bool == false, "\(name) should be closed-world") }
+    }
+
+    @Test("status reports running state without any secret value")
+    func statusTool() {
+        let snapshot = BouclierStatus(
+            writtenAt: 1, pid: 1, appVersion: "1.2.3", running: true, mode: "standard",
+            caInstalled: false, protectionEnabled: true,
+            secretKeeper: .init(enabled: true, healthy: true, circuitBreakerTripped: false),
+            secrets: .init(total: 2, agentAccessible: 2, active: 1),
+            activity: .init(requestsScanned: 5, injectionsBlocked: 0, secretsScrubbed: 3, secretsInjected: 0, secretsBlocked: 0))
+        let h = SecretsMCPHandler(loadRules: { [] }, loadActive: { [] }, saveActive: { _ in },
+                                  loadStatus: { .running(snapshot) })
+        let r = h.handle(["jsonrpc": "2.0", "id": 9, "method": "tools/call", "params": ["name": "status"]])
+        let text = toolText(r)
+        #expect(text.contains("protection ON"))
+        #expect(text.contains("standard"))
+    }
+
+    @Test("enable_protection surfaces approval outcomes; never enables on its own")
+    func enableProtectionTool() {
+        func h(_ resp: ActionResponseIPC?) -> SecretsMCPHandler {
+            SecretsMCPHandler(loadRules: { [] }, loadActive: { [] }, saveActive: { _ in }, proposeEnable: { _, _ in resp })
+        }
+        func call(_ handler: SecretsMCPHandler) -> [String: Any]? {
+            handler.handle(["jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": ["name": "enable_protection", "arguments": ["mode": "standard"]]])
+        }
+        #expect(toolText(call(h(ActionResponseIPC(id: "x", action: "enable_protection", status: .approved, message: "Protection enabled.")))).contains("enabled"))
+        #expect(result(call(h(ActionResponseIPC(id: "x", action: "enable_protection", status: .declined, message: "no"))))?["isError"] as? Bool == true)
+        #expect(result(call(h(nil)))?["isError"] as? Bool == true)   // app unreachable
     }
 
     @Test("notifications/initialized produces no reply")

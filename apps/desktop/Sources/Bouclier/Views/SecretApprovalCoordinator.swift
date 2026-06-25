@@ -74,11 +74,20 @@ final class SecretApprovalCoordinator {
         var provided: [String] = []
         var skipped: [String] = []
         var activatedRuleNames: [String] = []
+        let existingByName = Dictionary(SecretStore.shared.rules().map { ($0.name, $0) }, uniquingKeysWith: { a, _ in a })
         for envVar in request.envVars {
             let value = values[envVar] ?? ""
             guard !value.isEmpty else { skipped.append(envVar); continue }
             let ruleName = envVar.lowercased()   // validator guarantees [A-Za-z_][A-Za-z0-9_]* → valid rule name
-            if SecretStore.shared.addSecret(name: ruleName, value: value, allowedHosts: [], agentAccess: true, envVar: envVar) {
+            // Re-provisioning must NEVER widen a secret's policy. If a rule
+            // already exists, preserve its agentAccess + allowedHosts; and a
+            // LOCKED secret can't be re-provisioned to unlock itself (the
+            // agent proposing the request must not be able to flip the gate).
+            let existing = existingByName[ruleName]
+            let policy = SecretReprovisionPolicy.decide(existingAgentAccess: existing?.agentAccess,
+                                                        existingAllowedHosts: existing?.allowedHosts)
+            guard policy.store else { skipped.append(envVar); continue }   // LOCKED → refuse
+            if SecretStore.shared.addSecret(name: ruleName, value: value, allowedHosts: policy.allowedHosts, agentAccess: policy.agentAccess, envVar: envVar) {
                 provided.append(envVar)
                 activatedRuleNames.append(ruleName)
                 if !persist { SessionSecrets.add(ruleName) }
