@@ -86,6 +86,9 @@ is still a successful read); use the `state` field to branch.
 
 ## Install / discovery
 
-`bouclier install` symlinks `/usr/local/bin/bouclier` (so Bash agents find
-it on `PATH`) and prints the `claude mcp add` line for the MCP server.
-`which bouclier` answers "installed?"; `bouclier status` answers "running?".
+`bouclier install` prints the two commands to run: the `sudo ln -s …` to put
+`bouclier` on your `PATH` (so Bash agents find it) and the `claude mcp add …`
+to register the MCP server. It's print-only by design — the CLI doesn't
+mutate `/usr/local/bin` itself (that's a privileged step a human should run).
+Afterward, `which bouclier` answers "installed?"; `bouclier status` answers
+"running?".
