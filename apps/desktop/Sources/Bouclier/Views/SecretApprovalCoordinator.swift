@@ -225,36 +225,17 @@ private struct SecretApprovalForm: View {
                     .foregroundStyle(.secondary)
             }
 
-            ForEach(request.envVars, id: \.self) { name in
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("$\(name)").font(.system(.caption, design: .monospaced)).foregroundStyle(.secondary)
-                    HStack(spacing: 6) {
-                        Group {
-                            if revealed.contains(name) {
-                                TextField("Paste value for \(name)", text: binding(name))
-                            } else {
-                                SecureField("Paste value for \(name)", text: binding(name))
-                            }
-                        }
-                        .textFieldStyle(.roundedBorder)
-                        .focused($focused, equals: name)
-                        .onSubmit { advance(after: name) }
-
-                        Button {
-                            if revealed.contains(name) { revealed.remove(name) } else { revealed.insert(name) }
-                        } label: {
-                            Image(systemName: revealed.contains(name) ? "eye.slash" : "eye")
-                        }
-                        .buttonStyle(.borderless)
-                        .help(revealed.contains(name) ? "Hide" : "Show")
-
-                        Button { generate(into: name) } label: {
-                            Image(systemName: "arrow.clockwise")
-                        }
-                        .buttonStyle(.borderless)
-                        .help("Generate a random value")
-                    }
+            // Many env vars (e.g. provisioning a whole project) must stay
+            // usable: scroll the field list instead of letting the panel grow
+            // taller than the screen.
+            if request.envVars.count > 6 {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 10) { fieldRows }
+                        .padding(.trailing, 6)
                 }
+                .frame(maxHeight: 340)
+            } else {
+                fieldRows
             }
 
             if let genError {
@@ -297,6 +278,40 @@ private struct SecretApprovalForm: View {
                 }
             }
             focused = request.envVars.first
+        }
+    }
+
+    @ViewBuilder private var fieldRows: some View {
+        ForEach(request.envVars, id: \.self) { name in
+            VStack(alignment: .leading, spacing: 3) {
+                Text("$\(name)").font(.system(.caption, design: .monospaced)).foregroundStyle(.secondary)
+                HStack(spacing: 6) {
+                    Group {
+                        if revealed.contains(name) {
+                            TextField("Paste value for \(name)", text: binding(name))
+                        } else {
+                            SecureField("Paste value for \(name)", text: binding(name))
+                        }
+                    }
+                    .textFieldStyle(.roundedBorder)
+                    .focused($focused, equals: name)
+                    .onSubmit { advance(after: name) }
+
+                    Button {
+                        if revealed.contains(name) { revealed.remove(name) } else { revealed.insert(name) }
+                    } label: {
+                        Image(systemName: revealed.contains(name) ? "eye.slash" : "eye")
+                    }
+                    .buttonStyle(.borderless)
+                    .help(revealed.contains(name) ? "Hide" : "Show")
+
+                    Button { generate(into: name) } label: {
+                        Image(systemName: "arrow.clockwise")
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Generate a random value")
+                }
+            }
         }
     }
 
