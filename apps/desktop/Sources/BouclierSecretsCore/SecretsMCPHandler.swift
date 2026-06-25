@@ -153,26 +153,39 @@ public struct SecretsMCPHandler: Sendable {
     /// receives a value — on success the values are already in the Keychain
     /// and active for new shells; the agent just uses $ENV_VAR.
     private func requestSecretsTool(_ id: Any?, _ envVars: [String], reason: String, generate: Bool) -> [String: Any] {
-        guard let resp = requestSecrets(envVars, reason, generate) else {
+        // Large sets are split across as many approval dialogs as needed and
+        // aggregated — nothing is ever silently dropped.
+        let outcome = SecretBatchRequest.requestAll(envVars: envVars, reason: reason, generate: generate) { batch, r, g in
+            requestSecrets(batch, r, g)
+        }
+
+        // Couldn't reach the app at all.
+        if !outcome.reachable && outcome.provided.isEmpty && outcome.skipped.isEmpty {
             return toolText(id, "Bouclier isn't running, so it can't prompt the user for secrets. Ask the user to open the Bouclier app and tell you when it's ready before retrying.", isError: true)
         }
-        switch resp.status {
-        case .provided:
-            guard !resp.provided.isEmpty else {
-                return toolText(id, "No secrets were set — the user left the fields blank, or the values couldn't be stored. Don't assume they're available.", isError: true)
-            }
-            var msg = "The user provided \(resp.provided.map { "$\($0)" }.joined(separator: ", ")) — now available in NEW shells you spawn (run your command in a fresh shell; an already-open shell won't have them). The values were entered by the user and were never shown to you."
-            if !resp.skipped.isEmpty {
-                msg += " Left blank: \(resp.skipped.map { "$\($0)" }.joined(separator: ", "))."
-            }
-            return toolText(id, msg)
-        case .cancelled:
-            return toolText(id, "The user declined the secret request. Do not retry unless asked.", isError: true)
-        case .timeout:
-            return toolText(id, "The secret request timed out — the user may be away. Don't re-request automatically; ask them to retry when they're ready.", isError: true)
-        case .invalid:
-            return toolText(id, "Bouclier rejected the request before showing it (the env-var names may be malformed or the request expired). Check the names and try once — don't loop.", isError: true)
+
+        func list(_ xs: [String]) -> String { xs.map { "$\($0)" }.joined(separator: ", ") }
+        var parts: [String] = []
+        if !outcome.provided.isEmpty {
+            parts.append("Set \(list(outcome.provided)) — now available in NEW shells you spawn (run your command in a fresh shell; an already-open shell won't have them). The values were entered by the user and were never shown to you.")
         }
+        if !outcome.skipped.isEmpty {
+            parts.append("Left blank by the user: \(list(outcome.skipped)).")
+        }
+        if !outcome.pending.isEmpty {
+            let why = outcome.reachable ? "you stopped/declined before finishing" : "Bouclier became unavailable"
+            parts.append("Still NOT set (\(why)): \(list(outcome.pending)) — re-request just these when the user is ready; don't loop automatically.")
+        }
+        if outcome.batches > 1 {
+            parts.append("(Handled across \(outcome.batches) approval dialogs.)")
+        }
+
+        // Error only when nothing at all got set.
+        let isError = outcome.provided.isEmpty
+        if parts.isEmpty {
+            return toolText(id, "No secrets were set — the user left everything blank, or the values couldn't be stored. Don't assume they're available.", isError: true)
+        }
+        return toolText(id, parts.joined(separator: " "), isError: isError)
     }
 
     /// Human-readable orientation summary. Counts only — never a value.

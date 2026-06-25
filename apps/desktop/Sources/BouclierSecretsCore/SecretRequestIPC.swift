@@ -168,7 +168,7 @@ public enum SecretRequestValidator {
     public static let maxReasonChars = 2000
     public static let staleAfterSeconds: Double = 150  // older than this ⇒ requester gave up
 
-    public enum Rejection: Error, Equatable { case tooLarge, malformed, stale, noValidEnvVars }
+    public enum Rejection: Error, Equatable { case tooLarge, malformed, stale, noValidEnvVars, tooMany }
 
     /// Validate raw request bytes. Returns a sanitized request (deduped,
     /// valid env-var names only, clamped reason) or a rejection reason.
@@ -183,8 +183,11 @@ public enum SecretRequestValidator {
         var seen = Set<String>()
         let names = req.envVars
             .filter { SecretEnvResolver.isValidEnvName($0) && seen.insert($0).inserted }
-            .prefix(maxEnvVars)
         guard !names.isEmpty else { return .failure(.noValidEnvVars) }
+        // Never silently drop: reject an over-cap single transfer clearly.
+        // The agent-facing client batches large sets to stay under this, so
+        // this is a defensive net, not the normal path.
+        guard names.count <= maxEnvVars else { return .failure(.tooMany) }
         let reason = String(req.reason.prefix(maxReasonChars))
         return .success(SecretRequestIPC(id: req.id, envVars: Array(names), reason: reason, createdAt: req.createdAt, generate: req.generate))
     }

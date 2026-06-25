@@ -142,23 +142,29 @@ public enum CLICore {
             let reason = popValue(&rest, "--reason") ?? ""
             let envVars = rest.filter { !$0.hasPrefix("-") }
             guard !envVars.isEmpty else { return usage(CLIExit.usage, error: "request needs at least one ENV_VAR name") }
-            guard let resp = env.requestSecrets(envVars, reason, generate, pendingTimeout) else {
+            let timeout = pendingTimeout
+            // Any number of vars: split into as many approval dialogs as
+            // needed, aggregate, never drop.
+            let outcome = SecretBatchRequest.requestAll(envVars: envVars, reason: reason, generate: generate) { batch, r, g in
+                env.requestSecrets(batch, r, g, timeout)
+            }
+            if !outcome.reachable && outcome.provided.isEmpty && outcome.skipped.isEmpty {
                 return result(json, CLIExit.notRunning, state: "not_running", message: "Bouclier isn't running — ask the user to open it.")
             }
-            switch resp.status {
-            case .provided where !resp.provided.isEmpty:
-                return result(json, CLIExit.ok, state: "provided",
-                              message: "Provided: \(resp.provided.map { "$\($0)" }.joined(separator: ", ")). Use them in a NEW shell.",
-                              extra: ["provided": resp.provided, "skipped": resp.skipped])
-            case .provided:
-                return result(json, CLIExit.runtime, state: "empty", message: "Nothing was set (left blank or couldn't store).")
-            case .cancelled:
-                return result(json, CLIExit.declined, state: "declined", message: "The user declined.")
-            case .timeout:
-                return result(json, CLIExit.timeout, state: "timeout", message: "No response — don't auto-retry.")
-            case .invalid:
-                return result(json, CLIExit.usage, state: "invalid", message: "Bouclier rejected the request (bad names or expired).")
-            }
+            func l(_ xs: [String]) -> String { xs.map { "$\($0)" }.joined(separator: ", ") }
+            var msgParts: [String] = []
+            if !outcome.provided.isEmpty { msgParts.append("Provided: \(l(outcome.provided)) (use in a NEW shell).") }
+            if !outcome.skipped.isEmpty { msgParts.append("Left blank: \(l(outcome.skipped)).") }
+            if !outcome.pending.isEmpty { msgParts.append("Still pending: \(l(outcome.pending)) — re-request these.") }
+            let extra: [String: Any] = ["provided": outcome.provided, "skipped": outcome.skipped, "pending": outcome.pending, "batches": outcome.batches]
+            // Exit code reflects whether ANY secret was set.
+            let code: Int32
+            let state: String
+            if !outcome.provided.isEmpty { code = CLIExit.ok; state = outcome.pending.isEmpty ? "provided" : "partial" }
+            else if outcome.interruptedBy == .timeout { code = CLIExit.timeout; state = "timeout" }
+            else if !outcome.reachable { code = CLIExit.notRunning; state = "not_running" }
+            else { code = CLIExit.declined; state = "declined" }
+            return result(json, code, state: state, message: msgParts.joined(separator: " "), extra: extra)
         default:
             return usage(CLIExit.usage, error: "Unknown secrets subcommand: \(sub)")
         }

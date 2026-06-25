@@ -45,6 +45,22 @@ The value reaches your subprocess environment via the Keychain at shell
 init — it never passes through the MCP channel, the CLI output, or the
 model's context.
 
+### Requesting many secrets at once
+
+`request_secrets` accepts any number of env vars. A single approval dialog
+is capped for sanity, so large sets are split into as many dialogs as
+needed and the results are **aggregated** — nothing is ever silently
+dropped. The response (and `--json`) accounts for every var:
+
+- **provided** — the user supplied a value; available in new shells.
+- **skipped** — the user deliberately left the field blank.
+- **pending** — not resolved because the user stopped/declined or the app
+  went away. Re-request _just these_; don't loop.
+
+So `request_secrets(["A",…,"Z", … 80 vars])` completes across multiple
+approvals and tells you exactly what landed and what's left — no truncation,
+no dead-end error.
+
 ## Status snapshot
 
 The app publishes a read-only `status.json` (5s heartbeat) that the MCP
