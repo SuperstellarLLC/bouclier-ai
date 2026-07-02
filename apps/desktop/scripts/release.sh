@@ -18,8 +18,6 @@ set -euo pipefail
 #   - Provisioning profiles in profiles/
 #   - App-specific password (appleid.apple.com → App-Specific Passwords)
 #   - vercel CLI authenticated
-#   - HuggingFace access to meta-llama/Llama-Prompt-Guard-2-86M
-#     (first release only; subsequent builds reuse the cached .mlpackage)
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
@@ -67,20 +65,11 @@ echo "▸ Bumping version to ${VERSION}..."
 sed -i '' "s/APP_VERSION = \".*\"/APP_VERSION = \"${VERSION}\"/" "$REPO_ROOT/apps/site/src/lib/constants.ts"
 sed -i '' "s/<key>CFBundleShortVersionString<\/key>.*/<key>CFBundleShortVersionString<\/key>/" "$PROJECT_DIR/Sources/Bouclier/Resources/Info.plist"
 sed -i '' "/<key>CFBundleShortVersionString<\/key>/{n;s|<string>.*</string>|<string>${VERSION}</string>|;}" "$PROJECT_DIR/Sources/Bouclier/Resources/Info.plist"
-sed -i '' "/<key>CFBundleShortVersionString<\/key>/{n;s|<string>.*</string>|<string>${VERSION}</string>|;}" "$PROJECT_DIR/Sources/BouclierExtension/GeneratedInfo.plist"
-echo "  ✓ Version bumped in constants.ts + plists"
+echo "  ✓ Version bumped in constants.ts + Info.plist"
 echo ""
 
-# ── Step 1: Ensure CoreML model is built ────────
-# The .mlpackage is gitignored (too large for GitHub) but must exist on
-# disk for swift build to bundle it into the app. ensure-model.sh is a
-# no-op when the model is already present, so this is free on reruns.
-echo "▸ Step 1/6: Ensuring CoreML model is present..."
-"$SCRIPT_DIR/ensure-model.sh"
-echo ""
-
-# ── Step 2: Build + Sign ────────────────────────
-echo "▸ Step 2/6: Building and signing..."
+# ── Step 1: Build + Sign ────────────────────────
+echo "▸ Step 1/5: Building and signing..."
 VERSION="$VERSION" "$SCRIPT_DIR/build-app.sh" --release --sign
 echo "  ✓ App built and signed at $APP"
 echo ""
@@ -89,7 +78,7 @@ echo ""
 # We notarize the app as a zip first, then staple the ticket onto the
 # .app before packaging the DMG. This way the app inside the DMG has
 # the notarization ticket embedded and Gatekeeper won't block it.
-echo "▸ Step 3/6: Notarizing app..."
+echo "▸ Step 2/5: Notarizing app..."
 APP_ZIP="$PROJECT_DIR/build/Bouclier-ai-notarize.zip"
 ditto -c -k --keepParent "$APP" "$APP_ZIP"
 
@@ -107,7 +96,7 @@ echo "  ✓ App notarized and stapled"
 echo ""
 
 # ── Step 3: Create DMG with Applications shortcut ──
-echo "▸ Step 4/6: Creating DMG..."
+echo "▸ Step 3/5: Creating DMG..."
 rm -f "$DMG"
 
 DMG_STAGE="$PROJECT_DIR/build/dmg-stage"
@@ -125,7 +114,7 @@ echo "  ✓ Notarized and stapled"
 echo ""
 
 # ── Step 4: Sparkle sign + appcast ──────────────
-echo "▸ Step 5/6: Signing for Sparkle and generating appcast..."
+echo "▸ Step 4/5: Signing for Sparkle and generating appcast..."
 VERSION="$VERSION" DOWNLOAD_BASE_URL="$DOWNLOAD_BASE_URL" "$SCRIPT_DIR/publish-update.sh"
 echo ""
 
@@ -142,7 +131,7 @@ echo ""
 DOWNLOAD_PATH=$(echo "$DOWNLOAD_BASE_URL" | sed -E 's|^https?://[^/]+||; s|^/||; s|/$||')
 UPLOAD_PATHNAME="${DOWNLOAD_PATH:+${DOWNLOAD_PATH}/}Bouclier-ai-v${VERSION}-macOS.dmg"
 
-echo "▸ Step 6/6: Uploading DMG to Vercel Blob..."
+echo "▸ Step 5/5: Uploading DMG to Vercel Blob..."
 echo "  Target pathname: $UPLOAD_PATHNAME"
 if ! command -v vercel &>/dev/null; then
   echo "  ⚠ vercel CLI not found — upload manually:"
@@ -171,7 +160,6 @@ echo "  version bump on push to main):"
 echo ""
 echo "    git add apps/site/src/lib/constants.ts \\"
 echo "            apps/desktop/Sources/Bouclier/Resources/Info.plist \\"
-echo "            apps/desktop/Sources/BouclierExtension/GeneratedInfo.plist \\"
 echo "            apps/site/public/appcast.xml"
 echo "    git commit -m \"chore: v${VERSION} release\""
 echo "    git push"

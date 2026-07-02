@@ -2,13 +2,15 @@ import Foundation
 @preconcurrency import NetworkExtension
 @preconcurrency import SystemExtensions
 
-/// Manages the Bouclier System Extension lifecycle.
-///
-/// Handles:
-/// 1. Installing/activating the System Extension (triggers macOS approval prompt)
-/// 2. Configuring NETransparentProxyManager (tells macOS to route traffic through it)
-/// 3. Starting/stopping the transparent proxy provider
-/// 4. Checking extension status
+/// Cleanup-only remnant of the System Extension that used to back
+/// "extreme mode" (system-wide transparent-proxy interception, removed).
+/// Bouclier no longer ships a System Extension — this type exists solely
+/// so `ProxyManager`'s one-shot migration (`ExtremeModeMigration`) can
+/// detect an extension left active from a pre-removal install, disable
+/// its `NETransparentProxyManager` tunnel, and deactivate the extension
+/// itself. Safe to delete entirely once confidence exists that every
+/// install has migrated (there's no telemetry, so in practice: after a
+/// few releases with no reports of stale extension state).
 @MainActor
 final class ExtensionManager: NSObject, ObservableObject {
     @Published var extensionInstalled = false
@@ -17,26 +19,7 @@ final class ExtensionManager: NSObject, ObservableObject {
 
     static let extensionBundleID = "ai.bouclier.app.extension"
 
-    private var activationCompletion: ((Bool) -> Void)?
-
-    // MARK: - Install Extension
-
-    /// Request installation of the System Extension.
-    /// macOS will prompt: "Bouclier would like to add network configurations."
-    /// User approves in System Settings > General > Login Items & Extensions.
-    func installExtension(completion: @escaping (Bool) -> Void) {
-        errorMessage = nil
-        activationCompletion = completion
-
-        let request = OSSystemExtensionRequest.activationRequest(
-            forExtensionWithIdentifier: Self.extensionBundleID,
-            queue: .main
-        )
-        request.delegate = self
-        OSSystemExtensionManager.shared.submitRequest(request)
-    }
-
-    /// Remove the System Extension.
+    /// Deactivate the System Extension.
     func removeExtension() {
         let request = OSSystemExtensionRequest.deactivationRequest(
             forExtensionWithIdentifier: Self.extensionBundleID,
@@ -46,36 +29,7 @@ final class ExtensionManager: NSObject, ObservableObject {
         OSSystemExtensionManager.shared.submitRequest(request)
     }
 
-    // MARK: - Configure Proxy
-
-    /// Configure and enable the NETransparentProxyManager.
-    /// This tells macOS to start routing traffic through our extension.
-    func enableProxy() async -> Bool {
-        do {
-            let managers = try await NETransparentProxyManager.loadAllFromPreferences()
-            let manager = managers.first ?? NETransparentProxyManager()
-
-            let proto = NETunnelProviderProtocol()
-            proto.providerBundleIdentifier = Self.extensionBundleID
-            proto.serverAddress = "127.0.0.1" // required but we use local proxy
-
-            manager.protocolConfiguration = proto
-            manager.localizedDescription = "Bouclier AI Traffic Scanner"
-            manager.isEnabled = true
-
-            try await manager.saveToPreferences()
-            try await manager.loadFromPreferences()
-            try manager.connection.startVPNTunnel()
-
-            proxyEnabled = true
-            return true
-        } catch {
-            errorMessage = "Failed to enable proxy: \(error.localizedDescription)"
-            return false
-        }
-    }
-
-    /// Disable the transparent proxy.
+    /// Stop routing traffic through the transparent-proxy tunnel.
     func disableProxy() async {
         do {
             let managers = try await NETransparentProxyManager.loadAllFromPreferences()
@@ -90,7 +44,8 @@ final class ExtensionManager: NSObject, ObservableObject {
         }
     }
 
-    /// Check if the extension is currently active.
+    /// Check whether the extension is currently installed/active — the
+    /// migration's gate for whether cleanup is needed at all.
     func checkStatus() async {
         do {
             let managers = try await NETransparentProxyManager.loadAllFromPreferences()
@@ -111,42 +66,30 @@ final class ExtensionManager: NSObject, ObservableObject {
 // MARK: - OSSystemExtensionRequestDelegate
 
 extension ExtensionManager: OSSystemExtensionRequestDelegate {
+    // Required by the protocol but only meaningful for activation
+    // requests, which this cleanup-only manager never issues.
     nonisolated func request(
         _ request: OSSystemExtensionRequest,
         actionForReplacingExtension existing: OSSystemExtensionProperties,
         withExtension ext: OSSystemExtensionProperties
     ) -> OSSystemExtensionRequest.ReplacementAction {
-        // Always replace with newer version
-        return .replace
+        .replace
     }
 
-    nonisolated func requestNeedsUserApproval(_ request: OSSystemExtensionRequest) {
-        NSLog("[bouclier.ai-ext] Extension needs user approval in System Settings")
-        Task { @MainActor in
-            errorMessage = "Please approve Bouclier in System Settings > General > Login Items & Extensions"
-        }
-    }
+    nonisolated func requestNeedsUserApproval(_ request: OSSystemExtensionRequest) {}
 
     nonisolated func request(_ request: OSSystemExtensionRequest, didFinishWithResult result: OSSystemExtensionRequest.Result) {
         let success = result == .completed
-        NSLog("[bouclier.ai-ext] Extension activation result: \(result)")
+        NSLog("[bouclier.ai-ext] Extension deactivation result: \(result)")
         Task { @MainActor in
-            extensionInstalled = success
-            if !success {
-                errorMessage = "Extension activation failed"
-            }
-            activationCompletion?(success)
-            activationCompletion = nil
+            if success { extensionInstalled = false }
         }
     }
 
     nonisolated func request(_ request: OSSystemExtensionRequest, didFailWithError error: Error) {
-        NSLog("[bouclier.ai-ext] Extension error: \(error)")
+        NSLog("[bouclier.ai-ext] Extension deactivation error: \(error)")
         Task { @MainActor in
-            extensionInstalled = false
             errorMessage = error.localizedDescription
-            activationCompletion?(false)
-            activationCompletion = nil
         }
     }
 }

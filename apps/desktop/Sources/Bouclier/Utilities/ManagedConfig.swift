@@ -66,13 +66,4 @@ enum ManagedConfig {
     static var preventDisable: Bool {
         managedDefaults?.bool(forKey: "preventDisable") ?? false
     }
-
-    /// Merge MDM domains with built-in domains.
-    static var allInterceptedDomains: Set<String> {
-        var domains = SystemProxy.interceptedDomains
-        for domain in additionalDomains {
-            domains.insert(domain.lowercased())
-        }
-        return domains
-    }
 }

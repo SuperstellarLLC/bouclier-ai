@@ -2,8 +2,7 @@
 
 Thanks for your interest in improving Bouclier.ai. The project is small
 and fast-moving; contributions of any size are welcome — bug reports,
-detection-miss reports with reproducers, pattern PRs, documentation
-fixes, and core proxy work.
+documentation fixes, and core gateway/secret-keeper work.
 
 By participating you agree to the [Code of Conduct](CODE_OF_CONDUCT.md)
 and that your contributions are licensed under
@@ -20,13 +19,14 @@ and that your contributions are licensed under
 
 ```
 apps/
-├── desktop/       Swift menubar app + TLS proxy + System Extension
+├── desktop/       Swift menubar app + gateway
 └── site/          Next.js marketing & docs site
 
 packages/
-└── patterns/      Shared injection + PII detection rules
+└── patterns/      Injection + PII pattern library (dormant — see
+                    ARCHITECTURE.md; not currently invoked on live traffic)
 
-docs/              Threat model, protocol compatibility notes
+docs/              Threat model, secret-keeper design notes
 ```
 
 ## Development setup
@@ -71,10 +71,16 @@ xcodegen
 open Bouclier.xcodeproj
 ```
 
-CoreML model weights are too large for git and are generated locally:
+The CoreML models for the dormant detection engine (see "Adding a
+detection pattern" below) are no longer bundled — the shipped app
+doesn't need them, and `swift build`/`swift test` don't either;
+`MLClassifier`/`PIIClassifier` degrade gracefully when the resource is
+absent. If you're specifically working on that dormant engine and want
+to exercise the classifiers locally, the generation scripts are still
+available (too large for git, so not fetched by default):
 
 ```bash
-apps/desktop/scripts/ensure-model.sh         # downloads + compiles
+apps/desktop/scripts/ensure-model.sh         # downloads + compiles PromptGuard 2
 apps/desktop/scripts/convert-promptguard.py  # PromptGuard 2 → CoreML
 apps/desktop/scripts/convert-piiranha.py     # Piiranha → CoreML
 ```
@@ -93,12 +99,20 @@ apps/desktop/scripts/convert-piiranha.py     # Piiranha → CoreML
    refactors do not need an entry.
 7. Open the PR using the template and link the issue.
 
-A maintainer will respond within a few business days. Detection PRs
-that come with a regression test are reviewed first.
+A maintainer will respond within a few business days. PRs that come with
+a regression test are reviewed first.
 
-## Adding a detection pattern
+## Adding a detection pattern (dormant subsystem)
 
-Patterns live in `packages/patterns/src/`. Each pattern must include:
+Patterns live in `packages/patterns/src/`. This detection engine isn't
+currently invoked by the shipped app — it was wired only into extreme
+mode's TLS-intercepting proxy, which has been removed (see
+`ARCHITECTURE.md`). Contributions here still compile, still get exercised
+by the pattern package's own test suite, and remain valuable if detection
+is ever wired into the gateway as a deliberate follow-up, but don't
+expect a pattern PR to change the shipped app's behaviour today.
+
+Each pattern must include:
 
 - A clear name, category, and severity.
 - A regex or structural validator.
@@ -107,9 +121,7 @@ Patterns live in `packages/patterns/src/`. Each pattern must include:
 - A short comment describing the attack class and any
   community / paper / CVE reference, when applicable.
 
-Run `pnpm --filter @bouclier-ai/patterns test` to validate. The desktop
-app reads the compiled `patterns.json` via the build-time
-`sync-patterns.sh` step.
+Run `pnpm --filter @bouclier-ai/patterns test` to validate.
 
 ## Coding style
 

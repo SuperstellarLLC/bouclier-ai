@@ -12,13 +12,12 @@ set -euo pipefail
 
 CONSTANTS="apps/site/src/lib/constants.ts"
 INFO_PLIST="apps/desktop/Sources/Bouclier/Resources/Info.plist"
-EXT_PLIST="apps/desktop/Sources/BouclierExtension/GeneratedInfo.plist"
 CHANGELOG="CHANGELOG.md"
 
 staged_files=$(git diff --cached --name-only)
 
 # Only run when a version-bearing file is in the commit.
-if ! echo "$staged_files" | grep -qE "^($CONSTANTS|$INFO_PLIST|$EXT_PLIST)$"; then
+if ! echo "$staged_files" | grep -qE "^($CONSTANTS|$INFO_PLIST)$"; then
   exit 0
 fi
 

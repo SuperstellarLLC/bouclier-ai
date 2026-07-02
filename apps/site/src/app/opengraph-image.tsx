@@ -3,7 +3,7 @@ import { readFileSync } from "fs";
 import { join } from "path";
 
 export const runtime = "nodejs";
-export const alt = "Bouclier.ai — Prompt Injection Firewall for macOS";
+export const alt = "Bouclier.ai — Your AI agent uses your secrets, never sees them";
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
 
@@ -47,7 +47,7 @@ export default function OGImage() {
           marginTop: 12,
         }}
       >
-        Prompt Injection Firewall for macOS
+        Your AI agent uses your secrets. It never sees them.
       </div>
 
       <div
@@ -58,10 +58,9 @@ export default function OGImage() {
         }}
       >
         {[
-          { value: "161", label: "Patterns" },
-          { value: "21", label: "Categories" },
-          { value: "91.9%", label: "TPR" },
-          { value: "2.9%", label: "FPR" },
+          { value: "Keychain", label: "Secret storage" },
+          { value: "0", label: "Certificates installed" },
+          { value: "MCP", label: "Native agent support" },
         ].map((m) => (
           <div
             key={m.label}

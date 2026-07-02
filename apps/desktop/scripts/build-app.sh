@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-# Builds the Bouclier-ai.app bundle with all binaries and the embedded System Extension.
+# Builds the Bouclier-ai.app bundle with all binaries.
 #
 # Usage:
 #   ./scripts/build-app.sh                    # Debug build
@@ -50,37 +50,25 @@ rm -rf "$APP"
 CONTENTS="$APP/Contents"
 mkdir -p "$CONTENTS/MacOS"
 mkdir -p "$CONTENTS/Resources"
-mkdir -p "$CONTENTS/Library/SystemExtensions"
 
 # Binaries
 cp "$BUILD_DIR/Bouclier" "$CONTENTS/MacOS/"
 cp "$BUILD_DIR/bouclier-ai-mcp-wrapper" "$CONTENTS/MacOS/"
 cp "$BUILD_DIR/bouclier-ai-env" "$CONTENTS/MacOS/"
+cp "$BUILD_DIR/bouclier-ai-secrets-mcp" "$CONTENTS/MacOS/"
+cp "$BUILD_DIR/bouclier-cli" "$CONTENTS/MacOS/"
 
 # Resources (patterns.json bundle)
 if [ -d "$BUILD_DIR/Bouclier_Bouclier.bundle" ]; then
   cp -r "$BUILD_DIR/Bouclier_Bouclier.bundle" "$CONTENTS/Resources/"
 fi
 
-# Compile PromptGuard2.mlpackage → PromptGuard2.mlmodelc so CoreML can
-# load it at runtime. SPM's .copy("Resources") ships the raw .mlpackage;
-# Xcode auto-compiles but swift-build does not, and CoreML refuses to
-# load a raw .mlpackage ("Compile the model with Xcode or
-# MLModel.compileModel(at:)"). Doing it here (once at build) avoids the
-# ~1-2s runtime compile on first launch — and the .mlpackage was
-# silently unusable for every build from v0.2.6 through v0.2.9.
-ML_DIR="$CONTENTS/Resources/Bouclier_Bouclier.bundle/Resources"
-if [ -d "$ML_DIR/PromptGuard2.mlpackage" ]; then
-  if command -v xcrun &>/dev/null && xcrun --find coremlcompiler &>/dev/null; then
-    echo "Compiling PromptGuard2.mlpackage → .mlmodelc ..."
-    xcrun coremlcompiler compile "$ML_DIR/PromptGuard2.mlpackage" "$ML_DIR/"
-    # Drop the raw source to save ~60MB of duplicated weights in the DMG
-    rm -rf "$ML_DIR/PromptGuard2.mlpackage"
-    echo "  ✓ Compiled and dropped raw .mlpackage"
-  else
-    echo "  ⚠ xcrun coremlcompiler unavailable — shipping raw .mlpackage; app will compile at first launch"
-  fi
-fi
+# Note: this used to also compile a bundled PromptGuard2.mlpackage →
+# .mlmodelc here (CoreML refuses to load a raw .mlpackage at runtime).
+# The model weights are no longer bundled — the detection engine that
+# used them is dormant (no live caller since extreme mode's removal;
+# see ARCHITECTURE.md) — so there's nothing to compile. MLClassifier /
+# PIIClassifier already degrade gracefully when the resource is absent.
 
 # App icon
 if [ -f "$PROJECT_DIR/icon/Bouclier.icns" ]; then
@@ -126,8 +114,6 @@ cat > "$CONTENTS/Info.plist" << EOF
     <key>LSMinimumSystemVersion</key><string>14.0</string>
     <key>NSHumanReadableCopyright</key><string>Copyright 2026 Bouclier.ai</string>
     <key>CFBundleIconFile</key><string>AppIcon</string>
-    <key>NSSystemExtensionUsageDescription</key>
-    <string>Bouclier.ai needs a system extension to intercept AI API traffic for prompt injection scanning.</string>
     <key>SUPublicEDKey</key>
     <string>QNMtWO7H9Z9Hv1J9bAsunleicPvJVP2bMJQezjV3vmM=</string>
     <key>SUFeedURL</key>
@@ -138,58 +124,14 @@ cat > "$CONTENTS/Info.plist" << EOF
 </plist>
 EOF
 
-# ── System Extension Bundle ─────────────────────
-SYSEXT="$CONTENTS/Library/SystemExtensions/ai.bouclier.app.extension.systemextension"
-SYSEXT_CONTENTS="$SYSEXT/Contents"
-mkdir -p "$SYSEXT_CONTENTS/MacOS"
-
-cp "$BUILD_DIR/BouclierExtension" "$SYSEXT_CONTENTS/MacOS/"
-
-cat > "$SYSEXT_CONTENTS/Info.plist" << EOF
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>CFBundleName</key><string>BouclierExtension</string>
-    <key>CFBundleDisplayName</key><string>Bouclier-ai Network Extension</string>
-    <key>CFBundleIdentifier</key><string>ai.bouclier.app.extension</string>
-    <key>CFBundleVersion</key><string>$VERSION</string>
-    <key>CFBundleShortVersionString</key><string>$VERSION</string>
-    <key>CFBundleExecutable</key><string>BouclierExtension</string>
-    <key>CFBundlePackageType</key><string>SYSX</string>
-    <key>LSMinimumSystemVersion</key><string>14.0</string>
-    <key>NetworkExtension</key>
-    <dict>
-        <key>NEProviderClasses</key>
-        <dict>
-            <key>com.apple.networkextension.transparent-proxy</key>
-            <string>BouclierExtension.TransparentProxyProvider</string>
-        </dict>
-    </dict>
-    <key>NSSystemExtensionUsageDescription</key>
-    <string>Bouclier.ai intercepts AI API traffic to scan for prompt injections.</string>
-</dict>
-</plist>
-EOF
-
-# ── Embed Provisioning Profiles ─────────────────
+# ── Embed Provisioning Profile ──────────────────
 APP_PROFILE="$PROJECT_DIR/profiles/Bouclierai.provisionprofile"
-EXT_PROFILE="$PROJECT_DIR/profiles/Bouclierai_Network_Extension.provisionprofile"
 
 if [ -f "$APP_PROFILE" ]; then
   cp "$APP_PROFILE" "$CONTENTS/embedded.provisionprofile"
   echo "Embedded app provisioning profile"
 else
   echo "ERROR: App provisioning profile not found at $APP_PROFILE"
-  echo "Download from: https://developer.apple.com/account/resources/profiles/list"
-  exit 1
-fi
-
-if [ -f "$EXT_PROFILE" ]; then
-  cp "$EXT_PROFILE" "$SYSEXT_CONTENTS/embedded.provisionprofile"
-  echo "Embedded extension provisioning profile"
-else
-  echo "ERROR: Extension provisioning profile not found at $EXT_PROFILE"
   echo "Download from: https://developer.apple.com/account/resources/profiles/list"
   exit 1
 fi
@@ -238,15 +180,21 @@ if [ "$SIGN" = true ]; then
   # 2. Helper executables
   echo "Signing helper binaries..."
   $CODESIGN "$IDENTITY" "$CONTENTS/MacOS/bouclier-ai-mcp-wrapper"
-  $CODESIGN "$IDENTITY" "$CONTENTS/MacOS/bouclier-ai-env"
-
-  # 3. System Extension
-  echo "Signing System Extension..."
+  # The `bouclier` CLI (built as bouclier-cli — see Package.swift) reads
+  # status + drives the approval IPC, but never touches the Keychain (no
+  # secret-value path), so it needs no special entitlement — least privilege.
+  $CODESIGN "$IDENTITY" "$CONTENTS/MacOS/bouclier-cli"
+  # env + secrets-mcp share the app's Keychain access group so the agent
+  # can use stored secrets without a per-access prompt (see
+  # BouclierHelpers.entitlements).
   $CODESIGN "$IDENTITY" \
-    --entitlements "$PROJECT_DIR/BouclierExtension.entitlements" \
-    "$SYSEXT"
+    --entitlements "$PROJECT_DIR/BouclierHelpers.entitlements" \
+    "$CONTENTS/MacOS/bouclier-ai-env"
+  $CODESIGN "$IDENTITY" \
+    --entitlements "$PROJECT_DIR/BouclierHelpers.entitlements" \
+    "$CONTENTS/MacOS/bouclier-ai-secrets-mcp"
 
-  # 4. Main app (outermost — must be last)
+  # 3. Main app (outermost — must be last)
   echo "Signing main app..."
   $CODESIGN "$IDENTITY" \
     --entitlements "$PROJECT_DIR/Bouclier.entitlements" \
@@ -268,7 +216,6 @@ fi
 echo ""
 echo "Built: $APP"
 echo ""
-echo "To run in development (requires SIP adjustment for unsigned extensions):"
-echo "  systemextensionsctl developer on"
+echo "To run in development:"
 echo "  open $APP"
 echo ""

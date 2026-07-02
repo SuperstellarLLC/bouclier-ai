@@ -14,6 +14,8 @@ struct DiagnosticsExportTests {
             bytesScanned: 12345,
             sseFramesScanned: 100,
             sseStreamsBlocked: 1,
+            secretsInjected: 5,
+            secretsBlocked: 2,
             hitsByCategory: ["role-hijack": 2, "credential-leak": 1],
             hitsBySeverity: ["critical": 2, "high": 1],
             blocksByHost: ["api.openai.com": 3],
@@ -55,13 +57,9 @@ struct DiagnosticsExportTests {
             metricsSnapshot: snap,
             dailyStats: daily,
             recentLogs: logs,
-            patternsLoaded: 161,
-            patternsSHA256Prefix: "abcdef12",
             allowedHosts: ["api.openai.com", "api.anthropic.com"]
         )
 
-        #expect(bundle.meta.patternsLoaded == 161)
-        #expect(bundle.meta.patternsSHA256Prefix == "abcdef12")
         #expect(bundle.metrics.requestsTotal == 42)
         #expect(bundle.dailyStats.count == 2)
         #expect(bundle.recentEvents.count == 1)
@@ -95,8 +93,6 @@ struct DiagnosticsExportTests {
             metricsSnapshot: snap,
             dailyStats: [],
             recentLogs: logs,
-            patternsLoaded: 161,
-            patternsSHA256Prefix: nil,
             allowedHosts: ["api.openai.com"]
         )
 
@@ -128,8 +124,6 @@ struct DiagnosticsExportTests {
             metricsSnapshot: snap,
             dailyStats: [],
             recentLogs: logs,
-            patternsLoaded: 161,
-            patternsSHA256Prefix: nil,
             allowedHosts: ["api.openai.com"]
         )
 
@@ -143,8 +137,6 @@ struct DiagnosticsExportTests {
             metricsSnapshot: snap,
             dailyStats: [],
             recentLogs: [],
-            patternsLoaded: 161,
-            patternsSHA256Prefix: nil,
             allowedHosts: []
         )
         let data = try DiagnosticsExport.encode(bundle)
@@ -162,8 +154,6 @@ struct DiagnosticsExportTests {
             metricsSnapshot: snap,
             dailyStats: [],
             recentLogs: [],
-            patternsLoaded: 161,
-            patternsSHA256Prefix: nil,
             allowedHosts: []
         )
         let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("bouclier-ai-diag-tests-\(UUID().uuidString)", isDirectory: true)

@@ -1,41 +1,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { MobileNav } from "./mobile-nav";
-import { Playground } from "./playground";
-import {
-  APP_VERSION,
-  BENCHMARK_ATTACKS,
-  BENCHMARK_BENIGN,
-  BENCHMARK_FPR,
-  BENCHMARK_TPR,
-  CATEGORY_COUNT,
-  DOWNLOAD_URL,
-  PATTERN_COUNT,
-} from "@/lib/constants";
-
-const CATEGORIES = [
-  { name: "Role Hijack", count: 6, color: "bg-red-500" },
-  { name: "Instruction Override", count: 5, color: "bg-red-500" },
-  { name: "Tool Poisoning", count: 12, color: "bg-red-500" },
-  { name: "Credential Leak", count: 11, color: "bg-red-500" },
-  { name: "Memory Manipulation", count: 9, color: "bg-red-500" },
-  { name: "Function Hijack", count: 8, color: "bg-red-500" },
-  { name: "Model-Specific", count: 14, color: "bg-red-500" },
-  { name: "Alignment Bypass", count: 14, color: "bg-red-500" },
-  { name: "Code Injection", count: 10, color: "bg-orange-500" },
-  { name: "Sandbox Escape", count: 8, color: "bg-orange-500" },
-  { name: "Data Exfiltration", count: 6, color: "bg-orange-500" },
-  { name: "Indirect Injection", count: 7, color: "bg-orange-500" },
-  { name: "Context Manipulation", count: 5, color: "bg-orange-500" },
-  { name: "Chain-of-Thought", count: 7, color: "bg-amber-500" },
-  { name: "Delimiter Attacks", count: 4, color: "bg-amber-500" },
-  { name: "Encoding Bypass", count: 5, color: "bg-amber-500" },
-  { name: "Multilingual", count: 15, color: "bg-amber-500" },
-  { name: "Payload Splitting", count: 3, color: "bg-amber-500" },
-  { name: "Obfuscation", count: 5, color: "bg-yellow-500" },
-  { name: "Prompt Leaking", count: 4, color: "bg-yellow-500" },
-  { name: "Recursive Injection", count: 3, color: "bg-yellow-500" },
-] as const;
+import { APP_VERSION, DOWNLOAD_URL } from "@/lib/constants";
 
 export default function Home() {
   return (
@@ -61,34 +27,16 @@ export default function Home() {
           </Link>
           <div className="hidden items-center gap-6 sm:flex">
             <a
-              href="#playground"
+              href="#secrets"
               className="text-text-secondary hover:text-text text-sm transition-colors"
             >
-              Try it
+              Secret keeper
             </a>
             <a
-              href="#trust"
+              href="#agents"
               className="text-text-secondary hover:text-text text-sm transition-colors"
             >
-              Trust
-            </a>
-            <a
-              href="#attachments"
-              className="text-text-secondary hover:text-text text-sm transition-colors"
-            >
-              Attachments
-            </a>
-            <a
-              href="#how"
-              className="text-text-secondary hover:text-text text-sm transition-colors"
-            >
-              How it works
-            </a>
-            <a
-              href="#coverage"
-              className="text-text-secondary hover:text-text text-sm transition-colors"
-            >
-              Coverage
+              For agents
             </a>
             <Link
               href="/privacy"
@@ -130,21 +78,20 @@ export default function Home() {
               <span className="rounded-sm bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-amber-800">
                 Beta
               </span>
-              v{APP_VERSION} — {PATTERN_COUNT} patterns across {CATEGORY_COUNT} categories
+              v{APP_VERSION} — runs entirely on your Mac
             </div>
 
             <h1 className="text-text mx-auto max-w-3xl text-5xl font-bold leading-[1.1] tracking-tight sm:text-6xl">
-              Stop prompt injections.
+              Your AI agent can use your secrets.
               <br />
-              <span className="text-bouclier">Inspect what you upload to LLMs.</span>
+              <span className="text-bouclier">It never sees them.</span>
             </h1>
 
             <p className="text-text-secondary mx-auto mt-6 max-w-2xl text-lg leading-relaxed">
-              Bouclier.ai sits between your apps and AI providers. Every outbound request is scanned
-              for prompt-injection attacks. Images, PDFs and short audio clips are inspected
-              on-device — if they contain PII, the attachment is replaced with a plain-English
-              description before it reaches the model. Your text prompts pass through byte-for-byte;
-              auth headers and API keys are never touched. All inspection runs locally on your Mac.
+              Bouclier.ai runs on your Mac, between your AI tools and the providers. When your
+              coding agent — Claude Code, Cursor — needs an API key, it gets it through your shell,
+              never into the model&apos;s context. It can provision a whole project&apos;s
+              environment variables in a single approval. No certificate to install.
             </p>
 
             <div className="mx-auto mt-5 max-w-2xl rounded-xl border-2 border-amber-300 bg-amber-50 p-4 text-left">
@@ -156,10 +103,10 @@ export default function Home() {
                 experimentation. It is <strong>not a commercial product</strong>, is{" "}
                 <strong>not supported</strong>, and is{" "}
                 <strong>
-                  not meant for production, regulated workloads, or any environment where a
-                  detection failure could cause harm
+                  not meant for production, regulated workloads, or any environment where a failure
+                  could cause harm
                 </strong>
-                . Detection is best-effort; false positives and false negatives will occur. See the{" "}
+                . Secret handling is best-effort; review what you store. See the{" "}
                 <Link href="/terms" className="underline">
                   Terms
                 </Link>{" "}
@@ -176,40 +123,156 @@ export default function Home() {
                 Download for macOS
               </a>
               <a
-                href="#how"
+                href="#secrets"
                 className="border-border text-text hover:border-bouclier/30 inline-flex items-center gap-2 rounded-xl border bg-white px-6 py-3.5 text-[15px] font-semibold shadow-sm transition-all hover:shadow-md"
               >
-                How it works
+                How the secret keeper works
                 <ArrowDown />
               </a>
             </div>
 
             <p className="text-text-secondary mt-5 text-sm">
-              <span className="text-text font-semibold">Built with Llama.</span> Uses Meta Llama
-              Prompt Guard 2 for on-device prompt attack detection.
+              <span className="text-text font-semibold">Local-only.</span> Secrets live in your
+              macOS Keychain and never leave this Mac.
             </p>
           </div>
         </div>
       </section>
 
-      {/* ── Live playground ──────────────────────── */}
-      <Playground />
-
-      {/* ── Trust / what we don't touch ───────────── */}
-      <section id="trust" className="border-border bg-surface border-t py-24">
+      {/* ── Secret keeper (the centerpiece) ───────── */}
+      <section id="secrets" className="border-border border-t bg-white py-24">
         <div className="mx-auto max-w-5xl px-6">
           <div className="reveal">
-            <SectionLabel>What we don&apos;t touch</SectionLabel>
+            <SectionLabel>Secret keeper</SectionLabel>
             <h2 className="mt-3 text-3xl font-bold tracking-tight">
-              Your prompts and headers reach the model unchanged.
+              Your agent uses the key. You keep the secret.
             </h2>
             <p className="text-text-secondary mt-4 max-w-2xl">
-              A proxy that rewrites prompts is a proxy you can&apos;t trust. Bouclier sits in the
-              middle of every AI request but it isn&apos;t a rewriter — prompt bodies traverse the
-              proxy byte-for-byte and auth headers are forwarded untouched. The only thing Bouclier
-              ever modifies on the way out is an attachment the on-device scanner flagged as
-              containing PII, and even then we substitute a short text description, not a
-              placeholder token that could trip the provider&apos;s abuse detection.
+              When your agent needs a credential, Bouclier asks <em>you</em> — in a local dialog,
+              not in the chat. You paste it (or let Bouclier generate one). It&apos;s stored in your
+              Keychain and injected into the shells your agent spawns, so a command like{" "}
+              <code className="text-text rounded bg-zinc-100 px-1.5 py-0.5 text-xs font-medium">
+                curl -H &quot;Authorization: Bearer $STRIPE_KEY&quot;
+              </code>{" "}
+              just works — while the value never enters the model&apos;s context, the MCP channel,
+              or any log.
+            </p>
+          </div>
+
+          <div className="reveal-stagger reveal-stagger-3 mt-12 grid gap-6 md:grid-cols-3">
+            <FlowCard
+              step="01"
+              title="Ask"
+              description="The agent requests a secret by name. Bouclier opens a dialog where YOU paste or generate the value. The agent only ever learns the variable name — never the value."
+            />
+            <FlowCard
+              step="02"
+              title="Keep"
+              description="The value lands in your macOS Keychain, scoped to Bouclier. On the way out, a managed secret is scrubbed to a placeholder so the model provider never sees it either, then restored in the response."
+            />
+            <FlowCard
+              step="03"
+              title="Use"
+              description="It's injected into new shells as $ENV_VAR. Your agent uses it in real commands; the conversation and the model context stay clean."
+            />
+          </div>
+
+          <div className="reveal border-border mt-12 rounded-2xl border bg-white p-6">
+            <h3 className="text-lg font-semibold">Provision a whole project in one approval.</h3>
+            <p className="text-text-secondary mt-2 text-sm leading-relaxed">
+              Point your agent at a new repo&apos;s environment needs and approve them together —
+              Bouclier shows one dialog, batches as many secrets as it takes, and tells the agent
+              exactly which ones landed and which are still pending. Nothing is silently dropped.
+              Pair it with the Vercel CLI (
+              <code className="rounded bg-zinc-100 px-1 py-0.5 text-xs">
+                echo &quot;$VAR&quot; | vercel env add
+              </code>
+              ) to set dozens of deployment variables without the agent — or the chat — ever seeing
+              one.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      {/* ── Built for agents (MCP + CLI) ──────────── */}
+      <section id="agents" className="border-border bg-surface border-t py-24">
+        <div className="mx-auto max-w-5xl px-6">
+          <div className="reveal">
+            <SectionLabel>Built for agents</SectionLabel>
+            <h2 className="mt-3 text-3xl font-bold tracking-tight">
+              Drive it from Claude Code — or any agent.
+            </h2>
+            <p className="text-text-secondary mt-4 max-w-2xl">
+              Bouclier ships an MCP server and a{" "}
+              <code className="rounded bg-zinc-100 px-1 py-0.5 text-xs">bouclier</code> CLI that
+              share one core. An agent can orient itself, list and request secrets, and ask you to
+              turn protection on. What it <em>can&apos;t</em> do is the point: it can never read a
+              value, disable protection, or widen a secret&apos;s policy. The agent proposes; you
+              approve; Bouclier enforces.
+            </p>
+          </div>
+
+          <div className="reveal border-border mt-10 overflow-hidden rounded-2xl border bg-white">
+            <div className="border-border bg-surface text-text-secondary border-b px-5 py-2.5 text-xs font-medium">
+              the agent&apos;s view
+            </div>
+            <pre className="overflow-x-auto p-5 text-[13px] leading-relaxed">
+              <code className="text-text">
+                <span className="text-text-secondary">{"# orient before acting\n"}</span>
+                {"bouclier status\n"}
+                <span className="text-text-secondary">
+                  {"→ protection ON (standard mode) · 3 secrets usable\n\n"}
+                </span>
+                <span className="text-text-secondary">
+                  {"# ask the human for what's missing\n"}
+                </span>
+                {'bouclier secrets request STRIPE_KEY DATABASE_URL --reason "deploy"\n'}
+                <span className="text-text-secondary">
+                  {"→ a dialog opens; you paste; the agent gets names, never values\n\n"}
+                </span>
+                <span className="text-text-secondary">{"# this is refused, by design\n"}</span>
+                {"bouclier protection disable\n"}
+                <span className="text-red-600">
+                  {"→ not available to agents — do it in the app (exit 7)"}
+                </span>
+              </code>
+            </pre>
+          </div>
+
+          <div className="reveal-stagger reveal-stagger-3 mt-8 grid gap-6 md:grid-cols-3">
+            <FlowCard
+              step="🟢"
+              title="Read & use, freely"
+              description="status, list secrets, request and activate them — no value is ever returned. The agent works on its own."
+            />
+            <FlowCard
+              step="🟡"
+              title="Propose, you approve"
+              description="Turning protection on is a one-tap approval in Bouclier's own dialog. The agent suggests; the human decides."
+            />
+            <FlowCard
+              step="🔴"
+              title="Never the agent"
+              description="Read a value, disable protection, uninstall — none of these have an agent path. The tool can't switch off the thing guarding it."
+            />
+          </div>
+        </div>
+      </section>
+
+      {/* ── No certificate / what reaches the model ─ */}
+      <section id="trust" className="border-border border-t bg-white py-24">
+        <div className="mx-auto max-w-5xl px-6">
+          <div className="reveal">
+            <SectionLabel>No certificate</SectionLabel>
+            <h2 className="mt-3 text-3xl font-bold tracking-tight">
+              What reaches the model — and what doesn&apos;t.
+            </h2>
+            <p className="text-text-secondary mt-4 max-w-2xl">
+              By default Bouclier points your AI tools at a local gateway by setting a base URL — no
+              root certificate, nothing installed in your trust store, no system-wide interception.
+              Your prompts reach the provider byte-for-byte, with one deliberate exception: the
+              managed secrets you asked Bouclier to keep out. Auth headers are forwarded untouched
+              so your tools authenticate normally.
             </p>
           </div>
 
@@ -217,240 +280,25 @@ export default function Home() {
             <FlowCard
               step="01"
               title="Prompts"
-              description="Forwarded byte-for-byte. No tokenisation, no placeholder substitution, no JSON-blind rewriter that could touch user-identifier or analytics fields. The model receives your prompt exactly as your app sent it."
+              description="Forwarded byte-for-byte — except a managed secret, which is swapped for a placeholder on the way out and restored in the response so the provider never sees it. No blind rewriter touching your other fields."
             />
             <FlowCard
               step="02"
               title="Headers"
-              description="Authorization, x-api-key, X-Trace-ID, custom analytics, User-Agent — every header reaches the upstream unmodified. Pinned by an end-to-end test so a future change can't drift."
+              description="Authorization, x-api-key, trace IDs, analytics — every header reaches the upstream unmodified, so your tools keep working. Pinned by an end-to-end test so a future change can't drift."
             />
             <FlowCard
               step="03"
-              title="Attachments"
-              description="The one thing Bouclier rewrites. Images, PDFs, audio that contain PII are replaced with a plain-English description — never with a token shape that could look adversarial to the model."
+              title="Loopback only"
+              description="The gateway binds 127.0.0.1 and nothing else — there's no system-wide traffic redirection. Only processes that explicitly point at it (ANTHROPIC_BASE_URL / OPENAI_BASE_URL) are ever in scope."
             />
           </div>
 
           <div className="reveal border-border mt-12 rounded-2xl border bg-white p-6">
             <p className="text-text-secondary text-sm">
-              The byte-identical guarantee is pinned by{" "}
-              <code className="text-text rounded bg-zinc-100 px-1.5 py-0.5 text-xs font-medium">
-                E2EProxyTests
-              </code>{" "}
-              in CI — every release proves that a real CONNECT + TLS request through the proxy
-              reaches the upstream with body, auth headers, API keys and trace IDs all intact. Read
-              the{" "}
-              <Link href="/terms" className="text-bouclier hover:underline">
-                Terms
-              </Link>{" "}
-              for the limits of best-effort attachment detection.
+              Standard mode installs nothing. The byte-identical guarantee is pinned by an
+              end-to-end test in CI on every release.
             </p>
-          </div>
-        </div>
-      </section>
-
-      {/* ── Attachment PII inspection ─────────────── */}
-      <section id="attachments" className="border-border border-t bg-white py-24">
-        <div className="mx-auto max-w-5xl px-6">
-          <div className="reveal">
-            <SectionLabel>Attachment PII</SectionLabel>
-            <h2 className="mt-3 text-3xl font-bold tracking-tight">
-              PII hides in what you upload.
-            </h2>
-            <p className="text-text-secondary mt-4 max-w-2xl">
-              A screenshot of an invoice, a scanned NDA, a 30-second voice memo — modern LLM clients
-              accept all of it, and a regex pass over the JSON body sees none of it. Bouclier opens
-              images, PDFs and audio clips on the way out, scans them with Apple&apos;s on-device
-              Vision, PDFKit and Speech frameworks, and replaces flagged attachments with a short
-              text description so the model still gets the gist without the leak.
-            </p>
-          </div>
-
-          <div className="reveal-stagger reveal-stagger-3 mt-12 grid gap-6 md:grid-cols-3">
-            <FlowCard
-              step="01"
-              title="Images"
-              description="Vision OCR + face detection on every image in OpenAI / Anthropic / Gemini multimodal shapes. EXIF orientation honored, 2000 px downscale, 4-concurrency throttle."
-            />
-            <FlowCard
-              step="02"
-              title="PDFs"
-              description="PDFKit text-layer extraction with Vision OCR fallback for scanned pages. Encrypted or oversized PDFs surface as unscannable and get stripped — never silently forwarded."
-            />
-            <FlowCard
-              step="03"
-              title="Audio"
-              description="On-device Apple Speech transcription up to 60 seconds. No audio leaves your Mac. Unsupported formats get blocked rather than passed through."
-            />
-          </div>
-
-          <div className="reveal border-border mt-12 rounded-2xl border bg-white p-6">
-            <p className="text-text-secondary text-sm">
-              Attachment inspection ships <strong>off by default</strong> and is opt-in from
-              Settings → Privacy. Multipart file uploads to the OpenAI Files API and Anthropic
-              messages with PDF / image / audio blocks are all supported. Detection runs entirely on
-              your Mac — no cloud OCR, no cloud transcription, no telemetry.
-            </p>
-          </div>
-        </div>
-      </section>
-
-      {/* ── How it works ─────────────────────────── */}
-      <section id="how" className="border-border bg-surface border-t py-24">
-        <div className="mx-auto max-w-5xl px-6">
-          <div className="reveal">
-            <SectionLabel>How it works</SectionLabel>
-            <h2 className="mt-3 text-3xl font-bold tracking-tight">Intercept. Scan. Protect.</h2>
-            <p className="text-text-secondary mt-4 max-w-2xl">
-              A System Extension routes AI API traffic through a local proxy on your Mac. Every
-              request and response is inspected before reaching the provider — no code changes, no
-              SDK, no cloud dependency.
-            </p>
-          </div>
-
-          <div className="reveal-stagger reveal-stagger-3 mt-16 grid gap-6 md:grid-cols-3">
-            <FlowCard
-              step="01"
-              title="Intercept"
-              description="Traffic to 10+ AI providers is automatically routed through Bouclier.ai. Works with any app — ChatGPT, Cursor, Claude, API calls. No configuration needed."
-            />
-            <FlowCard
-              step="02"
-              title="Scan"
-              description={`${PATTERN_COUNT} detection rules across ${CATEGORY_COUNT} attack categories. Requests, query strings, and streaming responses are all inspected in real time.`}
-            />
-            <FlowCard
-              step="03"
-              title="Protect"
-              description="Threats are neutralized inline — injections are redacted before reaching the model. Streaming attacks are terminated cleanly. Safe traffic passes through untouched."
-            />
-          </div>
-
-          {/* Flow diagram */}
-          <div className="reveal border-border mt-16 rounded-2xl border bg-white p-8">
-            <div className="flex flex-col items-center gap-3 sm:flex-row sm:gap-0">
-              <FlowNode label="Your apps" sublabel="Any AI-powered tool on your Mac" />
-              <FlowArrow />
-              <FlowNode label="Bouclier.ai" sublabel="Local inspection" accent />
-              <FlowArrow />
-              <FlowNode label="AI providers" sublabel="OpenAI, Anthropic, Gemini, Mistral" />
-            </div>
-            <div className="text-text-secondary mt-6 flex justify-center gap-8 text-xs">
-              <span className="flex items-center gap-1.5">
-                <span className="bg-accent-green h-2 w-2 rounded-full" />
-                Requests scanned
-              </span>
-              <span className="flex items-center gap-1.5">
-                <span className="bg-bouclier h-2 w-2 rounded-full" />
-                Streaming responses inspected
-              </span>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* ── Benchmark ────────────────────────────── */}
-      <section className="border-border border-t py-24">
-        <div className="mx-auto max-w-5xl px-6">
-          <div className="reveal">
-            <SectionLabel>Results</SectionLabel>
-            <h2 className="mt-3 text-3xl font-bold tracking-tight">Measured, not marketed.</h2>
-            <p className="text-text-secondary mt-4 max-w-2xl">
-              Every release is tested against {BENCHMARK_ATTACKS} real-world attack samples and{" "}
-              {BENCHMARK_BENIGN} benign inputs. Detection quality is enforced in CI — regressions
-              block the release.
-            </p>
-          </div>
-
-          <div className="reveal-stagger reveal-stagger-4 mt-12 grid gap-4 sm:grid-cols-4">
-            <MetricCard value={BENCHMARK_TPR} label="Attacks caught" />
-            <MetricCard value={BENCHMARK_FPR} label="False positive rate" />
-            <MetricCard value={String(PATTERN_COUNT)} label="Detection rules" />
-            <MetricCard value={String(CATEGORY_COUNT)} label="Attack categories" />
-          </div>
-        </div>
-      </section>
-
-      {/* ── Coverage ─────────────────────────────── */}
-      <section id="coverage" className="border-border bg-surface border-t py-24">
-        <div className="mx-auto max-w-5xl px-6">
-          <div className="reveal">
-            <SectionLabel>Coverage</SectionLabel>
-            <h2 className="mt-3 text-3xl font-bold tracking-tight">
-              {CATEGORY_COUNT} attack categories.
-            </h2>
-            <p className="text-text-secondary mt-4 max-w-2xl">
-              Sourced from OWASP LLM Top 10, MITRE ATLAS, HackAPrompt, and red-team research from
-              Anthropic, Microsoft, and leading AI security labs.
-            </p>
-          </div>
-
-          <div className="text-text-secondary mt-8 flex flex-wrap gap-x-6 gap-y-1 text-xs">
-            <span className="flex items-center gap-1.5">
-              <span className="h-2.5 w-2.5 rounded-full bg-red-500" /> Critical
-            </span>
-            <span className="flex items-center gap-1.5">
-              <span className="h-2.5 w-2.5 rounded-full bg-orange-500" /> High
-            </span>
-            <span className="flex items-center gap-1.5">
-              <span className="h-2.5 w-2.5 rounded-full bg-amber-500" /> Medium-High
-            </span>
-            <span className="flex items-center gap-1.5">
-              <span className="h-2.5 w-2.5 rounded-full bg-yellow-500" /> Medium
-            </span>
-          </div>
-
-          <div className="reveal-stagger reveal-stagger-3 mt-6 grid gap-2 sm:grid-cols-3">
-            {CATEGORIES.map((cat) => (
-              <div
-                key={cat.name}
-                className="border-border hover:border-bouclier/30 flex items-center justify-between rounded-lg border bg-white px-4 py-3 transition-colors"
-              >
-                <span className="text-sm font-medium">{cat.name}</span>
-                <span
-                  className={`inline-flex h-6 min-w-[28px] items-center justify-center rounded-full ${cat.color} px-2 text-xs font-bold text-white`}
-                >
-                  {cat.count}
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* ── What it stops ────────────────────────── */}
-      <section className="border-border border-t py-24">
-        <div className="mx-auto max-w-5xl px-6">
-          <div className="reveal">
-            <SectionLabel>In action</SectionLabel>
-            <h2 className="mt-3 text-3xl font-bold tracking-tight">What it stops.</h2>
-          </div>
-
-          <div className="reveal-stagger reveal-stagger-2 mt-12 grid gap-6 md:grid-cols-2">
-            <ThreatCard
-              label="BLOCKED"
-              category="Role Hijack"
-              severity="critical"
-              description="Attempted to override the AI&rsquo;s instructions and extract its system prompt."
-            />
-            <ThreatCard
-              label="BLOCKED"
-              category="Multilingual Attack"
-              severity="high"
-              description="Injection disguised in French to bypass English-language detection."
-            />
-            <ThreatCard
-              label="BLOCKED"
-              category="Alignment Bypass"
-              severity="critical"
-              description="Known jailbreak technique (Skeleton Key) attempting to disable safety guardrails."
-            />
-            <ThreatCard
-              label="BLOCKED"
-              category="Tool Poisoning"
-              severity="critical"
-              description="Malicious instructions hidden in an MCP tool description, targeting SSH keys."
-            />
           </div>
         </div>
       </section>
@@ -468,40 +316,38 @@ export default function Home() {
           <div className="reveal-stagger reveal-stagger-2 mt-12 grid gap-6 md:grid-cols-2">
             <FeatureCard
               title="MDM managed"
-              description="Deploy and configure via Jamf, Kandji, or Mosyle. Control intercepted domains, enforcement policy, and feature flags across your fleet."
+              description="Deploy and configure via Jamf, Kandji, or Mosyle. Control the gateway port, additional AI domains for the secret keeper's host bookkeeping, and feature flags across your fleet."
             />
             <FeatureCard
               title="Audit trail"
-              description="Every scan event is logged locally and can be forwarded to your SIEM. Export a privacy-scrubbed diagnostics bundle for incident response."
+              description="Every secret-keeper event is logged locally and can be forwarded to your SIEM. Export a privacy-scrubbed diagnostics bundle for incident response."
             />
             <FeatureCard
-              title="Hardened by default"
-              description="Built with defense-in-depth: request size limits, strict input validation, and a published threat model covering every trust boundary."
+              title="Tamper-resistant"
+              description="An agent can use Bouclier but never weaken it — disabling protection or reading a secret has no agent path, only a human one. The tool can't switch off its own guard."
             />
             <FeatureCard
-              title="Streaming protection"
-              description="AI responses are inspected in real time as they stream. If a threat is detected mid-response, the stream is terminated cleanly."
+              title="Straddle-safe restore"
+              description="Secret placeholders are restored across streaming response chunks byte-for-byte, so your local tool calls still work even when the model streams the value back mid-token."
             />
           </div>
         </div>
       </section>
 
       {/* ── Privacy ──────────────────────────────── */}
-      <section className="border-border border-t py-24">
+      <section id="privacy" className="border-border border-t py-24">
         <div className="mx-auto max-w-5xl px-6">
           <div className="reveal">
             <SectionLabel>Privacy</SectionLabel>
-            <h2 className="mt-3 text-3xl font-bold tracking-tight">
-              Your prompts never leave your Mac.
-            </h2>
+            <h2 className="mt-3 text-3xl font-bold tracking-tight">Nothing leaves your Mac.</h2>
           </div>
 
           <div className="reveal mt-12 grid gap-y-5">
             {[
-              "All detection runs locally. No cloud LLM, no analytics, no telemetry in the app.",
-              "The local CA key is stored encrypted in your Keychain, unique to your device, and removable anytime.",
-              "Scan logs never contain your prompts, responses, or API keys — only detection metadata.",
-              "Local storage with automatic rotation. You own your data.",
+              "Secrets live in your macOS Keychain, scoped to Bouclier, and never reach the model, the MCP channel, or any log.",
+              "No cloud LLM, no analytics, no telemetry in the app.",
+              "Scan logs never contain your prompts, responses, secrets, or API keys — only metadata.",
+              "Bouclier installs no certificate — the gateway is a plaintext-loopback relay, not a TLS-terminating proxy.",
             ].map((text) => (
               <div key={text} className="flex gap-3">
                 <div className="bg-accent-green mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full" />
@@ -526,11 +372,11 @@ export default function Home() {
       <section className="border-border bg-bouclier-dark border-t py-24">
         <div className="reveal-scale mx-auto max-w-5xl px-6 text-center">
           <h2 className="text-3xl font-bold tracking-tight text-white">
-            Install once. Protect everything.
+            Give your agent the keys. Keep the secrets.
           </h2>
           <p className="mx-auto mt-4 max-w-lg text-white/70">
-            Download the DMG, drag to Applications, click Enable. Every AI request is protected from
-            that moment.
+            Download the DMG, drag to Applications, click Enable. Your agent can start using secrets
+            it never sees from that moment.
           </p>
           <a
             href={DOWNLOAD_URL}
@@ -563,9 +409,6 @@ export default function Home() {
               </span>
             </div>
             <div className="text-text-secondary flex gap-6 text-sm">
-              <Link href="/blocked" className="hover:text-text transition-colors">
-                Blocked
-              </Link>
               <Link href="/privacy" className="hover:text-text transition-colors">
                 Privacy
               </Link>
@@ -575,11 +418,8 @@ export default function Home() {
             </div>
           </div>
           <p className="text-text-secondary mt-4 text-xs">
-            Built with Llama. Uses Meta Llama Prompt Guard 2 for on-device prompt attack detection.
-          </p>
-          <p className="text-text-secondary mt-1 text-xs">
-            Experimental, pre-1.0 software. Detection is best-effort; false positives and false
-            negatives will occur. Not intended for production or regulated workloads — see{" "}
+            Experimental, pre-1.0 software. Secret handling is best-effort; false positives and
+            false negatives will occur. Not intended for production or regulated workloads — see{" "}
             <Link href="/terms" className="hover:text-text underline">
               Terms
             </Link>
@@ -615,92 +455,6 @@ function FlowCard({
       <span className="text-bouclier text-xs font-bold">{step}</span>
       <h3 className="mt-2 text-lg font-semibold">{title}</h3>
       <p className="text-text-secondary mt-2 text-sm leading-relaxed">{description}</p>
-    </div>
-  );
-}
-
-function FlowNode({
-  label,
-  sublabel,
-  accent,
-}: {
-  label: string;
-  sublabel: string;
-  accent?: boolean;
-}) {
-  return (
-    <div
-      className={`flex-1 rounded-xl border px-5 py-4 text-center ${accent ? "border-bouclier/30 bg-bouclier-light" : "border-border bg-white"}`}
-    >
-      <div className={`text-sm font-semibold ${accent ? "text-bouclier" : "text-text"}`}>
-        {label}
-      </div>
-      <div className="text-text-secondary mt-0.5 text-xs">{sublabel}</div>
-    </div>
-  );
-}
-
-function FlowArrow() {
-  return (
-    <div className="text-border flex shrink-0 items-center px-2 sm:px-3">
-      <svg
-        width="24"
-        height="12"
-        viewBox="0 0 24 12"
-        fill="none"
-        className="text-text-secondary/40 rotate-90 sm:rotate-0"
-      >
-        <path d="M0 6h20m0 0l-4-4m4 4l-4 4" stroke="currentColor" strokeWidth="1.5" />
-      </svg>
-    </div>
-  );
-}
-
-function MetricCard({ value, label }: { value: string; label: string }) {
-  return (
-    <div className="bg-surface border-border rounded-2xl border p-6 text-center">
-      <div className="text-text text-3xl font-bold tracking-tight">{value}</div>
-      <div className="text-text-secondary mt-1 text-sm">{label}</div>
-    </div>
-  );
-}
-
-function ThreatCard({
-  label,
-  category,
-  severity,
-  description,
-}: {
-  label: string;
-  category: string;
-  severity: string;
-  description: string;
-}) {
-  const severityColor =
-    severity === "critical"
-      ? "text-red-600 bg-red-50 border-red-200"
-      : severity === "high"
-        ? "text-orange-600 bg-orange-50 border-orange-200"
-        : "text-amber-600 bg-amber-50 border-amber-200";
-
-  return (
-    <div className="border-border overflow-hidden rounded-2xl border bg-white">
-      <div className="border-border bg-surface flex items-center justify-between border-b px-5 py-3">
-        <div className="flex items-center gap-2">
-          <span className="rounded bg-red-100 px-2 py-0.5 text-xs font-bold text-red-700">
-            {label}
-          </span>
-          <span className="text-text-secondary text-xs">{category}</span>
-        </div>
-        <span
-          className={`rounded-full border px-2.5 py-0.5 text-xs font-semibold ${severityColor}`}
-        >
-          {severity}
-        </span>
-      </div>
-      <div className="p-5">
-        <p className="text-text-secondary text-sm leading-relaxed">{description}</p>
-      </div>
     </div>
   );
 }

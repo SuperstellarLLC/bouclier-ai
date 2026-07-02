@@ -10,7 +10,9 @@
     <true/>
     <key>com.apple.security.network.client</key>
     <true/>
-    <key>com.apple.developer.system-extension.install</key>
-    <true/>
+    <key>keychain-access-groups</key>
+    <array>
+        <string>U86PR842AK.ai.bouclier.shared</string>
+    </array>
 </dict>
 </plist>

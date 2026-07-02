@@ -4,9 +4,15 @@ import NIOHTTP1
 
 /// Pure, testable helpers for inspecting an intercepted HTTP request.
 ///
-/// `HTTPInspectionHandler` in `TLSProxy.swift` composes these with NIO
-/// plumbing; unit tests exercise this type directly with no network or
-/// channel setup needed.
+/// Most of this type is dormant: `inspect`/`applyMultimodalInspection`
+/// and friends were composed by `HTTPInspectionHandler`, which lived in
+/// `TLSProxy.swift` (the CA-based interception engine removed with
+/// extreme mode) — the loopback `GatewayServer` never calls them. A few
+/// low-level wire-safety helpers (`isValidHeaderName`,
+/// `containsControlBytes`, `maxBodyBytes`) are the exception and remain
+/// live, reused directly by `GatewayServer`/`GatewayWire`. The dormant
+/// surface is kept, unmodified, because unit tests still exercise it
+/// directly with no network or channel setup needed.
 enum HTTPRequestInspector {
     /// Maximum buffered request body, in bytes. A single request
     /// larger than this is rejected at the proxy to protect the event

@@ -1,242 +1,259 @@
 import SwiftUI
 
+/// The menu-bar panel. Designed to answer one question in under a second —
+/// "is my AI traffic protected?" — with a calm hero + master switch, then
+/// surface the headline feature (Secret Keeper) and a glanceable activity
+/// line. Configuration and diagnostics live in Settings, not here.
 struct MenuBarView: View {
     @ObservedObject var proxyManager: ProxyManager
     @ObservedObject var updater: AutoUpdater
     @Environment(\.openSettings) private var openSettings
-    @State private var mlErrorCopied = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Circle()
-                    .fill(statusColor)
-                    .frame(width: 10, height: 10)
-                    .animation(.easeInOut(duration: 0.25), value: statusColor)
-                    .accessibilityLabel(statusAccessibilityLabel)
-                Text("Bouclier.ai")
-                    .font(.headline)
-                Text("BETA")
-                    .font(.system(size: 9, weight: .semibold))
-                    .tracking(0.5)
-                    .padding(.horizontal, 5)
-                    .padding(.vertical, 2)
-                    .background(Color.orange.opacity(0.15), in: RoundedRectangle(cornerRadius: 4))
-                    .foregroundStyle(.orange)
-                    .accessibilityLabel("Beta release")
-                Spacer()
-                Text(statusText)
-                    .font(.caption)
-                    .foregroundStyle(proxyManager.errorMessage != nil ? .red : .secondary)
-                    .contentTransition(.opacity)
-                    .animation(.easeInOut(duration: 0.25), value: statusText)
-            }
+        VStack(alignment: .leading, spacing: 0) {
+            hero
 
             if let error = proxyManager.errorMessage {
-                HStack(spacing: 6) {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .foregroundStyle(.red)
-                        .font(.caption)
-                    Text(error)
-                        .font(.caption2)
-                        .foregroundStyle(.red)
-                }
-                .padding(8)
-                .background(.red.opacity(0.1))
-                .clipShape(RoundedRectangle(cornerRadius: 6))
-                .accessibilityElement(children: .combine)
-                .transition(.move(edge: .top).combined(with: .opacity))
+                errorBanner(error).padding(.top, 10)
             }
+
+            sectionDivider
+            secretKeeperSection
 
             if proxyManager.isRunning {
-                Divider()
+                sectionDivider
+                activitySection
+            }
 
-                HStack {
-                    StatBadge(value: "\(proxyManager.stats.requestsScanned)", label: "Scanned", icon: "magnifyingglass", color: .blue)
-                    Spacer()
-                    StatBadge(
-                        value: "\(proxyManager.stats.injectionsBlocked)",
-                        label: "Blocked",
-                        icon: "shield.slash",
-                        color: proxyManager.stats.injectionsBlocked > 0 ? .red : .green
-                    )
-                    Spacer()
-                    StatBadge(
-                        value: "\(proxyManager.stats.piiRedacted)",
-                        label: "File PII",
-                        icon: "eye.slash.fill",
-                        color: proxyManager.stats.piiRedacted > 0 ? .purple : .secondary
-                    )
-                    Spacer()
-                    StatBadge(
-                        value: "\(proxyManager.stats.mediaBlocked)",
-                        label: "Stripped",
-                        icon: "paperclip",
-                        color: proxyManager.stats.mediaBlocked > 0 ? .purple : .secondary
-                    )
+            sectionDivider
+            footer
+        }
+        .padding(12)
+        .frame(width: 320)
+        .animation(.easeInOut(duration: 0.2), value: proxyManager.isRunning)
+        .animation(.easeInOut(duration: 0.2), value: proxyManager.errorMessage)
+        .animation(.easeInOut(duration: 0.2), value: proxyManager.logs.first?.id)
+    }
+
+    private var sectionDivider: some View {
+        Divider().padding(.vertical, 10)
+    }
+
+    // MARK: - Hero
+
+    private var hero: some View {
+        HStack(alignment: .center, spacing: 12) {
+            Image(systemName: heroIcon)
+                .font(.system(size: 26))
+                .symbolRenderingMode(.hierarchical)
+                .foregroundStyle(heroTint)
+                .contentTransition(.symbolEffect(.replace))
+                .frame(width: 30)
+                .accessibilityHidden(true)
+
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text(heroTitle)
+                        .font(.headline)
+                        .contentTransition(.opacity)
+                    Text("BETA")
+                        .font(.system(size: 9, weight: .semibold))
+                        .tracking(0.5)
+                        .padding(.horizontal, 5).padding(.vertical, 2)
+                        .background(Color.orange.opacity(0.15), in: RoundedRectangle(cornerRadius: 4))
+                        .foregroundStyle(.orange)
+                        .accessibilityHidden(true)
                 }
+                Text(heroSubtitle)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
 
-                // ML classifier status — small inline badge so users
-                // can see whether the on-device fused detection layer
-                // is active. Three states:
-                //   - active  → fused detection running (regex + ML)
-                //   - failed  → classifier wouldn't load; click the badge
-                //               to copy the raw error to the clipboard so
-                //               it can be pasted into bug reports (tooltip
-                //               alone forces a screenshot)
-                //   - loading → still warming up (usually <1s)
-                Button(action: copyMLErrorToClipboard) {
-                    HStack(spacing: 6) {
-                        Image(systemName: mlBadgeIcon)
-                            .foregroundStyle(mlBadgeColor)
-                            .font(.caption)
-                            .contentTransition(.symbolEffect(.replace))
-                        Text(mlBadgeText)
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(2)
-                            .multilineTextAlignment(.leading)
-                        Spacer()
-                        if proxyManager.mlClassifierError != nil {
-                            Image(systemName: mlErrorCopied ? "checkmark" : "doc.on.doc")
-                                .font(.caption2)
+            Spacer(minLength: 8)
+
+            Toggle("", isOn: protectionBinding)
+                .toggleStyle(.switch)
+                .labelsHidden()
+                .help(proxyManager.isRunning ? "Pause protection" : "Turn on protection")
+                .accessibilityLabel("Protection")
+        }
+    }
+
+    /// On = enable protection; off = pause.
+    private var protectionBinding: Binding<Bool> {
+        Binding(
+            get: { proxyManager.isRunning },
+            set: { on in
+                if on { proxyManager.enableStandard() } else { proxyManager.disableStandard() }
+            }
+        )
+    }
+
+    private var heroIcon: String {
+        if proxyManager.errorMessage != nil { return "exclamationmark.shield.fill" }
+        return proxyManager.isRunning ? "checkmark.shield.fill" : "shield.slash"
+    }
+
+    private var heroTint: Color {
+        if proxyManager.errorMessage != nil { return .red }
+        return proxyManager.isRunning ? .green : .secondary
+    }
+
+    private var heroTitle: String {
+        if proxyManager.errorMessage != nil { return "Needs attention" }
+        return proxyManager.isRunning ? "Protected" : "Off"
+    }
+
+    private var heroSubtitle: String {
+        if proxyManager.errorMessage != nil { return "Protection couldn't start — see below." }
+        return proxyManager.isRunning
+            ? "Your AI traffic is protected. Agents use your secrets without ever seeing them."
+            : "Turn on to protect your AI traffic and secrets."
+    }
+
+    private func errorBanner(_ error: String) -> some View {
+        HStack(alignment: .top, spacing: 6) {
+            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.red).font(.caption)
+            Text(error).font(.caption2).foregroundStyle(.red)
+            Spacer(minLength: 0)
+        }
+        .padding(8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.red.opacity(0.1), in: RoundedRectangle(cornerRadius: 6))
+        .accessibilityElement(children: .combine)
+    }
+
+    // MARK: - Secret Keeper (the headline feature)
+
+    private var secretKeeperSection: some View {
+        Button(action: { openSettingsWindow() }) {
+            HStack(spacing: 12) {
+                Image(systemName: "key.fill")
+                    .foregroundStyle(.secondary)
+                    .frame(width: 30)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Secret Keeper").font(.subheadline.weight(.semibold))
+                    Text(secretKeeperSubtitle).font(.caption).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 8)
+                if agentSecretCount > 0 {
+                    Text("\(agentSecretCount)")
+                        .font(.caption.weight(.semibold).monospacedDigit())
+                        .padding(.horizontal, 7).padding(.vertical, 2)
+                        .background(Color.secondary.opacity(0.15), in: Capsule())
+                }
+                Image(systemName: "chevron.right").font(.caption2).foregroundStyle(.tertiary)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var secretKeeperSubtitle: String {
+        agentSecretCount > 0
+            ? "\(agentSecretCount) secret\(agentSecretCount == 1 ? "" : "s") ready for your agent to use"
+            : "Add a secret so your agent can use it without seeing it"
+    }
+
+    private var agentSecretCount: Int {
+        SecretStore.shared.rules().filter { $0.agentAccess }.count
+    }
+
+    // MARK: - Activity
+
+    @ViewBuilder
+    private var activitySection: some View {
+        let recents = Array(proxyManager.logs.prefix(3))
+        Text("Activity").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+
+        if proxyManager.stats.requestsScanned == 0 && recents.isEmpty {
+            HStack(spacing: 6) {
+                Image(systemName: "checkmark.circle").font(.caption).foregroundStyle(.secondary)
+                Text("Watching your AI traffic — nothing to report yet.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            .padding(.top, 4)
+        } else {
+            Text(activitySummary).font(.callout).padding(.top, 2)
+            if !recents.isEmpty {
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(recents) { entry in
+                        HStack(alignment: .top, spacing: 6) {
+                            Text(relativeTime(entry.timestamp))
+                                .font(.caption2.monospacedDigit())
                                 .foregroundStyle(.tertiary)
-                                .contentTransition(.symbolEffect(.replace))
-                        }
-                    }
-                }
-                .buttonStyle(.plain)
-                .disabled(proxyManager.mlClassifierError == nil)
-                .padding(8)
-                .background(mlBadgeColor.opacity(0.06))
-                .clipShape(RoundedRectangle(cornerRadius: 6))
-                .help(proxyManager.mlClassifierError ?? "")
-                .animation(.easeInOut(duration: 0.35), value: proxyManager.mlClassifierActive)
-                .animation(.easeInOut(duration: 0.35), value: proxyManager.mlClassifierError)
-
-                if proxyManager.stats.injectionsBlocked == 0 && proxyManager.stats.requestsScanned > 0 {
-                    HStack(spacing: 6) {
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundStyle(.green)
-                            .font(.caption)
-                        Text("No threats detected")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                    }
-                    .padding(8)
-                    .background(.green.opacity(0.06))
-                    .clipShape(RoundedRectangle(cornerRadius: 6))
-                    .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .top)))
-                } else if let lastBlocked = proxyManager.logs.first(where: { $0.blocked }) {
-                    Button(action: { openLogFile() }) {
-                        HStack(spacing: 6) {
-                            Image(systemName: "exclamationmark.triangle.fill")
-                                .foregroundStyle(.orange)
+                                .frame(width: 26, alignment: .leading)
+                            if entry.blocked {
+                                Image(systemName: "exclamationmark.triangle.fill")
+                                    .font(.caption2).foregroundStyle(.orange)
+                            }
+                            Text(entry.message)
                                 .font(.caption)
-                            Text(lastBlocked.message)
-                                .font(.caption2)
-                                .lineLimit(2)
                                 .foregroundStyle(.secondary)
-                            Spacer()
-                            Image(systemName: "arrow.up.right.square")
-                                .font(.caption2)
-                                .foregroundStyle(.tertiary)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                            Spacer(minLength: 0)
                         }
                     }
-                    .buttonStyle(.plain)
-                    .padding(8)
-                    .background(.orange.opacity(0.1))
-                    .clipShape(RoundedRectangle(cornerRadius: 6))
-                    .transition(.opacity.combined(with: .move(edge: .top)))
-                    .id(lastBlocked.id)
                 }
-
-                // Self-test: runs a known injection through the active
-                // detector so the user gets an immediate "yes, it works"
-                // confirmation without waiting for real traffic.
-                Button(action: { proxyManager.runSelfTest() }) {
-                    Label("Run detection test", systemImage: "testtube.2")
-                        .font(.caption)
-                }
-                .buttonStyle(.plain)
-                .padding(.vertical, 4)
-                .padding(.horizontal, 8)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(.blue.opacity(0.06))
-                .clipShape(RoundedRectangle(cornerRadius: 6))
-                .help("Send a synthetic injection through the scanner and show the verdict")
-
-                if let result = proxyManager.selfTestResult {
-                    SelfTestBanner(result: result)
-                        .transition(.opacity.combined(with: .move(edge: .top)))
-                }
+                .padding(.top, 6)
+                MenuActionRow(title: "See all activity", systemImage: "list.bullet.rectangle") { openLogFile() }
+                    .padding(.top, 2)
             }
+        }
+    }
 
-            Divider()
+    private var activitySummary: String {
+        let n = proxyManager.stats.requestsScanned
+        let blocked = proxyManager.stats.secretsBlocked
+        let base = "\(n) request\(n == 1 ? "" : "s") inspected"
+        return blocked > 0 ? "\(base) · \(blocked) blocked" : "\(base) · all clear"
+    }
 
-            if !proxyManager.caInstalled {
-                Button(action: { proxyManager.setup() }) {
-                    Label("Enable Protection", systemImage: "lock.shield")
-                }
-            } else if proxyManager.isRunning {
-                Button(action: { proxyManager.stop() }) {
-                    Label("Stop Protection", systemImage: "stop.fill")
-                }
-                .keyboardShortcut("s")
-            } else {
-                Button(action: { proxyManager.start() }) {
-                    Label("Start Protection", systemImage: "play.fill")
-                }
-                .keyboardShortcut("s")
-            }
+    private func relativeTime(_ date: Date) -> String {
+        let s = Int(max(0, Date().timeIntervalSince(date)))
+        if s < 60 { return "now" }
+        if s < 3600 { return "\(s / 60)m" }
+        if s < 86400 { return "\(s / 3600)h" }
+        return "\(s / 86400)d"
+    }
 
-            Divider()
+    // MARK: - Footer
 
-            Button(action: { updater.checkForUpdates() }) {
-                Label("Check for Updates...", systemImage: "arrow.triangle.2.circlepath")
-            }
-            .disabled(!updater.canCheckForUpdates)
-
-            Button(action: { exportDiagnostics() }) {
-                Label("Export Diagnostics…", systemImage: "square.and.arrow.up")
-            }
-            .help("Save a redacted diagnostics bundle for support handoff")
-
-            Button(action: {
-                NSApp.activate(ignoringOtherApps: true)
-                openSettings()
-            }) {
-                Label("Settings...", systemImage: "gear")
-            }
-            .keyboardShortcut(",")
-
-            Button("Quit Bouclier.ai") {
+    private var footer: some View {
+        VStack(alignment: .leading, spacing: 1) {
+            MenuActionRow(title: "Settings…", systemImage: "gear", shortcut: ",") { openSettingsWindow() }
+            MenuActionRow(title: "Check for Updates…", systemImage: "arrow.triangle.2.circlepath",
+                          disabled: !updater.canCheckForUpdates) { updater.checkForUpdates() }
+            MenuActionRow(title: "Export Diagnostics…", systemImage: "square.and.arrow.up") { exportDiagnostics() }
+            MenuActionRow(title: "Quit Bouclier.ai", systemImage: "power", shortcut: "q") {
                 proxyManager.stop()
                 NSApplication.shared.terminate(nil)
             }
-            .keyboardShortcut("q")
-
-            // Subtle version stamp so users can verify a Sparkle update
-            // landed without digging into Settings → About. Clickable to
-            // trigger a manual update check when Sparkle allows it.
-            HStack(spacing: 4) {
+            HStack {
                 Spacer()
                 Button(action: { if updater.canCheckForUpdates { updater.checkForUpdates() } }) {
-                    Text("v\(appVersion)")
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
+                    Text("v\(appVersion)").font(.caption2).foregroundStyle(.tertiary)
                 }
                 .buttonStyle(.plain)
                 .disabled(!updater.canCheckForUpdates)
                 .help(updater.canCheckForUpdates ? "Check for updates" : "Version \(appVersion)")
             }
+            .padding(.top, 4)
         }
-        .padding()
-        .frame(width: 300)
-        .animation(.spring(response: 0.35, dampingFraction: 0.85), value: proxyManager.isRunning)
-        .animation(.spring(response: 0.35, dampingFraction: 0.85), value: proxyManager.errorMessage)
-        .animation(.spring(response: 0.35, dampingFraction: 0.85), value: proxyManager.selfTestResult)
-        .animation(.spring(response: 0.35, dampingFraction: 0.85), value: proxyManager.logs.first?.id)
+    }
+
+    // MARK: - Actions
+
+    private func openSettingsWindow() {
+        NSApp.activate(ignoringOtherApps: true)
+        openSettings()
+    }
+
+    private var appVersion: String {
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—"
     }
 
     private func exportDiagnostics() {
@@ -249,8 +266,6 @@ struct MenuBarView: View {
                 metricsSnapshot: snapshot,
                 dailyStats: daily,
                 recentLogs: logs,
-                patternsLoaded: proxyManager.patternsLoadedCount,
-                patternsSHA256Prefix: proxyManager.patternsSHA256Prefix,
                 allowedHosts: SystemProxy.interceptedDomains
             )
 
@@ -277,136 +292,56 @@ struct MenuBarView: View {
     }
 
     private func openLogFile() {
-        let logDir = FileManager.default.urls(
-            for: .applicationSupportDirectory, in: .userDomainMask
-        ).first!.appendingPathComponent("ai.bouclier.app", isDirectory: true)
+        let logDir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)
+            .first!.appendingPathComponent("ai.bouclier.app", isDirectory: true)
         try? FileManager.default.createDirectory(at: logDir, withIntermediateDirectories: true)
-
         let logFile = logDir.appendingPathComponent("bouclier-ai.log")
-        let dateFormatter = DateFormatter()
-        dateFormatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
-
-        var content = "BOUCLIER.AI SCAN LOG\n"
-        content += "Generated: \(dateFormatter.string(from: Date()))\n"
+        let df = DateFormatter()
+        df.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        var content = "BOUCLIER.AI ACTIVITY LOG\nGenerated: \(df.string(from: Date()))\n"
         content += String(repeating: "=", count: 80) + "\n\n"
-
         for entry in proxyManager.logs {
-            let icon = entry.blocked ? "BLOCKED" : "OK"
-            let time = dateFormatter.string(from: entry.timestamp)
-            content += "[\(time)] [\(icon)] \(entry.message)\n"
+            content += "[\(df.string(from: entry.timestamp))] [\(entry.blocked ? "BLOCKED" : "OK")] \(entry.message)\n"
         }
-
         try? content.write(to: logFile, atomically: true, encoding: .utf8)
         NSWorkspace.shared.open(logFile)
     }
-
-    private var statusColor: Color {
-        if proxyManager.errorMessage != nil { return .red }
-        if proxyManager.isRunning { return .green }
-        if !proxyManager.caInstalled { return .orange }
-        return .secondary
-    }
-
-    private var statusText: String {
-        if proxyManager.errorMessage != nil { return "Error" }
-        if proxyManager.isRunning { return "Active" }
-        if !proxyManager.caInstalled { return "Tap Enable below" }
-        return "Stopped"
-    }
-
-    private var statusAccessibilityLabel: String {
-        "Protection status: \(statusText)"
-    }
-
-    private var mlBadgeIcon: String {
-        if proxyManager.mlClassifierActive { return "brain.head.profile.fill" }
-        if proxyManager.mlClassifierError != nil { return "exclamationmark.brain" }
-        return "brain.head.profile"
-    }
-
-    private var mlBadgeColor: Color {
-        if proxyManager.mlClassifierActive { return .purple }
-        if proxyManager.mlClassifierError != nil { return .orange }
-        return .gray
-    }
-
-    private var mlBadgeText: String {
-        if proxyManager.mlClassifierActive { return "Advanced on-device detection active" }
-        if proxyManager.mlClassifierError != nil { return "Basic detection — on-device model unavailable" }
-        return "Basic detection (advanced model loading…)"
-    }
-
-    private var appVersion: String {
-        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—"
-    }
-
-    private func copyMLErrorToClipboard() {
-        guard let error = proxyManager.mlClassifierError else { return }
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(error, forType: .string)
-        mlErrorCopied = true
-        Task { @MainActor in
-            try? await Task.sleep(for: .seconds(1.5))
-            mlErrorCopied = false
-        }
-    }
 }
 
-struct StatBadge: View {
-    let value: String
-    let label: String
-    let icon: String
-    let color: Color
+// MARK: - Reusable hoverable action row
+
+struct MenuActionRow: View {
+    let title: String
+    let systemImage: String
+    var disabled: Bool = false
+    var shortcut: KeyEquivalent? = nil
+    let action: () -> Void
+    @State private var hovering = false
 
     var body: some View {
-        HStack(spacing: 6) {
-            Image(systemName: icon)
-                .foregroundStyle(color)
-                .font(.caption)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(value)
-                    .font(.system(.body, design: .monospaced).bold())
-                    .contentTransition(.numericText())
-                    .animation(.spring(response: 0.3, dampingFraction: 0.7), value: value)
-                Text(label)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+        Button(action: action) {
+            HStack(spacing: 10) {
+                Image(systemName: systemImage).frame(width: 18).foregroundStyle(.secondary)
+                Text(title)
+                Spacer(minLength: 0)
             }
+            .padding(.horizontal, 8).padding(.vertical, 5)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(hovering && !disabled ? Color.primary.opacity(0.06) : .clear,
+                        in: RoundedRectangle(cornerRadius: 6))
+            .contentShape(Rectangle())
         }
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(value) \(label)")
+        .buttonStyle(.plain)
+        .disabled(disabled)
+        .onHover { hovering = $0 }
+        .modifier(OptionalShortcut(key: shortcut))
     }
 }
 
-/// Transient banner surfaced after the user taps "Run detection test".
-/// Auto-dismisses from ProxyManager; this view just renders whichever
-/// result is currently published.
-struct SelfTestBanner: View {
-    let result: SelfTestResult
-
-    var body: some View {
-        HStack(spacing: 8) {
-            Image(systemName: result.passed ? "checkmark.shield.fill" : "exclamationmark.shield.fill")
-                .foregroundStyle(result.passed ? .green : .red)
-                .font(.callout)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(result.headline)
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(result.passed ? .green : .red)
-                Text(result.detail)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
-            }
-            Spacer()
-            Text(String(format: "%.2f", result.fusedScore))
-                .font(.system(.caption2, design: .monospaced))
-                .foregroundStyle(.secondary)
-        }
-        .padding(8)
-        .background((result.passed ? Color.green : Color.red).opacity(0.08))
-        .clipShape(RoundedRectangle(cornerRadius: 6))
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("Self-test result: \(result.headline). \(result.detail).")
+private struct OptionalShortcut: ViewModifier {
+    let key: KeyEquivalent?
+    func body(content: Content) -> some View {
+        if let key { content.keyboardShortcut(key) } else { content }
     }
 }
+

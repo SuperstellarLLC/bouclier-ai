@@ -8,6 +8,19 @@ The `[VERSION]` section for each release is extracted verbatim by
 `apps/desktop/scripts/publish-update.sh` and injected into the Sparkle
 appcast. Write for end users, not for internal engineering notes.
 
+## [0.7.0] — 2026-07-02
+
+### Removed
+
+- **Extreme mode is gone.** The CA-based "full interception" mode — installing a trusted root certificate and a System Extension to decrypt and inspect all AI traffic system-wide — has been removed entirely. Standard mode (the certificate-free gateway your agent's SDK points at via `ANTHROPIC_BASE_URL`/`OPENAI_BASE_URL`) is now the only way Bouclier runs. If you had extreme mode enabled, this update automatically uninstalls the CA from your Keychain, deactivates the System Extension, and clears any leftover system proxy configuration — no action needed.
+- **Prompt-injection and attachment PII detection are no longer active.** That engine only ever ran through extreme mode's interception path, so removing extreme mode removes it from your outbound traffic too. The secret keeper (scrub real credential values before they reach the model, restore them in the response) is unaffected and remains Bouclier's primary protection. Settings → Privacy (the attachment-scanning toggle and redaction audit) is gone with it.
+- **The on-device ML models are no longer bundled.** Nothing has called them since extreme mode's removal, so the app no longer ships ~600MB of model weights it never uses. A typical install is now ~6MB instead of ~600MB.
+
+### Changed
+
+- Settings → Protection is simplified to a single mode: no more mode picker, CA status, or System Extension status. It now shows gateway status, certificate status (not needed), and secret-keeper status.
+- Patched all known dependency vulnerabilities (`vitest`, `vite`, `undici`, `esbuild`, `@babel/core`, `js-yaml`).
+
 ## [0.6.1] — 2026-05-27
 
 ### Fixed

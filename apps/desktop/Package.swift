@@ -10,6 +10,15 @@ let package = Package(
         .executable(name: "Bouclier", targets: ["Bouclier"]),
         .executable(name: "bouclier-ai-mcp-wrapper", targets: ["MCPWrapper"]),
         .executable(name: "bouclier-ai-env", targets: ["EnvHelper"]),
+        .executable(name: "bouclier-ai-secrets-mcp", targets: ["SecretsMCP"]),
+        // Named "bouclier-cli", not "bouclier": on case-insensitive
+        // filesystems (default macOS/APFS) a product named "bouclier"
+        // collides with the "Bouclier" app product above — cp/codesign
+        // silently overwrite one with the other and the shipped app
+        // executable ends up being the CLI. The public command is still
+        // `bouclier`, created by the install-time symlink (see
+        // CLICore.installCmd), not by this product's build name.
+        .executable(name: "bouclier-cli", targets: ["BouclierCLI"]),
     ],
     dependencies: [
         .package(url: "https://github.com/groue/GRDB.swift.git", from: "7.0.0"),
@@ -28,6 +37,7 @@ let package = Package(
         .executableTarget(
             name: "Bouclier",
             dependencies: [
+                "BouclierSecretsCore",
                 .product(name: "GRDB", package: "GRDB.swift"),
                 .product(name: "NIO", package: "swift-nio"),
                 .product(name: "NIOCore", package: "swift-nio"),
@@ -54,31 +64,43 @@ let package = Package(
                 .swiftLanguageMode(.v6),
             ]
         ),
+        .target(
+            name: "BouclierSecretsCore",
+            dependencies: [],
+            path: "Sources/BouclierSecretsCore",
+            swiftSettings: [
+                .swiftLanguageMode(.v6),
+            ]
+        ),
         .executableTarget(
             name: "EnvHelper",
-            dependencies: [],
+            dependencies: ["BouclierSecretsCore"],
             path: "Sources/EnvHelper",
             swiftSettings: [
                 .swiftLanguageMode(.v6),
             ]
         ),
         .executableTarget(
-            name: "BouclierExtension",
-            dependencies: [],
-            path: "Sources/BouclierExtension",
-            exclude: ["GeneratedInfo.plist"],
+            name: "SecretsMCP",
+            dependencies: ["BouclierSecretsCore"],
+            path: "Sources/SecretsMCP",
             swiftSettings: [
                 .swiftLanguageMode(.v6),
-                .unsafeFlags(["-Xfrontend", "-enable-upcoming-feature", "-Xfrontend", "InternalImportsByDefault"], .when(platforms: [])),
-            ],
-            linkerSettings: [
-                .linkedFramework("NetworkExtension"),
+            ]
+        ),
+        .executableTarget(
+            name: "BouclierCLI",
+            dependencies: ["BouclierSecretsCore"],
+            path: "Sources/BouclierCLI",
+            swiftSettings: [
+                .swiftLanguageMode(.v6),
             ]
         ),
         .testTarget(
             name: "BouclierTests",
             dependencies: [
                 "Bouclier",
+                "BouclierSecretsCore",
                 .product(name: "NIO", package: "swift-nio"),
                 .product(name: "NIOCore", package: "swift-nio"),
                 .product(name: "NIOPosix", package: "swift-nio"),

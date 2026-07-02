@@ -132,6 +132,14 @@ jobs:
       - name: Build Swift package (debug)
         working-directory: apps/desktop
         run: swift build
+      # Run the secret-keeper safety invariants first and on their own so
+      # a regression here — the one class of failure that can break live
+      # LLM connections — fails the build fast with an unmistakable name,
+      # rather than being buried in the full suite output.
+      - name: Secret keeper safety invariants (must pass)
+        working-directory: apps/desktop
+        # --filter matches the test TYPE name (not the @Suite display string).
+        run: swift test --filter SecretKeeper --filter SecretInjection --filter SecretStore --filter Egress
       - name: Run Swift tests
         working-directory: apps/desktop
         run: swift test

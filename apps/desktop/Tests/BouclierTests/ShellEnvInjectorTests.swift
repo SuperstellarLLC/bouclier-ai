@@ -111,47 +111,76 @@ struct ShellEnvInjectorTests {
 
     @Test("POSIX env file gates exports behind a TCP check AND unsets stale values")
     func posixFileIsFailOpen() {
-        let exports = ShellEnvInjector.buildExports(
-            proxyURL: "http://127.0.0.1:8484",
-            caCertPath: "/tmp/ca.pem"
-        )
+        let exports = ShellEnvInjector.buildStandardExports(gatewayPort: 8484)
         let content = ShellEnvInjector.posixEnvFileContent(exports: exports)
 
         // The guard line MUST come before the exports — otherwise the
         // exports happen unconditionally and we're back to "connection
         // refused for every command" when Bouclier isn't listening.
         guard let guardIdx = content.range(of: "nc -z 127.0.0.1 8484"),
-              let exportIdx = content.range(of: "export HTTPS_PROXY=")
+              let exportIdx = content.range(of: "export ANTHROPIC_BASE_URL=")
         else {
-            Issue.record("Expected both `nc -z` guard and `export HTTPS_PROXY` in:\n\(content)")
+            Issue.record("Expected both `nc -z` guard and `export ANTHROPIC_BASE_URL` in:\n\(content)")
             return
         }
         #expect(guardIdx.lowerBound < exportIdx.lowerBound,
                 "Fail-open TCP check must precede the exports")
         // Explicit unset in the else branch is what makes fail-open
-        // actually work — without it, a stale HTTPS_PROXY inherited
+        // actually work — without it, a stale ANTHROPIC_BASE_URL inherited
         // from launchctl or the parent shell would survive even when
         // Bouclier is down. Caught during live QA on 2026-05-25.
         #expect(content.contains("else"))
-        #expect(content.contains("unset HTTPS_PROXY"),
+        #expect(content.contains("unset ANTHROPIC_BASE_URL"),
                 "else-branch must explicitly unset, not just skip exports")
         #expect(content.contains("fi"), "Guard block must be closed with `fi`")
     }
 
     @Test("Fish env file gates exports behind a TCP check AND unsets stale values")
     func fishFileIsFailOpen() {
-        let exports = ShellEnvInjector.buildExports(
-            proxyURL: "http://127.0.0.1:9999",
-            caCertPath: "/tmp/ca.pem"
-        )
+        let exports = ShellEnvInjector.buildStandardExports(gatewayPort: 9999)
         let content = ShellEnvInjector.fishEnvFileContent(exports: exports)
 
         #expect(content.contains("nc -z 127.0.0.1 9999"),
-                "Fish guard should pull the port from the configured proxy URL, not hardcode 8484")
-        #expect(content.contains("set -gx HTTPS_PROXY"))
-        #expect(content.contains("set -e HTTPS_PROXY"),
+                "Fish guard should pull the port from the configured gateway URL, not hardcode 8484")
+        #expect(content.contains("set -gx ANTHROPIC_BASE_URL"))
+        #expect(content.contains("set -e ANTHROPIC_BASE_URL"),
                 "Fish else-branch must explicitly erase, not just skip exports")
         #expect(content.contains("end"), "Fish if/end block must close")
+    }
+
+    @Test("POSIX env file re-syncs on every interactive prompt so a live shell self-heals")
+    func posixFileReSyncsPerPrompt() {
+        // The bug this guards against: a terminal opened while Bouclier
+        // was alive exports ANTHROPIC_BASE_URL into its process env.
+        // Killing Bouclier can't touch that live shell, so the next
+        // `claude` in the same tab hits the dead port → 'connection
+        // refused'. Re-running the check before each prompt fixes it.
+        // Reported by a user on 2026-06-04.
+        let exports = ShellEnvInjector.buildStandardExports(gatewayPort: 8484)
+        let content = ShellEnvInjector.posixEnvFileContent(exports: exports)
+
+        #expect(content.contains("__bouclier_sync()"),
+                "Check must be wrapped in a function so it can be both called once and re-bound to a prompt hook")
+        #expect(content.contains("add-zsh-hook precmd __bouclier_sync"),
+                "zsh interactive shells must re-sync via a precmd hook")
+        #expect(content.contains("PROMPT_COMMAND="),
+                "bash interactive shells must re-sync via PROMPT_COMMAND")
+        // The function must also be invoked directly — non-interactive
+        // shells (Claude Code, editor-spawned tools) never fire a prompt
+        // hook, so defining the function alone would protect nothing.
+        let lines = content.split(separator: "\n", omittingEmptySubsequences: false)
+        #expect(lines.contains("__bouclier_sync"),
+                "Function must be invoked once at source time for non-interactive shells")
+    }
+
+    @Test("Fish env file re-syncs on every prompt via fish_prompt event")
+    func fishFileReSyncsPerPrompt() {
+        let exports = ShellEnvInjector.buildStandardExports(gatewayPort: 8484)
+        let content = ShellEnvInjector.fishEnvFileContent(exports: exports)
+
+        #expect(content.contains("function __bouclier_sync"))
+        #expect(content.contains("--on-event fish_prompt"),
+                "Fish must re-sync on every prompt so a live shell self-heals when Bouclier dies")
     }
 
     @Test("Watchdog plist runs every minute and unsets env when the proxy port isn't reachable")

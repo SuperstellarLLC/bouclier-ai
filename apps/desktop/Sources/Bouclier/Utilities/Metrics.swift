@@ -27,6 +27,10 @@ actor Metrics {
     private(set) var bytesScanned: UInt64 = 0
     private(set) var sseFramesScanned: UInt64 = 0
     private(set) var sseStreamsBlocked: UInt64 = 0
+    /// Managed secrets injected at egress (placeholder → real value).
+    private(set) var secretsInjected: UInt64 = 0
+    /// Requests blocked by a secret tripwire (exfil / plaintext).
+    private(set) var secretsBlocked: UInt64 = 0
 
     /// Hits per detection category (role-hijack, credential-leak, …).
     private var hitsByCategory: [String: UInt64] = [:]
@@ -80,6 +84,14 @@ actor Metrics {
         if blocked { sseStreamsBlocked += 1 }
     }
 
+    func recordSecretInjected(count: Int) {
+        secretsInjected += UInt64(max(0, count))
+    }
+
+    func recordSecretBlocked() {
+        secretsBlocked += 1
+    }
+
     func snapshot() -> MetricsSnapshot {
         MetricsSnapshot(
             uptimeSeconds: Date().timeIntervalSince(startedAt),
@@ -90,6 +102,8 @@ actor Metrics {
             bytesScanned: bytesScanned,
             sseFramesScanned: sseFramesScanned,
             sseStreamsBlocked: sseStreamsBlocked,
+            secretsInjected: secretsInjected,
+            secretsBlocked: secretsBlocked,
             hitsByCategory: hitsByCategory,
             hitsBySeverity: hitsBySeverity,
             blocksByHost: blocksByHost,
@@ -113,6 +127,8 @@ actor Metrics {
         bytesScanned = 0
         sseFramesScanned = 0
         sseStreamsBlocked = 0
+        secretsInjected = 0
+        secretsBlocked = 0
         hitsByCategory.removeAll()
         hitsBySeverity.removeAll()
         blocksByHost.removeAll()
@@ -145,6 +161,8 @@ struct MetricsSnapshot: Codable, Sendable {
     let bytesScanned: UInt64
     let sseFramesScanned: UInt64
     let sseStreamsBlocked: UInt64
+    let secretsInjected: UInt64
+    let secretsBlocked: UInt64
     let hitsByCategory: [String: UInt64]
     let hitsBySeverity: [String: UInt64]
     let blocksByHost: [String: UInt64]

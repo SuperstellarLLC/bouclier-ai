@@ -28,9 +28,6 @@ export default function PrivacyPage() {
             <Link href="/" className="hover:text-text transition-colors">
               Home
             </Link>
-            <Link href="/blocked" className="hover:text-text transition-colors">
-              Blocked
-            </Link>
           </div>
         </div>
       </nav>
@@ -58,36 +55,35 @@ export default function PrivacyPage() {
         {/* Summary box */}
         <div className="border-accent-green/30 mt-6 rounded-xl border-2 bg-emerald-50 p-6">
           <p className="font-medium text-emerald-900">
-            Bouclier.ai processes all prompt and attachment content locally on your device. The app
-            collects no personal data, has no analytics, no crash reporting, and no user accounts.
-            The only information that ever reaches a bouclier.ai server is a single anonymous
-            timestamp when you click the Download button on this marketing site — full scope
-            described below.
+            Bouclier.ai runs entirely on your device — the gateway only ever touches a request when
+            a managed secret&apos;s real value is present, scrubbing it before it reaches the model.
+            The app collects no personal data, has no analytics, no crash reporting, and no user
+            accounts. The only information that ever reaches a bouclier.ai server is a single
+            anonymous timestamp when you click the Download button on this marketing site — full
+            scope described below.
           </p>
         </div>
 
         <Section title="What Bouclier.ai does">
-          Bouclier.ai is a local network proxy that scans outbound AI API traffic for prompt
-          injection attacks and inspects outbound attachments (images, PDFs, short audio clips) for
-          personal data. It intercepts HTTPS connections to a specific set of AI API domains,
-          decrypts them using a locally-generated certificate authority, inspects the request, and
-          forwards the request to the intended destination. Text prompt bodies and request headers
-          are forwarded byte-for-byte; the only content the Software ever modifies on the way out is
-          an attachment that the on-device scanner has flagged as containing personal data.
+          Bouclier.ai runs a local gateway on your Mac. You point your AI agent&apos;s SDK at it (
+          <code>ANTHROPIC_BASE_URL</code> / <code>OPENAI_BASE_URL</code>) instead of the provider
+          directly; the gateway re-issues each request to the real provider over TLS and streams the
+          response back. There is no system-wide traffic interception, no certificate authority, and
+          no decryption of traffic the gateway wasn&apos;t explicitly pointed at. Text prompt bodies
+          and request headers are forwarded byte-for-byte; the only content the Software ever
+          modifies is a managed secret&apos;s real value, which is scrubbed to a placeholder on the
+          way out (see &quot;What reaches the model&quot; on the homepage) and restored in the
+          response.
         </Section>
 
-        <Section title="Intercepted domains">
-          <p>
-            Bouclier.ai only intercepts traffic to these specific domains. All other network traffic
-            is completely untouched:
-          </p>
+        <Section title="Providers reached">
+          <p>The gateway routes requests to whichever provider the request targets. Built in:</p>
           <div className="border-border bg-surface mt-3 rounded-lg border px-4 py-3 font-mono text-sm">
-            api.openai.com, api.anthropic.com, api.cohere.com, api.mistral.ai,
-            generativelanguage.googleapis.com, api.together.xyz, api.groq.com, api.perplexity.ai,
-            api.fireworks.ai, openrouter.ai
+            api.openai.com, api.anthropic.com
           </div>
           <p className="text-text-secondary mt-3 text-sm">
-            Organizations using MDM can add additional domains via managed app configuration.
+            Organizations using MDM can override the upstream host/port via managed app
+            configuration.
           </p>
         </Section>
 
@@ -95,7 +91,8 @@ export default function PrivacyPage() {
           <ol className="list-decimal space-y-3 pl-5">
             <li>
               <strong>AI API forwarding</strong> — forwarding your requests to their intended
-              destination. Content may be modified if a prompt injection is detected.
+              destination. A managed secret&apos;s real value is scrubbed to a placeholder before
+              the request leaves the gateway and restored in the response; nothing else is modified.
             </li>
             <li>
               <strong>Update check</strong> — checking for software updates via appcast.xml hosted
@@ -104,8 +101,8 @@ export default function PrivacyPage() {
             </li>
             <li>
               <strong>SIEM webhook (enterprise only)</strong> — if and only if configured by an
-              organization&apos;s IT administrator via MDM, scan event metadata (timestamp, host,
-              pattern, severity) is sent to that organization-controlled endpoint. Never enabled by
+              organization&apos;s IT administrator via MDM, secret-keeper event metadata (timestamp,
+              host, event kind) is sent to that organization-controlled endpoint. Never enabled by
               default. Cannot be configured by the user.
             </li>
           </ol>
@@ -141,35 +138,29 @@ export default function PrivacyPage() {
             <li className="flex gap-2">
               <span className="bg-text-secondary mt-2 h-1 w-1 shrink-0 rounded-full" />
               <span>
-                <strong>Scan logs</strong> — timestamp, source, target host, detection status,
-                pattern IDs, severity, request size. No request body content. Auto-deleted after 30
-                days.
+                <strong>Scan logs</strong> — timestamp, source, target host, event kind, request
+                size. No request body content. Auto-deleted after 30 days.
               </span>
             </li>
             <li className="flex gap-2">
               <span className="bg-text-secondary mt-2 h-1 w-1 shrink-0 rounded-full" />
               <span>
-                <strong>Daily stats</strong> — date, requests scanned, injections blocked. Retained
-                365 days.
+                <strong>Daily stats</strong> — date, requests scanned, secrets scrubbed/blocked.
+                Retained 365 days.
               </span>
             </li>
             <li className="flex gap-2">
               <span className="bg-text-secondary mt-2 h-1 w-1 shrink-0 rounded-full" />
               <span>
-                <strong>CA certificate</strong> — public PEM file (not sensitive).
+                <strong>Managed secret values</strong> — macOS Keychain (encrypted at rest),
+                kSecAttrAccessibleWhenUnlockedThisDeviceOnly. Never written to disk in plaintext,
+                never logged.
               </span>
             </li>
             <li className="flex gap-2">
               <span className="bg-text-secondary mt-2 h-1 w-1 shrink-0 rounded-full" />
               <span>
-                <strong>CA private key</strong> — macOS Keychain (encrypted at rest),
-                kSecAttrAccessibleWhenUnlockedThisDeviceOnly. Never written to disk in plaintext.
-              </span>
-            </li>
-            <li className="flex gap-2">
-              <span className="bg-text-secondary mt-2 h-1 w-1 shrink-0 rounded-full" />
-              <span>
-                <strong>Preferences</strong> — proxy port, notifications, launch-at-login. Via
+                <strong>Preferences</strong> — gateway port, notifications, launch-at-login. Via
                 UserDefaults.
               </span>
             </li>
@@ -186,37 +177,27 @@ export default function PrivacyPage() {
           organization&apos;s IT administrator, not to Bouclier.ai or any third party.
         </Section>
 
-        <Section title="Detection method">
+        <Section title="Secret scrub / restore method">
           <p>
-            Prompt-injection scanning combines deterministic regex pattern matching, heuristic
-            scoring, and on-device Meta Llama Prompt Guard 2 classification.
+            A managed secret&apos;s real value is detected by exact match against the value you
+            stored in Keychain (not a heuristic or classifier) and replaced with an opaque
+            placeholder before the request reaches the model provider. The matching response is
+            scanned for the placeholder and restored to the real value so your local tools keep
+            working. Requests and responses containing no managed secret value are forwarded
+            byte-for-byte, untouched.
           </p>
           <p className="mt-3">
-            When attachment inspection is enabled, files attached to outbound LLM requests are
-            scanned on-device using Apple Vision (image OCR + face detection), PDFKit (PDF text
-            extraction + OCR fallback) and SFSpeechRecognizer with{" "}
-            <code>requiresOnDeviceRecognition</code> set, so audio is transcribed without leaving
-            your Mac. The extracted text is then run through the same on-device PII detector stack.
-            No request body, response body, prompt content, attachment content, or transcript is
-            ever sent to any external service.
+            Text prompt bodies and HTTP request headers are otherwise forwarded byte-for-byte; the
+            Software does not modify outbound prompts or headers beyond the secret-scrub
+            substitution described above. This is pinned by an end-to-end test in the public
+            repository.
           </p>
-          <p className="mt-3">
-            Text prompt bodies and HTTP request headers are forwarded byte-for-byte; the Software
-            does not modify outbound prompts or headers under any circumstance. This is pinned by an
-            end-to-end test in the public repository.
+          <p className="mt-3 text-sm">
+            An earlier version of the Software additionally ran an on-device prompt-injection and
+            attachment-PII detection engine. That engine is no longer wired into any live request
+            path — its code remains in the public repository, unmodified, but does not run against
+            your traffic today.
           </p>
-        </Section>
-
-        <Section title="Attribution">
-          Built with Llama. Bouclier.ai uses Meta Llama Prompt Guard 2 locally on your Mac. The
-          bundled legal notice and Llama 4 Community License are distributed with the app and in
-          this repository.
-        </Section>
-
-        <Section title="Certificate authority">
-          A local root CA is generated on your device during setup, used solely to decrypt AI API
-          traffic for inspection. The private key never leaves your device. Removable at any time
-          via Settings.
         </Section>
 
         <Section title="Auditing">
@@ -296,9 +277,6 @@ export default function PrivacyPage() {
           <div className="flex gap-6">
             <Link href="/" className="hover:text-text transition-colors">
               Home
-            </Link>
-            <Link href="/blocked" className="hover:text-text transition-colors">
-              Blocked
             </Link>
           </div>
         </div>

@@ -14,14 +14,13 @@ we read everything that comes in through the channels below.
 
 ## Where to ask
 
-| You want to...                    | Use                                                                                               |
-| --------------------------------- | ------------------------------------------------------------------------------------------------- |
-| Report a security vulnerability   | [SECURITY.md](.github/SECURITY.md) (private)                                                      |
-| Report a reproducible bug         | [Open a bug issue](https://github.com/SuperstellarLLC/bouclier-ai/issues/new/choose)              |
-| Report a missed detection (FN/FP) | [Detection-miss issue template](https://github.com/SuperstellarLLC/bouclier-ai/issues/new/choose) |
-| Propose a feature                 | [Feature issue template](https://github.com/SuperstellarLLC/bouclier-ai/issues/new/choose)        |
-| Ask a question or discuss usage   | [Discussions](https://github.com/SuperstellarLLC/bouclier-ai/discussions)                         |
-| Commercial / press / partnership  | `hello@bouclier.ai`                                                                               |
+| You want to...                   | Use                                                                                        |
+| -------------------------------- | ------------------------------------------------------------------------------------------ |
+| Report a security vulnerability  | [SECURITY.md](.github/SECURITY.md) (private)                                               |
+| Report a reproducible bug        | [Open a bug issue](https://github.com/SuperstellarLLC/bouclier-ai/issues/new/choose)       |
+| Propose a feature                | [Feature issue template](https://github.com/SuperstellarLLC/bouclier-ai/issues/new/choose) |
+| Ask a question or discuss usage  | [Discussions](https://github.com/SuperstellarLLC/bouclier-ai/discussions)                  |
+| Commercial / press / partnership | `hello@bouclier.ai`                                                                        |
 
 ## What to include
 
