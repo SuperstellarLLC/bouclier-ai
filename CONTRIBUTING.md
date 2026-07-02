@@ -71,10 +71,16 @@ xcodegen
 open Bouclier.xcodeproj
 ```
 
-CoreML model weights are too large for git and are generated locally:
+The CoreML models for the dormant detection engine (see "Adding a
+detection pattern" below) are no longer bundled — the shipped app
+doesn't need them, and `swift build`/`swift test` don't either;
+`MLClassifier`/`PIIClassifier` degrade gracefully when the resource is
+absent. If you're specifically working on that dormant engine and want
+to exercise the classifiers locally, the generation scripts are still
+available (too large for git, so not fetched by default):
 
 ```bash
-apps/desktop/scripts/ensure-model.sh         # downloads + compiles
+apps/desktop/scripts/ensure-model.sh         # downloads + compiles PromptGuard 2
 apps/desktop/scripts/convert-promptguard.py  # PromptGuard 2 → CoreML
 apps/desktop/scripts/convert-piiranha.py     # Piiranha → CoreML
 ```
