@@ -7,7 +7,7 @@
     <language>en</language>
     <item>
       <title>Version 0.7.0</title>
-      <pubDate>Thu, 02 Jul 2026 15:56:49 +0200</pubDate>
+      <pubDate>Thu, 02 Jul 2026 18:10:38 +0200</pubDate>
       <sparkle:version>0.7.0</sparkle:version>
       <sparkle:shortVersionString>0.7.0</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
@@ -27,8 +27,8 @@
 ]]></description>
       <enclosure
         url="https://0tdi95zyjwsefpzx.public.blob.vercel-storage.com/download/Bouclier-ai-v0.7.0-macOS.dmg"
-        sparkle:edSignature="oaQnJWe4mqgkhR8Gx0EZKT4Rn7fyM3li4BaPHsneJGRx4i0MkMbJNS02aXeoyADSORxccsb4C958Lqt+a3bZDA=="
-        length="8929999"
+        sparkle:edSignature="lpfjpPo49TBebynGwU/aSVq+m1BU0GJ0628SwRXmaA+P88X4DQbyQiZOu61Tr3rDYmzNnSjwyVFFVISNDA8EAQ=="
+        length="9113239"
         type="application/octet-stream"
       />
     </item>
