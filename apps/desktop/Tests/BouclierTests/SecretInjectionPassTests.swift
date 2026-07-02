@@ -320,19 +320,3 @@ struct SecretInjectionPassTests {
         #expect(!SecretRule.isValidValue(String(repeating: "x", count: SecretRule.maxValueBytes + 1)))
     }
 }
-
-@Suite("SystemProxy egress policy")
-struct EgressPolicyTests {
-    @Test("Fail-open: every host tunnels by default")
-    func failOpen() {
-        #expect(SystemProxy.tunnelAllowed(host: "github.com", failClosed: false, allowlist: []))
-    }
-
-    @Test("Fail-closed: only allowlisted hosts tunnel")
-    func failClosed() {
-        let allow: Set<String> = ["github.com"]
-        #expect(SystemProxy.tunnelAllowed(host: "github.com", failClosed: true, allowlist: allow))
-        #expect(SystemProxy.tunnelAllowed(host: "GitHub.com", failClosed: true, allowlist: allow))
-        #expect(!SystemProxy.tunnelAllowed(host: "evil.example.com", failClosed: true, allowlist: allow))
-    }
-}

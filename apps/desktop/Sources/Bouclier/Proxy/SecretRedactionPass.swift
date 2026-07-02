@@ -1,17 +1,17 @@
 import Foundation
 
-/// Pure, NIO-free outbound secret **scrub** — the standard-mode inverse of
-/// `SecretInjectionPass`.
+/// Pure, NIO-free outbound secret **scrub** — the inverse of
+/// `SecretInjectionPass` (dormant; see that type's doc comment).
 ///
-/// Injection (extreme mode) swaps a *placeholder* for a real value heading
-/// to a bound third-party host. Scrub (standard mode) swaps a managed
-/// *real value* for its placeholder heading to the **model provider**, so
-/// the secret never reaches Anthropic/OpenAI. The matching `SecretRestore`
-/// reverses it in the response stream so the local agent's tool calls
-/// still see the real value. See `docs/secret-injection.md`.
+/// Injection swaps a *placeholder* for a real value heading to a bound
+/// third-party host. Scrub swaps a managed *real value* for its
+/// placeholder heading to the **model provider**, so the secret never
+/// reaches Anthropic/OpenAI. The matching `SecretRestore` reverses it in
+/// the response stream so the local agent's tool calls still see the
+/// real value. See `docs/secret-injection.md`.
 ///
-/// Threat-model note: in standard mode the agent legitimately holds real
-/// secrets locally — we blind only the model vendor, not the agent.
+/// Threat-model note: the agent legitimately holds real secrets locally —
+/// we blind only the model vendor, not the agent.
 enum SecretRedactionPass {
     struct Outcome: Sendable, Equatable {
         let uri: String

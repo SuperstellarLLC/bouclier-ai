@@ -26,7 +26,7 @@ struct SettingsView: View {
             LogsView(proxyManager: proxyManager)
                 .tabItem { Label("Logs", systemImage: "doc.text") }
 
-            AboutView(updater: updater, patternCount: proxyManager.patternsLoadedCount)
+            AboutView(updater: updater)
                 .tabItem { Label("About", systemImage: "info.circle") }
         }
         .frame(width: 540, height: 420)
@@ -212,15 +212,9 @@ struct SecretsSettingsView: View {
                 }
                 Toggle("Protect managed secrets from the model", isOn: $secretInjectionEnabled)
                     .disabled(!proxyManager.secretKeeperHealthy || !proxyManager.isRunning)
-                    .onChange(of: secretInjectionEnabled) { _, _ in reArmProxy() }
                 HStack(spacing: 16) {
                     Label("\(proxyManager.stats.secretsScrubbed) scrubbed", systemImage: "eraser.fill")
                         .foregroundStyle(.secondary)
-                    // "injected" only happens in extreme mode.
-                    if ProxyMode.current == .extreme {
-                        Label("\(proxyManager.stats.secretsInjected) injected", systemImage: "key.fill")
-                            .foregroundStyle(.secondary)
-                    }
                     Label("\(proxyManager.stats.secretsBlocked) blocked", systemImage: "hand.raised.fill")
                         .foregroundStyle(proxyManager.stats.secretsBlocked > 0 ? .red : .secondary)
                 }
@@ -229,7 +223,7 @@ struct SecretsSettingsView: View {
             } header: {
                 Text("Secret keeper (beta)")
             } footer: {
-                Text("Keeps your real credentials out of the model. In Standard mode a managed secret is scrubbed to a placeholder before the request reaches the model provider and restored in the response, so your local tools still work while the vendor never sees it. Bind a secret to a host to also inject it into that third party in Extreme mode. Secrets live in your macOS Keychain and never leave this Mac.")
+                Text("Keeps your real credentials out of the model. A managed secret is scrubbed to a placeholder before the request reaches the model provider and restored in the response, so your local tools still work while the vendor never sees it. Secrets live in your macOS Keychain and never leave this Mac.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -247,7 +241,7 @@ struct SecretsSettingsView: View {
             } header: {
                 Text("Managed secrets")
             } footer: {
-                Text("A secret's `$ENV_VAR` appears in shells you open after adding it — open a new terminal to pick it up. Use the placeholder verbatim in your agent's config or tool call. Binding a host (extreme mode) makes Bouclier intercept it; a certificate-pinned tool may reject that — remove the secret to undo. Your LLM providers are never blocked for authenticating normally.")
+                Text("A secret's `$ENV_VAR` appears in shells you open after adding it — open a new terminal to pick it up. Use the placeholder verbatim in your agent's config or tool call. Your LLM providers are never blocked for authenticating normally.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -315,11 +309,13 @@ struct SecretsSettingsView: View {
             .split(separator: ",")
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }
-        // Hosts are OPTIONAL. With no host the secret is "scrub-only"
-        // (standard mode): scrubbed out of model-provider requests and
-        // restored in the response, never injected into a third party.
-        // With a host it's also injectable in extreme mode.
-        // Surface rejected hosts rather than silently dropping them.
+        // Hosts are OPTIONAL. With no host the secret is "scrub-only":
+        // scrubbed out of model-provider requests and restored in the
+        // response, never injected into a third party. Host binding is
+        // reserved for a possible future destination-bound injection
+        // path — it validates and stores today but nothing currently
+        // acts on it. Surface rejected hosts rather than silently
+        // dropping them.
         let invalid = rawHosts.filter { SecretRule.validatedHost($0) == nil }
         guard invalid.isEmpty else {
             addError = "Can't bind to: \(invalid.joined(separator: ", ")). Use a public domain (no localhost, raw IPs, or metadata endpoints)."
@@ -337,13 +333,11 @@ struct SecretsSettingsView: View {
         addError = nil
         newName = ""; newValue = ""; newHosts = ""; newEnvVar = ""; newAgentAccess = true
         reload()
-        reArmProxy()
     }
 
     private func delete(_ rule: SecretRule) {
         SecretStore.shared.removeSecret(name: rule.name)
         reload()
-        reArmProxy()
     }
 
     private func toggleAccess(_ rule: SecretRule) {
@@ -354,24 +348,6 @@ struct SecretsSettingsView: View {
     private func copyPlaceholder(_ rule: SecretRule) {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(rule.placeholder, forType: .string)
-    }
-
-    /// Rewrite the system PAC so newly bound hosts are routed through the
-    /// proxy (and removed ones stop being intercepted).
-    ///
-    /// Two safety properties: (1) no-op unless the proxy is already
-    /// running, so toggling secrets never *enables* a proxy the user
-    /// hasn't turned on — we only refresh an already-armed PAC, which is
-    /// idempotent. (2) Runs off the main thread because `networksetup`
-    /// shells out and could otherwise stall the Settings UI; the result
-    /// is intentionally ignored (a failed refresh leaves the prior
-    /// working PAC in place rather than breaking connectivity).
-    private func reArmProxy() {
-        guard proxyManager.isRunning else { return }
-        let port = proxyManager.port
-        DispatchQueue.global(qos: .utility).async {
-            _ = SystemProxy.enable(port: port)
-        }
     }
 }
 
@@ -465,10 +441,7 @@ struct GeneralSettingsView: View {
                 Toggle("Capture CLI tools (Claude Code, Cursor, Python, Node)", isOn: $autoConfigureShell)
                     .onChange(of: autoConfigureShell) { _, newValue in
                         if newValue {
-                            ShellEnvInjector.apply(
-                                proxyPort: proxyManager.port,
-                                caCertPath: proxyManager.ca.caCertFilePath
-                            )
+                            ShellEnvInjector.applyStandard(gatewayPort: proxyManager.port)
                         } else {
                             ShellEnvInjector.remove()
                         }
@@ -476,7 +449,7 @@ struct GeneralSettingsView: View {
             } header: {
                 Text("CLI capture")
             } footer: {
-                Text("Bouclier writes `HTTPS_PROXY` and `NODE_EXTRA_CA_CERTS` into your shell startup files and the launchctl session so command-line AI tools route through the proxy. Without this, only GUI apps (ChatGPT, Claude Desktop) are protected — Claude Code and other CLIs bypass interception.")
+                Text("Bouclier writes `ANTHROPIC_BASE_URL` / `OPENAI_BASE_URL` into your shell startup files and the launchctl session so command-line AI tools route through the gateway. Without this, only GUI apps (ChatGPT, Claude Desktop) are protected — Claude Code and other CLIs bypass it.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -537,54 +510,13 @@ struct GeneralSettingsView: View {
 struct ProtectionSettingsView: View {
     @ObservedObject var proxyManager: ProxyManager
     @State private var showUninstallConfirm = false
-    @AppStorage(ProxyMode.userDefaultsKey) private var modeRaw: String = ProxyMode.compileDefault.rawValue
     @AppStorage("secretInjectionEnabled") private var secretInjectionEnabled: Bool = false
-    /// Extreme mode is hidden by default — hold ⌥ Option to reveal it. It's
-    /// experimental and can alter system network configuration.
-    @State private var optionHeld = false
-    @State private var flagsMonitor: Any?
-    @State private var showExtremeConfirm = false
-
-    private var extremeVisible: Bool { optionHeld || modeRaw == ProxyMode.extreme.rawValue }
-
-    /// Intercepts selection so Extreme is never applied until the user
-    /// confirms the experimental warning; Standard applies immediately.
-    private var modeSelection: Binding<String> {
-        Binding(
-            get: { modeRaw },
-            set: { new in
-                if new == ProxyMode.extreme.rawValue {
-                    if modeRaw != ProxyMode.extreme.rawValue { showExtremeConfirm = true }
-                } else {
-                    modeRaw = ProxyMode.standard.rawValue
-                    proxyManager.selectMode(.standard)
-                }
-            }
-        )
-    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Proxy Mode")
+            Text("How Protection Works")
                 .font(.headline)
-            Picker("Mode", selection: modeSelection) {
-                Text("Standard — no CA, secrets only").tag(ProxyMode.standard.rawValue)
-                if extremeVisible {
-                    Text("Extreme — full interception (experimental)").tag(ProxyMode.extreme.rawValue)
-                }
-            }
-            .pickerStyle(.radioGroup)
-            .labelsHidden()
-
-            if !extremeVisible {
-                Text("Hold ⌥ Option to reveal Extreme mode.")
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
-            }
-
-            Text(modeRaw == ProxyMode.standard.rawValue
-                 ? "Routes your agents through a local gateway via ANTHROPIC_BASE_URL — no certificate to install. Protects the LLM channel: your managed secrets are scrubbed before the model sees them and restored in the response. Injection filtering and file PII stripping are off in this mode."
-                 : "Installs a trusted root CA and intercepts all AI TLS traffic. Adds injection filtering, file PII stripping, and third-party secret injection on top of the secrets sandwich.")
+            Text("Routes your agents through a local gateway via ANTHROPIC_BASE_URL — no certificate to install. Protects the LLM channel: your managed secrets are scrubbed before the model sees them and restored in the response.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
 
@@ -594,59 +526,18 @@ struct ProtectionSettingsView: View {
                 .font(.headline)
 
             Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 8) {
-                if modeRaw == ProxyMode.standard.rawValue {
-                    // Standard mode uses no CA / extension / TLS interception —
-                    // show what's actually true rather than three permanently
-                    // "off" extreme-mode rows.
-                    StatusRow(label: "Gateway", active: proxyManager.isRunning,
-                              detail: proxyManager.isRunning ? "Listening on port \(proxyManager.port)" : "Stopped")
-                    StatusRow(label: "Certificate", active: true,
-                              detail: "Not needed in standard mode")
-                    StatusRow(label: "Secret keeper", active: secretInjectionEnabled,
-                              detail: secretInjectionEnabled ? "On" : "Off")
-                } else {
-                    StatusRow(label: "CA Certificate", active: proxyManager.caInstalled,
-                              detail: proxyManager.caInstalled ? "Installed & Trusted" : "Not installed")
-                    StatusRow(label: "TLS Proxy", active: proxyManager.isRunning,
-                              detail: proxyManager.isRunning ? "Port \(proxyManager.port)" : "Stopped")
-                    StatusRow(label: "System Extension", active: proxyManager.extensionActive,
-                              detail: proxyManager.extensionActive ? "Capturing all AI traffic" : "Not active")
-                }
+                StatusRow(label: "Gateway", active: proxyManager.isRunning,
+                          detail: proxyManager.isRunning ? "Listening on port \(proxyManager.port)" : "Stopped")
+                StatusRow(label: "Certificate", active: true,
+                          detail: "Not needed")
+                StatusRow(label: "Secret keeper", active: secretInjectionEnabled,
+                          detail: secretInjectionEnabled ? "On" : "Off")
             }
             .font(.callout)
 
-            // Detection (ML + self-test) + intercepted-domain list are
-            // extreme-mode concepts — injection filtering only runs there.
-            if modeRaw == ProxyMode.extreme.rawValue {
-                Divider()
-
-                Text("Detection")
-                    .font(.headline)
-                DetectionStatusView(proxyManager: proxyManager)
-
-                Divider()
-
-                Text("Intercepted Domains")
-                    .font(.headline)
-                Text("Bouclier.ai only inspects traffic to these AI API domains. All other traffic is unaffected.")
-                    .foregroundStyle(.secondary)
-                    .font(.callout)
-
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 4) {
-                        ForEach(Array(SystemProxy.interceptedDomains).sorted(), id: \.self) { domain in
-                            Text(domain)
-                                .font(.system(.caption, design: .monospaced))
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                }
-                .frame(maxHeight: 100)
-            }
-
             Spacer()
 
-            if proxyManager.ca.caCertFilePath != nil {
+            if proxyManager.isRunning {
                 Divider()
                 Text("CLI Tools")
                     .font(.headline)
@@ -676,59 +567,34 @@ struct ProtectionSettingsView: View {
             Spacer()
 
             HStack {
-                if modeRaw == ProxyMode.standard.rawValue {
-                    // Standard (no CA): a simple enable/disable.
-                    if proxyManager.isRunning {
-                        Label("Protection active", systemImage: "checkmark.shield.fill")
-                            .foregroundStyle(.green)
-                            .font(.callout)
-                        Spacer()
-                        Button("Disable", role: .destructive) { proxyManager.disableStandard() }
-                    } else {
-                        Button("Enable Protection") { proxyManager.enableStandard() }
-                            .buttonStyle(.borderedProminent)
-                    }
-                } else if !proxyManager.caInstalled {
-                    Button("Enable Protection") { proxyManager.setup() }
-                        .buttonStyle(.borderedProminent)
+                if proxyManager.isRunning {
+                    Label("Protection active", systemImage: "checkmark.shield.fill")
+                        .foregroundStyle(.green)
+                        .font(.callout)
+                    Spacer()
+                    Button("Disable", role: .destructive) { proxyManager.disableStandard() }
                 } else {
-                    Button("Uninstall Everything", role: .destructive) {
-                        showUninstallConfirm = true
-                    }
-                    .disabled(ManagedConfig.preventUninstall)
-                    .help(ManagedConfig.preventUninstall ? "Uninstall is disabled by your organization" : "")
-                    .alert("Uninstall Bouclier.ai?", isPresented: $showUninstallConfirm) {
-                        Button("Cancel", role: .cancel) {}
-                        Button("Uninstall", role: .destructive) {
-                            proxyManager.uninstall()
-                        }
-                    } message: {
-                        Text("This will remove the CA certificate, disable the System Extension, and stop the proxy. You can reinstall anytime.")
-                    }
+                    Button("Enable Protection") { proxyManager.enableStandard() }
+                        .buttonStyle(.borderedProminent)
                 }
+            }
+
+            Button("Uninstall Everything…", role: .destructive) {
+                showUninstallConfirm = true
+            }
+            .buttonStyle(.link)
+            .disabled(ManagedConfig.preventUninstall)
+            .help(ManagedConfig.preventUninstall ? "Uninstall is disabled by your organization" : "")
+            .alert("Uninstall Bouclier.ai?", isPresented: $showUninstallConfirm) {
+                Button("Cancel", role: .cancel) {}
+                Button("Uninstall", role: .destructive) {
+                    proxyManager.uninstall()
+                }
+            } message: {
+                Text("This will stop the gateway and remove everything Bouclier configured on this Mac. You can reinstall anytime.")
             }
         }
         .padding()
-        .onAppear {
-            optionHeld = NSEvent.modifierFlags.contains(.option)
-            flagsMonitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { event in
-                optionHeld = event.modifierFlags.contains(.option)
-                return event
-            }
-        }
-        .onDisappear {
-            if let m = flagsMonitor { NSEvent.removeMonitor(m) }
-            flagsMonitor = nil
-        }
-        .alert("Enable Extreme mode?", isPresented: $showExtremeConfirm) {
-            Button("Cancel", role: .cancel) {}
-            Button("Enable Extreme mode", role: .destructive) {
-                modeRaw = ProxyMode.extreme.rawValue
-                proxyManager.selectMode(.extreme)
-            }
-        } message: {
-            Text("Experimental — use at your own risk. Extreme mode installs a trusted root certificate and reroutes your system's network traffic to inspect all AI connections. This can interfere with other apps, break certificate-pinned tools, conflict with corporate proxies, and may require manual cleanup. Only enable it if you understand these risks.")
-        }
     }
 }
 
@@ -798,7 +664,6 @@ struct LogsView: View {
 
 struct AboutView: View {
     @ObservedObject var updater: AutoUpdater
-    let patternCount: Int
 
     var body: some View {
         VStack(spacing: 12) {
@@ -819,16 +684,12 @@ struct AboutView: View {
                     .foregroundStyle(.orange)
             }
 
-            Text("Stop prompt injections. Stop PII from leaking through your attachments.")
+            Text("Keep your API keys and secrets out of the model.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
 
             Text("Version \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—")")
-                .font(.caption)
-                .foregroundStyle(.tertiary)
-
-            Text("\(patternCount) detection patterns active")
                 .font(.caption)
                 .foregroundStyle(.tertiary)
 
@@ -846,7 +707,7 @@ struct AboutView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Experimental software")
                         .font(.caption.weight(.semibold))
-                    Text("Not intended for production or regulated workloads. Detection is best-effort.")
+                    Text("Not intended for production or regulated workloads. Secret scrubbing is best-effort.")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                 }
@@ -872,17 +733,7 @@ struct AboutView: View {
 
             Divider().frame(width: 200)
 
-            Text("Built with Llama")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.primary)
-
-            Text("Uses Meta Llama Prompt Guard 2 for on-device prompt attack detection.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: 300)
-
-            Text("All detection runs locally.\nNo data ever leaves your machine.")
+            Text("Secrets never leave your machine.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)

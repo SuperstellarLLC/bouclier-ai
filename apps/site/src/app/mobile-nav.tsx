@@ -62,13 +62,6 @@ export function MobileNav({ downloadUrl }: { downloadUrl: string }) {
             >
               For agents
             </a>
-            <a
-              href="#firewall"
-              onClick={() => setOpen(false)}
-              className="text-text-secondary hover:text-text py-1 text-sm"
-            >
-              Firewall
-            </a>
             <Link
               href="/privacy"
               onClick={() => setOpen(false)}

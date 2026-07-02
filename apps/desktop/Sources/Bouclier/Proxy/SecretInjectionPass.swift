@@ -1,8 +1,16 @@
 import Foundation
 
-/// Pure, NIO-free secret-injection logic. Composed by the TLS handler
-/// (`HTTPInspectionHandler`) on the event loop, and exercised directly
-/// by unit tests with no network or channel setup.
+/// Pure, NIO-free secret-injection logic: swap a placeholder for the real
+/// value heading to a secret's bound host.
+///
+/// **Dormant.** Its only production caller was `HTTPInspectionHandler`
+/// inside `TLSProxy`, the CA-based interception engine removed with
+/// extreme mode — the loopback `GatewayServer` never calls this. It's
+/// kept, unmodified, rather than deleted: the logic is still correct and
+/// still exercised directly by unit tests and `SecretKeeperMonitor`'s
+/// self-test, so it remains available if destination-bound injection is
+/// ever wired into the gateway. `SecretRule.allowedHosts` still validates
+/// and stores host bindings, but nothing currently acts on them.
 ///
 /// Enforces the core invariant from `docs/secret-injection.md`:
 ///

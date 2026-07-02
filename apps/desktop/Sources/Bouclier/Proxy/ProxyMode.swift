@@ -2,22 +2,21 @@ import Foundation
 
 /// Which proxy the app runs.
 ///
-/// - `.extreme` — the MITM/CA TLS-intercepting proxy (`TLSProxy`): full
-///   egress inspection, injection filtering, multimodal PII, and
-///   third-party secret injection. Requires a trusted root CA.
-/// - `.standard` — the non-CA base-URL gateway (`GatewayServer`): the
-///   agent points `ANTHROPIC_BASE_URL` / `OPENAI_BASE_URL` at us and we
-///   protect the **LLM channel only** (secrets scrub→restore). No CA
-///   install, no system-trust changes.
+/// `.standard` is the only mode: the non-CA base-URL gateway
+/// (`GatewayServer`). The agent points `ANTHROPIC_BASE_URL` /
+/// `OPENAI_BASE_URL` at us and we protect the **LLM channel only**
+/// (secrets scrub→restore). No CA install, no system-trust changes.
 ///
-/// Resolution mirrors `FeatureFlags`: test override → MDM → user default
-/// → compile default. The compile default is `.standard` — the non-CA
-/// gateway is the safe, frictionless default; extreme (MITM/CA) is an
-/// opt-in, experimental power-user mode that can alter system network
-/// configuration, so it is never selected implicitly.
+/// The previous `.extreme` mode (a CA-based TLS-intercepting proxy with
+/// a System Extension) was removed — it required a trusted root CA and
+/// a system-wide network filter, both of which added startup-ordering
+/// and reliability risk disproportionate to the value it added over the
+/// gateway. The enum and `current` resolution stay in place (rather than
+/// being deleted) because `.rawValue` is a stable, persisted value read
+/// from `UserDefaults`/MDM config and reported in `BouclierStatus`/CLI
+/// output — collapsing to a single case keeps that surface unchanged.
 enum ProxyMode: String, Sendable, CaseIterable {
     case standard
-    case extreme
 
     static let userDefaultsKey = "proxyMode"
     static let compileDefault: ProxyMode = .standard
@@ -40,7 +39,6 @@ enum ProxyMode: String, Sendable, CaseIterable {
     var title: String {
         switch self {
         case .standard: return "Standard (no CA)"
-        case .extreme: return "Extreme (full interception)"
         }
     }
 }

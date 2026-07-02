@@ -8,8 +8,13 @@ import UserNotifications
 @MainActor
 final class ProxyManager: ObservableObject {
     @Published var isRunning = false
+    /// Always false in production now — extreme mode (the only feature
+    /// that ever installed a CA) was removed. Kept as published state
+    /// (rather than deleted outright) because `BouclierStatus.caInstalled`
+    /// is a stable, external field read by the CLI/MCP status surface;
+    /// see `migrateAwayFromExtremeModeIfNeeded()` for the one-time
+    /// cleanup of a CA a pre-removal install may have left behind.
     @Published var caInstalled = false
-    @Published var extensionActive = false
     @Published var errorMessage: String?
     @Published var stats = ProxyStats()
     @Published var logs: [LogEntry] = []
@@ -53,7 +58,6 @@ final class ProxyManager: ObservableObject {
     /// surfaced here once the manager caches it.
     var patternsSHA256Prefix: String? { nil }
 
-    private var tlsProxy: TLSProxy?
     private var gatewayServer: GatewayServer?
     /// Watches for just-in-time secret requests from the MCP server and
     /// presents the approval dialog. Independent of the proxy: runs for the
@@ -62,6 +66,10 @@ final class ProxyManager: ObservableObject {
     private var secretRequestResponder: SecretRequestResponder?
     private var statusPublisher: StatusPublisher?
     private var proxyChannel: Channel?
+    /// Cleanup-only remnants of extreme mode (CA + System Extension),
+    /// kept solely so `migrateAwayFromExtremeModeIfNeeded()` can detect
+    /// and remove state a pre-removal install left behind. See their
+    /// doc comments.
     let ca = CertificateAuthority()
     let extensionManager = ExtensionManager()
     private var patternManager: PatternManager!
@@ -110,6 +118,11 @@ final class ProxyManager: ObservableObject {
         storage = try? StorageManager()
         caInstalled = ca.isInstalled
 
+        // One-shot cleanup for installs that had extreme mode (CA +
+        // System Extension + PAC) active before it was removed. Must run
+        // before anything else touches `ca`/`extensionManager` state.
+        migrateAwayFromExtremeModeIfNeeded()
+
         // Verify the secret keeper's safety invariants hold in THIS binary
         // before any traffic flows. If a logic regression ever escaped CI,
         // the breaker trips here and the feature is disabled — the proxy
@@ -137,34 +150,61 @@ final class ProxyManager: ObservableObject {
             return (true, "Protection enabled in \(mode) mode. Open a new terminal so your tools pick it up.")
         }
 
-        Task {
-            await extensionManager.checkStatus()
-            extensionActive = extensionManager.proxyEnabled
-        }
-
         // If the user has already gone through onboarding, turn protection
         // on at launch — the menu-bar shield otherwise shows the disarmed
         // icon and the user has to manually re-arm every restart, which the
         // "seatbelt made of paper" feedback called out as a credibility
         // risk. launchctl setenv values don't survive logout, so re-apply
         // env every launch (the dotfile portion is idempotent, so cheap).
-        switch ProxyMode.current {
-        case .extreme:
-            // Extreme mode needs the CA installed first.
-            if caInstalled && !isRunning {
-                start()
-                ShellEnvInjector.apply(proxyPort: port, caCertPath: ca.caCertFilePath)
-            }
-        case .standard:
-            // Standard mode needs no CA, but we still don't reconfigure the
-            // user's shell/GUI env on first launch without consent. Only
-            // auto-start if the user has explicitly enabled protection
-            // before (the Protection tab's "Enable Protection" button).
-            if Self.protectionEnabled && !isRunning {
-                start()
-                ShellEnvInjector.applyStandard(gatewayPort: port)
+        // start() only kicks off the async bind; startStandard() applies
+        // the shell/GUI env itself once the listener actually accepts
+        // connections, so nothing here points CLI tools at a not-yet-bound
+        // port. Only auto-start if the user has explicitly enabled
+        // protection before (the Protection tab's "Enable Protection"
+        // button) — we don't reconfigure the user's shell/GUI env on
+        // first launch without consent.
+        if Self.protectionEnabled && !isRunning {
+            start()
+        }
+    }
+
+    /// One-shot migration for installs that had extreme mode (CA-based TLS
+    /// interception + System Extension + PAC) active before it was removed
+    /// from the product entirely. Without this, those users would be left
+    /// with an orphaned root CA trusted in Keychain and, in extreme mode's
+    /// "full interception" variant, a System Extension still redirecting
+    /// AI-host traffic to a proxy path that no longer exists in that form.
+    /// Gated by a version-suffixed sentinel key, mirroring
+    /// `LegacyDefaultsCleanup`'s pattern — a future migration would mint a
+    /// new `.v2` key rather than reuse this one.
+    private static let extremeModeMigrationKey = "bouclier.extremeModeRemoved.v1"
+    private func migrateAwayFromExtremeModeIfNeeded() {
+        guard !UserDefaults.standard.bool(forKey: Self.extremeModeMigrationKey) else { return }
+        UserDefaults.standard.set(true, forKey: Self.extremeModeMigrationKey)
+
+        let hadCA = ca.isInstalled
+        if hadCA {
+            ca.uninstallCA()
+            caInstalled = false
+            _ = SystemProxy.disableAll()
+            log("Removed the local CA and system proxy config left by extreme mode, which no longer exists in this version", blocked: false)
+        }
+
+        Task {
+            await extensionManager.checkStatus()
+            guard extensionManager.extensionInstalled else { return }
+            await extensionManager.disableProxy()
+            extensionManager.removeExtension()
+            await MainActor.run {
+                self.log("Deactivated the System Extension left by extreme mode, which no longer exists in this version", blocked: false)
             }
         }
+
+        // The stored mode may still be the literal string "extreme" from
+        // a pre-removal install — `ProxyMode(rawValue:)` no longer parses
+        // that, so `current` already falls back to `.standard`, but write
+        // it explicitly so the stale value doesn't linger in defaults.
+        UserDefaults.standard.set(ProxyMode.standard.rawValue, forKey: ProxyMode.userDefaultsKey)
     }
 
     /// One-time opt-in: persists across launches so standard mode can
@@ -180,8 +220,15 @@ final class ProxyManager: ObservableObject {
     func enableStandard() {
         UserDefaults.standard.set(true, forKey: Self.protectionEnabledKey)
         UserDefaults.standard.set(ProxyMode.standard.rawValue, forKey: ProxyMode.userDefaultsKey)
-        if !isRunning { start() }
-        ShellEnvInjector.applyStandard(gatewayPort: port)
+        if isRunning {
+            // Gateway is already bound — safe to re-point the env immediately.
+            ShellEnvInjector.applyStandard(gatewayPort: port)
+        } else {
+            // start() only kicks off the async bind; startStandard() applies
+            // the env itself once isRunning flips true, so CLI tools are
+            // never pointed at a port before anything is listening on it.
+            start()
+        }
         log("Standard protection enabled (no CA)", blocked: false)
     }
 
@@ -231,92 +278,15 @@ final class ProxyManager: ObservableObject {
             activity: .init(requestsScanned: 0, injectionsBlocked: 0, secretsScrubbed: 0, secretsInjected: 0, secretsBlocked: 0))
     }
 
-    /// Switch proxy mode at runtime: persist the choice, restart the
-    /// active server, and re-point shell/GUI env. Extreme mode still
-    /// requires the CA onboarding in `setup()`; this only re-arms env when
-    /// the prerequisites for the chosen mode are already met.
-    func selectMode(_ mode: ProxyMode) {
-        UserDefaults.standard.set(mode.rawValue, forKey: ProxyMode.userDefaultsKey)
-        // Choosing a mode is itself an opt-in to protection.
-        UserDefaults.standard.set(true, forKey: Self.protectionEnabledKey)
-        if isRunning { stop() }
-        switch mode {
-        case .standard:
-            start()
-            ShellEnvInjector.applyStandard(gatewayPort: port)
-            log("Switched to standard mode (no CA)", blocked: false)
-        case .extreme:
-            if caInstalled {
-                start()
-                ShellEnvInjector.apply(proxyPort: port, caCertPath: ca.caCertFilePath)
-            } else {
-                // No CA yet — run extreme onboarding now (installs the CA and
-                // starts), instead of leaving the user with nothing running
-                // and a stray "Enable Protection" button to hunt for.
-                setup()
-            }
-            log("Switched to extreme mode (full interception)", blocked: false)
-        }
-    }
-
-    func setup() {
-        errorMessage = nil
-
-        if !ca.isInstalled {
-            let success = ca.installCA()
-            caInstalled = success
-            if !success {
-                errorMessage = "CA installation was cancelled."
-                return
-            }
-            log("CA certificate installed and trusted", blocked: false)
-        }
-
-        // Mark protection enabled only after onboarding actually succeeds —
-        // a cancelled CA install must not leave the flag set (which would
-        // otherwise trigger a standard-mode auto-start without consent).
-        UserDefaults.standard.set(true, forKey: Self.protectionEnabledKey)
-
-        start()
-
-        extensionManager.installExtension { [weak self] success in
-            guard let self, success else { return }
-            Task { @MainActor in
-                let enabled = await self.extensionManager.enableProxy()
-                self.extensionActive = enabled
-                if enabled {
-                    self.log("System Extension active — all AI traffic intercepted", blocked: false)
-                }
-
-                if SystemProxy.enable(port: self.port) {
-                    self.log("System proxy PAC configured as fallback", blocked: false)
-                }
-
-                // Auto-wire shells (.zshenv / .bashrc / fish) and the
-                // launchctl session so Node/Python CLIs (Claude Code,
-                // Cursor, openai CLI) actually trust our cert. Without
-                // this they fall through to direct egress and the user
-                // sees a green shield while their PII leaks.
-                if ShellEnvInjector.apply(proxyPort: self.port, caCertPath: self.ca.caCertFilePath) {
-                    self.log("Shell + GUI apps configured for CLI capture", blocked: false)
-                }
-            }
-        }
-    }
-
     func start() {
         // `isRunning` is only set true asynchronously after bind, so also
-        // guard on the server ivars (assigned synchronously by start*()) to
-        // prevent a second start() — e.g. enableStandard() racing the
-        // initializeStorage auto-start — from binding twice and orphaning a
-        // channel.
-        guard !isRunning, tlsProxy == nil, gatewayServer == nil else { return }
+        // guard on the server ivar (assigned synchronously by
+        // startStandard()) to prevent a second start() — e.g.
+        // enableStandard() racing the initializeStorage auto-start — from
+        // binding twice and orphaning a channel.
+        guard !isRunning, gatewayServer == nil else { return }
         errorMessage = nil
-
-        switch ProxyMode.current {
-        case .standard: startStandard()
-        case .extreme: startExtreme()
-        }
+        startStandard()
     }
 
     /// Standard (non-CA) mode: bind the base-URL gateway. No CA, no PAC,
@@ -339,6 +309,13 @@ final class ProxyManager: ObservableObject {
                     self.proxyChannel = channel
                     self.isRunning = true
                     self.log("Gateway (standard mode) listening on 127.0.0.1:\(boundPort)", blocked: false)
+                    // Only wire shells/GUI apps to the gateway once the
+                    // listener is actually bound and accepting. Applying
+                    // this before bind() resolves points CLI tools
+                    // (Claude Code, etc.) at a port nothing is listening
+                    // on yet — the exact "connection refused at startup"
+                    // race this ordering closes.
+                    ShellEnvInjector.applyStandard(gatewayPort: boundPort)
                 }
             } catch {
                 await MainActor.run {
@@ -351,78 +328,21 @@ final class ProxyManager: ObservableObject {
         }
     }
 
-    private func startExtreme() {
-        let boundPort = port
-
-        let proxy = TLSProxy(
-            port: boundPort,
-            ca: ca,
-            filter: patternManager.filter,
-            onRequest: { [weak self] requestLog in
-                Task { @MainActor in
-                    self?.handleRequestLog(requestLog)
-                }
-            }
-        )
-        tlsProxy = proxy
-
-        Task.detached { [weak self] in
-            guard let self else { return }
-            do {
-                let channel = try await proxy.start()
-                await MainActor.run {
-                    self.proxyChannel = channel
-                    self.isRunning = true
-                    self.log("TLS proxy listening on 127.0.0.1:\(boundPort)", blocked: false)
-                }
-                // Re-arm system PAC every successful bind, not just on
-                // first-run setup(). Idempotent in networksetup. This is
-                // load-bearing for crash recovery: the watchdog turns PAC
-                // off when the port goes unreachable, so without this
-                // re-arm a relaunch would silently leave PAC disabled
-                // and the user's browser would talk direct to LLM APIs.
-                _ = SystemProxy.enable(port: boundPort)
-            } catch {
-                // Bind failed — usually a port conflict. Sweep PAC across
-                // every service so we don't strand the user with a dead
-                // 127.0.0.1 pointer that survives quit + reboot. Without
-                // this the "wrecks your setup" failure mode persists
-                // until the user finds the reset button.
-                _ = SystemProxy.disableAll()
-                await MainActor.run {
-                    self.isRunning = false
-                    let msg = Self.friendlyError(error)
-                    self.errorMessage = msg
-                    self.log("Proxy failed: \(msg)", blocked: true)
-                }
-            }
-        }
-    }
-
     func stop() {
         // Close channel first (non-blocking)
         proxyChannel?.close(mode: .all, promise: nil)
         proxyChannel = nil
 
-        // Shutdown NIO on a background thread to avoid deadlock. Both
-        // server types may be nil depending on the active mode; close
-        // whichever ran.
-        let proxy = tlsProxy
+        // Shutdown NIO on a background thread to avoid deadlock.
         let gateway = gatewayServer
-        tlsProxy = nil
         gatewayServer = nil
         Task.detached {
-            proxy?.shutdown()
             gateway?.shutdown()
         }
 
         isRunning = false
         errorMessage = nil
 
-        Task {
-            await extensionManager.disableProxy()
-            await MainActor.run { extensionActive = false }
-        }
         // disableAll, not disable: the active interface check only
         // sweeps one service. On a multi-network setup (Wi-Fi + Ethernet,
         // VPN profiles) the stale Bouclier PAC was surviving on the
@@ -442,11 +362,14 @@ final class ProxyManager: ObservableObject {
     func uninstall() {
         stop()
         UserDefaults.standard.set(false, forKey: Self.protectionEnabledKey)
+        // Belt-and-suspenders: the one-shot migration already cleans up
+        // extreme mode's CA/extension for installs that go through
+        // `initializeStorage()`, but a full uninstall should leave zero
+        // trace regardless of whether that migration has run yet.
         extensionManager.removeExtension()
         ca.uninstallCA()
         ShellEnvInjector.remove()
         caInstalled = false
-        extensionActive = false
         log("Bouclier fully uninstalled", blocked: false)
     }
 

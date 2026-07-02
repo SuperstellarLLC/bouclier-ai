@@ -80,20 +80,12 @@ struct MenuBarView: View {
         }
     }
 
-    /// On = enable via the configured mode; off = pause. Hides all the
-    /// mode/CA branching behind one switch.
+    /// On = enable protection; off = pause.
     private var protectionBinding: Binding<Bool> {
         Binding(
             get: { proxyManager.isRunning },
             set: { on in
-                if on {
-                    switch ProxyMode.current {
-                    case .standard: proxyManager.enableStandard()
-                    case .extreme: proxyManager.caInstalled ? proxyManager.start() : proxyManager.setup()
-                    }
-                } else {
-                    if ProxyMode.current == .standard { proxyManager.disableStandard() } else { proxyManager.stop() }
-                }
+                if on { proxyManager.enableStandard() } else { proxyManager.disableStandard() }
             }
         )
     }
@@ -355,95 +347,3 @@ private struct OptionalShortcut: ViewModifier {
     }
 }
 
-// MARK: - Detection status (relocated from the menu into Settings → Protection)
-
-/// On-device ML detection status + the synthetic self-test. This is
-/// diagnostics, not daily status — it belongs in Settings, and only applies
-/// in extreme mode where injection filtering actually runs.
-struct DetectionStatusView: View {
-    @ObservedObject var proxyManager: ProxyManager
-    @State private var mlErrorCopied = false
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Button(action: copyMLError) {
-                HStack(spacing: 6) {
-                    Image(systemName: mlIcon)
-                        .foregroundStyle(mlColor)
-                        .contentTransition(.symbolEffect(.replace))
-                    Text(mlText).foregroundStyle(.secondary)
-                    Spacer()
-                    if proxyManager.mlClassifierError != nil {
-                        Image(systemName: mlErrorCopied ? "checkmark" : "doc.on.doc")
-                            .foregroundStyle(.tertiary)
-                    }
-                }
-                .font(.callout)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .disabled(proxyManager.mlClassifierError == nil)
-            .help(proxyManager.mlClassifierError ?? "")
-
-            HStack(spacing: 10) {
-                Button("Run detection test") { proxyManager.runSelfTest() }
-                if let result = proxyManager.selfTestResult {
-                    SelfTestBanner(result: result)
-                        .transition(.opacity.combined(with: .move(edge: .leading)))
-                }
-            }
-            .animation(.easeInOut(duration: 0.25), value: proxyManager.selfTestResult)
-        }
-    }
-
-    private var mlIcon: String {
-        if proxyManager.mlClassifierActive { return "brain.head.profile.fill" }
-        if proxyManager.mlClassifierError != nil { return "exclamationmark.brain" }
-        return "brain.head.profile"
-    }
-
-    private var mlColor: Color {
-        if proxyManager.mlClassifierActive { return .purple }
-        if proxyManager.mlClassifierError != nil { return .orange }
-        return .gray
-    }
-
-    private var mlText: String {
-        if proxyManager.mlClassifierActive { return "Advanced on-device detection active" }
-        if proxyManager.mlClassifierError != nil { return "Basic detection — on-device model unavailable" }
-        return "Basic detection (advanced model loading…)"
-    }
-
-    private func copyMLError() {
-        guard let error = proxyManager.mlClassifierError else { return }
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(error, forType: .string)
-        mlErrorCopied = true
-        Task { @MainActor in
-            try? await Task.sleep(for: .seconds(1.5))
-            mlErrorCopied = false
-        }
-    }
-}
-
-/// Transient banner surfaced after "Run detection test".
-struct SelfTestBanner: View {
-    let result: SelfTestResult
-
-    var body: some View {
-        HStack(spacing: 8) {
-            Image(systemName: result.passed ? "checkmark.shield.fill" : "exclamationmark.shield.fill")
-                .foregroundStyle(result.passed ? .green : .red)
-                .font(.callout)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(result.headline)
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(result.passed ? .green : .red)
-                Text(result.detail)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .accessibilityElement(children: .combine)
-    }
-}

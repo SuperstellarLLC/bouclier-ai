@@ -1,41 +1,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { MobileNav } from "./mobile-nav";
-import { Playground } from "./playground";
-import {
-  APP_VERSION,
-  BENCHMARK_ATTACKS,
-  BENCHMARK_BENIGN,
-  BENCHMARK_FPR,
-  BENCHMARK_TPR,
-  CATEGORY_COUNT,
-  DOWNLOAD_URL,
-  PATTERN_COUNT,
-} from "@/lib/constants";
-
-const CATEGORIES = [
-  { name: "Role Hijack", count: 6, color: "bg-red-500" },
-  { name: "Instruction Override", count: 5, color: "bg-red-500" },
-  { name: "Tool Poisoning", count: 12, color: "bg-red-500" },
-  { name: "Credential Leak", count: 11, color: "bg-red-500" },
-  { name: "Memory Manipulation", count: 9, color: "bg-red-500" },
-  { name: "Function Hijack", count: 8, color: "bg-red-500" },
-  { name: "Model-Specific", count: 14, color: "bg-red-500" },
-  { name: "Alignment Bypass", count: 14, color: "bg-red-500" },
-  { name: "Code Injection", count: 10, color: "bg-orange-500" },
-  { name: "Sandbox Escape", count: 8, color: "bg-orange-500" },
-  { name: "Data Exfiltration", count: 6, color: "bg-orange-500" },
-  { name: "Indirect Injection", count: 7, color: "bg-orange-500" },
-  { name: "Context Manipulation", count: 5, color: "bg-orange-500" },
-  { name: "Chain-of-Thought", count: 7, color: "bg-amber-500" },
-  { name: "Delimiter Attacks", count: 4, color: "bg-amber-500" },
-  { name: "Encoding Bypass", count: 5, color: "bg-amber-500" },
-  { name: "Multilingual", count: 15, color: "bg-amber-500" },
-  { name: "Payload Splitting", count: 3, color: "bg-amber-500" },
-  { name: "Obfuscation", count: 5, color: "bg-yellow-500" },
-  { name: "Prompt Leaking", count: 4, color: "bg-yellow-500" },
-  { name: "Recursive Injection", count: 3, color: "bg-yellow-500" },
-] as const;
+import { APP_VERSION, DOWNLOAD_URL } from "@/lib/constants";
 
 export default function Home() {
   return (
@@ -71,12 +37,6 @@ export default function Home() {
               className="text-text-secondary hover:text-text text-sm transition-colors"
             >
               For agents
-            </a>
-            <a
-              href="#firewall"
-              className="text-text-secondary hover:text-text text-sm transition-colors"
-            >
-              Firewall
             </a>
             <Link
               href="/privacy"
@@ -131,8 +91,7 @@ export default function Home() {
               Bouclier.ai runs on your Mac, between your AI tools and the providers. When your
               coding agent — Claude Code, Cursor — needs an API key, it gets it through your shell,
               never into the model&apos;s context. It can provision a whole project&apos;s
-              environment variables in a single approval. And it still blocks prompt-injection
-              attacks and strips PII from what you upload. No certificate to install.
+              environment variables in a single approval. No certificate to install.
             </p>
 
             <div className="mx-auto mt-5 max-w-2xl rounded-xl border-2 border-amber-300 bg-amber-50 p-4 text-left">
@@ -174,7 +133,7 @@ export default function Home() {
 
             <p className="text-text-secondary mt-5 text-sm">
               <span className="text-text font-semibold">Local-only.</span> Secrets live in your
-              macOS Keychain. Prompt-injection detection uses Meta Llama Prompt Guard 2, on-device.
+              macOS Keychain and never leave this Mac.
             </p>
           </div>
         </div>
@@ -294,7 +253,7 @@ export default function Home() {
             <FlowCard
               step="🔴"
               title="Never the agent"
-              description="Read a value, disable protection, install a certificate, uninstall — none of these have an agent path. The tool can't switch off the thing guarding it."
+              description="Read a value, disable protection, uninstall — none of these have an agent path. The tool can't switch off the thing guarding it."
             />
           </div>
         </div>
@@ -330,149 +289,15 @@ export default function Home() {
             />
             <FlowCard
               step="03"
-              title="Attachments"
-              description="Images, PDFs and audio that the on-device scanner flags for PII are replaced with a short plain-English description — never a token shape that could look adversarial to the model."
+              title="Loopback only"
+              description="The gateway binds 127.0.0.1 and nothing else — there's no system-wide traffic redirection. Only processes that explicitly point at it (ANTHROPIC_BASE_URL / OPENAI_BASE_URL) are ever in scope."
             />
           </div>
 
           <div className="reveal border-border mt-12 rounded-2xl border bg-white p-6">
             <p className="text-text-secondary text-sm">
-              Need full TLS inspection — deep prompt-injection scanning, or injecting a secret
-              straight into a third-party API? That&apos;s an opt-in <strong>extreme mode</strong>{" "}
-              behind a clear warning; it installs a local CA and routes more traffic through the
-              proxy. Standard mode (the default) installs nothing. The byte-identical guarantee is
-              pinned by{" "}
-              <code className="text-text rounded bg-zinc-100 px-1.5 py-0.5 text-xs font-medium">
-                E2EProxyTests
-              </code>{" "}
-              in CI on every release.
-            </p>
-          </div>
-        </div>
-      </section>
-
-      {/* ── Prompt-injection firewall ─────────────── */}
-      <section id="firewall" className="border-border bg-surface border-t py-24">
-        <div className="mx-auto max-w-5xl px-6">
-          <div className="reveal">
-            <SectionLabel>Prompt-injection firewall</SectionLabel>
-            <h2 className="mt-3 text-3xl font-bold tracking-tight">
-              And it still watches for attacks.
-            </h2>
-            <p className="text-text-secondary mt-4 max-w-2xl">
-              The same proxy scans outbound requests, MCP tool results, and streaming responses for
-              prompt-injection and jailbreak attempts — {PATTERN_COUNT} detection rules across{" "}
-              {CATEGORY_COUNT} categories, plus an on-device Llama Prompt Guard 2 classifier. Safe
-              traffic passes through untouched; threats are redacted or the stream is cut cleanly.
-              Try a payload below.
-            </p>
-          </div>
-        </div>
-
-        {/* Live playground */}
-        <div className="mt-12">
-          <Playground />
-        </div>
-
-        {/* Benchmark */}
-        <div className="mx-auto mt-16 max-w-5xl px-6">
-          <div className="reveal">
-            <SectionLabel>Measured, not marketed</SectionLabel>
-            <p className="text-text-secondary mt-3 max-w-2xl">
-              Every release is tested against {BENCHMARK_ATTACKS} real-world attack samples and{" "}
-              {BENCHMARK_BENIGN} benign inputs. Detection quality is enforced in CI — regressions
-              block the release.
-            </p>
-          </div>
-          <div className="reveal-stagger reveal-stagger-4 mt-8 grid gap-4 sm:grid-cols-4">
-            <MetricCard value={BENCHMARK_TPR} label="Attacks caught" />
-            <MetricCard value={BENCHMARK_FPR} label="False positive rate" />
-            <MetricCard value={String(PATTERN_COUNT)} label="Detection rules" />
-            <MetricCard value={String(CATEGORY_COUNT)} label="Attack categories" />
-          </div>
-        </div>
-
-        {/* Coverage */}
-        <div className="mx-auto mt-16 max-w-5xl px-6">
-          <div className="reveal">
-            <SectionLabel>Coverage</SectionLabel>
-            <p className="text-text-secondary mt-3 max-w-2xl">
-              Sourced from OWASP LLM Top 10, MITRE ATLAS, HackAPrompt, and red-team research from
-              Anthropic, Microsoft, and leading AI security labs.
-            </p>
-          </div>
-          <div className="text-text-secondary mt-6 flex flex-wrap gap-x-6 gap-y-1 text-xs">
-            <span className="flex items-center gap-1.5">
-              <span className="h-2.5 w-2.5 rounded-full bg-red-500" /> Critical
-            </span>
-            <span className="flex items-center gap-1.5">
-              <span className="h-2.5 w-2.5 rounded-full bg-orange-500" /> High
-            </span>
-            <span className="flex items-center gap-1.5">
-              <span className="h-2.5 w-2.5 rounded-full bg-amber-500" /> Medium-High
-            </span>
-            <span className="flex items-center gap-1.5">
-              <span className="h-2.5 w-2.5 rounded-full bg-yellow-500" /> Medium
-            </span>
-          </div>
-          <div className="reveal-stagger reveal-stagger-3 mt-6 grid gap-2 sm:grid-cols-3">
-            {CATEGORIES.map((cat) => (
-              <div
-                key={cat.name}
-                className="border-border hover:border-bouclier/30 flex items-center justify-between rounded-lg border bg-white px-4 py-3 transition-colors"
-              >
-                <span className="text-sm font-medium">{cat.name}</span>
-                <span
-                  className={`inline-flex h-6 min-w-[28px] items-center justify-center rounded-full ${cat.color} px-2 text-xs font-bold text-white`}
-                >
-                  {cat.count}
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* ── Attachment PII inspection ─────────────── */}
-      <section id="attachments" className="border-border border-t bg-white py-24">
-        <div className="mx-auto max-w-5xl px-6">
-          <div className="reveal">
-            <SectionLabel>Attachment PII</SectionLabel>
-            <h2 className="mt-3 text-3xl font-bold tracking-tight">
-              PII hides in what you upload.
-            </h2>
-            <p className="text-text-secondary mt-4 max-w-2xl">
-              A screenshot of an invoice, a scanned NDA, a 30-second voice memo — modern LLM clients
-              accept all of it, and a regex pass over the JSON body sees none of it. Bouclier opens
-              images, PDFs and audio on the way out, scans them with Apple&apos;s on-device Vision,
-              PDFKit and Speech frameworks, and replaces flagged attachments with a short text
-              description so the model still gets the gist without the leak.
-            </p>
-          </div>
-
-          <div className="reveal-stagger reveal-stagger-3 mt-12 grid gap-6 md:grid-cols-3">
-            <FlowCard
-              step="01"
-              title="Images"
-              description="Vision OCR + face detection on every image in OpenAI / Anthropic / Gemini multimodal shapes. EXIF orientation honored, 2000 px downscale, 4-concurrency throttle."
-            />
-            <FlowCard
-              step="02"
-              title="PDFs"
-              description="PDFKit text-layer extraction with Vision OCR fallback for scanned pages. Encrypted or oversized PDFs surface as unscannable and get stripped — never silently forwarded."
-            />
-            <FlowCard
-              step="03"
-              title="Audio"
-              description="On-device Apple Speech transcription up to 60 seconds. No audio leaves your Mac. Unsupported formats get blocked rather than passed through."
-            />
-          </div>
-
-          <div className="reveal border-border mt-12 rounded-2xl border bg-white p-6">
-            <p className="text-text-secondary text-sm">
-              Attachment inspection ships <strong>off by default</strong> and is opt-in from
-              Settings → Privacy. Detection runs entirely on your Mac — no cloud OCR, no cloud
-              transcription, no telemetry.
+              Standard mode installs nothing. The byte-identical guarantee is pinned by an
+              end-to-end test in CI on every release.
             </p>
           </div>
         </div>
@@ -491,19 +316,19 @@ export default function Home() {
           <div className="reveal-stagger reveal-stagger-2 mt-12 grid gap-6 md:grid-cols-2">
             <FeatureCard
               title="MDM managed"
-              description="Deploy and configure via Jamf, Kandji, or Mosyle. Control mode, intercepted domains, enforcement policy, and feature flags across your fleet."
+              description="Deploy and configure via Jamf, Kandji, or Mosyle. Control the gateway port, additional AI domains for the secret keeper's host bookkeeping, and feature flags across your fleet."
             />
             <FeatureCard
               title="Audit trail"
-              description="Every scan event is logged locally and can be forwarded to your SIEM. Export a privacy-scrubbed diagnostics bundle for incident response."
+              description="Every secret-keeper event is logged locally and can be forwarded to your SIEM. Export a privacy-scrubbed diagnostics bundle for incident response."
             />
             <FeatureCard
               title="Tamper-resistant"
               description="An agent can use Bouclier but never weaken it — disabling protection or reading a secret has no agent path, only a human one. The tool can't switch off its own guard."
             />
             <FeatureCard
-              title="Streaming protection"
-              description="AI responses are inspected in real time as they stream. If a threat is detected mid-response, the stream is terminated cleanly."
+              title="Straddle-safe restore"
+              description="Secret placeholders are restored across streaming response chunks byte-for-byte, so your local tool calls still work even when the model streams the value back mid-token."
             />
           </div>
         </div>
@@ -520,9 +345,9 @@ export default function Home() {
           <div className="reveal mt-12 grid gap-y-5">
             {[
               "Secrets live in your macOS Keychain, scoped to Bouclier, and never reach the model, the MCP channel, or any log.",
-              "All detection runs locally. No cloud LLM, no analytics, no telemetry in the app.",
-              "Scan logs never contain your prompts, responses, secrets, or API keys — only detection metadata.",
-              "Standard mode installs no certificate. Extreme mode's local CA key is encrypted in your Keychain, unique to your device, and removable anytime.",
+              "No cloud LLM, no analytics, no telemetry in the app.",
+              "Scan logs never contain your prompts, responses, secrets, or API keys — only metadata.",
+              "Bouclier installs no certificate — the gateway is a plaintext-loopback relay, not a TLS-terminating proxy.",
             ].map((text) => (
               <div key={text} className="flex gap-3">
                 <div className="bg-accent-green mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full" />
@@ -584,9 +409,6 @@ export default function Home() {
               </span>
             </div>
             <div className="text-text-secondary flex gap-6 text-sm">
-              <Link href="/blocked" className="hover:text-text transition-colors">
-                Blocked
-              </Link>
               <Link href="/privacy" className="hover:text-text transition-colors">
                 Privacy
               </Link>
@@ -596,12 +418,8 @@ export default function Home() {
             </div>
           </div>
           <p className="text-text-secondary mt-4 text-xs">
-            Built with Llama. Uses Meta Llama Prompt Guard 2 for on-device prompt attack detection.
-          </p>
-          <p className="text-text-secondary mt-1 text-xs">
-            Experimental, pre-1.0 software. Secret handling and detection are best-effort; false
-            positives and false negatives will occur. Not intended for production or regulated
-            workloads — see{" "}
+            Experimental, pre-1.0 software. Secret handling is best-effort; false positives and
+            false negatives will occur. Not intended for production or regulated workloads — see{" "}
             <Link href="/terms" className="hover:text-text underline">
               Terms
             </Link>
@@ -637,15 +455,6 @@ function FlowCard({
       <span className="text-bouclier text-xs font-bold">{step}</span>
       <h3 className="mt-2 text-lg font-semibold">{title}</h3>
       <p className="text-text-secondary mt-2 text-sm leading-relaxed">{description}</p>
-    </div>
-  );
-}
-
-function MetricCard({ value, label }: { value: string; label: string }) {
-  return (
-    <div className="bg-surface border-border rounded-2xl border p-6 text-center">
-      <div className="text-text text-3xl font-bold tracking-tight">{value}</div>
-      <div className="text-text-secondary mt-1 text-sm">{label}</div>
     </div>
   );
 }

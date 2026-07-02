@@ -15,11 +15,11 @@ surfaces, one shared core (so they enforce the same rules):
 Every operation is classified, and the gate lives in the shared Swift core —
 not in the model, and not bypassable via `--force`:
 
-| Tier          | Operations                                                                                                         | Who can do it                                                        |
-| ------------- | ------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------- |
-| 🟢 **GREEN**  | `status`, `list_secrets`, `set_env`/`clear_env`, `request_secret(s)` (use/provision)                               | the agent, freely — no value is ever returned                        |
-| 🟡 **YELLOW** | `enable_protection`                                                                                                | the agent _proposes_; the **user approves** in Bouclier's own dialog |
-| 🔴 **RED**    | read a secret value · **disable** protection · install a CA / extreme mode · uninstall · set the generator command | **never** via agent — user-only, in the app                          |
+| Tier          | Operations                                                                           | Who can do it                                                        |
+| ------------- | ------------------------------------------------------------------------------------ | -------------------------------------------------------------------- |
+| 🟢 **GREEN**  | `status`, `list_secrets`, `set_env`/`clear_env`, `request_secret(s)` (use/provision) | the agent, freely — no value is ever returned                        |
+| 🟡 **YELLOW** | `enable_protection`                                                                  | the agent _proposes_; the **user approves** in Bouclier's own dialog |
+| 🔴 **RED**    | read a secret value · **disable** protection · uninstall · set the generator command | **never** via agent — user-only, in the app                          |
 
 The RED tier is the EDR "tamper-protection" principle applied to an AI
 firewall: the agent the firewall is watching must not be able to turn the

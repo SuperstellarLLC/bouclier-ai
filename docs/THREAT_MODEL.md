@@ -1,10 +1,26 @@
 # Bouclier.ai Threat Model
 
-**Status:** v1 (2026-04-05)
-**Scope:** Bouclier.ai macOS menubar app + System Extension + shared pattern database. Covers the injection-firewall path from application network request through the inspecting TLS proxy to the upstream AI provider.
+**Status:** v2 (rewritten following the removal of extreme mode)
+**Scope:** Bouclier.ai macOS menubar app + loopback gateway + secret keeper. Covers the request path from an AI client's local SDK call, through the gateway, to the upstream AI provider, and the Keychain-backed secret storage that backs it.
 **Audience:** Bouclier.ai engineering, enterprise security reviewers, third-party auditors.
 
-This document enumerates the assets, trust boundaries, adversaries, and mitigations of the Bouclier.ai prompt-injection firewall. It uses the STRIDE taxonomy (Spoofing, Tampering, Repudiation, Information Disclosure, Denial of Service, Elevation of Privilege) and cross-references existing code paths and test coverage.
+This document enumerates the assets, trust boundaries, adversaries, and
+mitigations of Bouclier.ai. It uses the STRIDE taxonomy (Spoofing,
+Tampering, Repudiation, Information Disclosure, Denial of Service,
+Elevation of Privilege) and cross-references existing code paths and
+test coverage.
+
+**What changed from v1.** Bouclier previously shipped a second proxy
+mode ("extreme"): a CA-based TLS-terminating proxy paired with a system
+`NETransparentProxyProvider` extension that redirected AI-host traffic
+to it system-wide, plus a prompt-injection/PII detection engine that
+only ran through that path. Extreme mode has been removed — no CA, no
+System Extension, no system-wide network filter. This document is a
+from-scratch threat model of what remains: the loopback gateway and the
+secret keeper. It does not cover the detection engine (`InjectionFilter`,
+`MLClassifier`, the multimodal scanners), which is dormant, unreachable
+from the live request path, and out of scope for this review — see
+`ARCHITECTURE.md`'s "What was removed" section.
 
 ---
 
@@ -12,62 +28,83 @@ This document enumerates the assets, trust boundaries, adversaries, and mitigati
 
 ```
 ┌──────────────────────────────┐
-│  Mac end user / LLM client   │   (chatgpt, cursor, claude cli, curl, …)
+│  AI client / agent           │   (Claude Code, Cursor, curl, …)
 └──────────────┬───────────────┘
-               │  HTTPS CONNECT
+               │  HTTP (plaintext, loopback only)
                ▼
 ┌──────────────────────────────┐
 │ Bouclier.ai menubar app (host)  │
-│  - CertificateAuthority      │   (CA key in Keychain, login keychain only)
-│  - TLSProxy (swift-nio)      │   (127.0.0.1 bind; never 0.0.0.0)
-│  - HTTPRequestInspector      │   (request scan + sanitize)
-│  - SSEStreamInspector        │   (streaming response scan)
-│  - InjectionFilter           │   (161 patterns + 8 dampeners)
+│  - GatewayServer (swift-nio) │   (127.0.0.1 bind; never 0.0.0.0)
+│  - SecretRedactionPass       │   (real value → placeholder, outbound)
+│  - GatewayRestoreHandler     │   (placeholder → real value, inbound)
+│  - SecretStore (Keychain)    │   (per-secret real value, login keychain)
+│  - SecretRequestResponder    │   (agent-proposed secret requests, IPC)
 │  - StorageManager (GRDB)     │   (app-support SQLite, WAL)
 │  - AuditLogger               │   (os_log + optional webhook)
-│  - Metrics (actor)           │   (in-memory counters)
 └──────────────┬───────────────┘
-               │  HTTPS (re-encrypted)
+               │  HTTPS (client TLS to the real provider)
                ▼
 ┌──────────────────────────────┐
 │  Upstream AI provider        │   (api.openai.com, api.anthropic.com, …)
 └──────────────────────────────┘
 ```
 
-The **System Extension** (NETransparentProxyProvider) redirects the allowlisted provider domains to the menubar app's local proxy. All other traffic bypasses Bouclier.ai untouched.
+The gateway is reached only by setting `ANTHROPIC_BASE_URL` /
+`OPENAI_BASE_URL` (or an MCP client's proxy config) at `http://127.0.0.1:<port>`
+— there is no transparent, system-wide redirection. A process that
+doesn't point at the gateway simply talks to the provider directly and
+is entirely outside Bouclier's reach; this is a deliberate scope
+reduction from extreme mode's system-wide interception, not an
+oversight — see §4.
 
 ### 1.1 Assets
 
-| #   | Asset                                            | Sensitivity                  |
-| --- | ------------------------------------------------ | ---------------------------- |
-| A1  | Bouclier.ai root CA private key                  | Critical                     |
-| A2  | User prompts & chat completions (in flight)      | Confidential                 |
-| A3  | Pattern database (`patterns.json`)               | Integrity-critical           |
-| A4  | SQLite scan log (`bouclier.sqlite`)              | Confidential                 |
-| A5  | Audit webhook URL and bearer (if MDM-configured) | Confidential                 |
-| A6  | Sparkle update feed signing keys (EdDSA)         | Critical                     |
-| A7  | Code-signing identity + notarization creds       | Out of scope (Apple-managed) |
+| #   | Asset                                               | Sensitivity                  |
+| --- | --------------------------------------------------- | ---------------------------- |
+| A1  | Managed secret real values (in Keychain)            | Critical                     |
+| A2  | Secret placeholder ↔ real-value mapping (in memory) | Critical                     |
+| A3  | User prompts & chat completions (in flight)         | Confidential                 |
+| A4  | SQLite scan log (`bouclier.sqlite`)                 | Confidential                 |
+| A5  | Audit webhook URL and bearer (if MDM-configured)    | Confidential                 |
+| A6  | Sparkle update feed signing keys (EdDSA)            | Critical                     |
+| A7  | Code-signing identity + notarization creds          | Out of scope (Apple-managed) |
 
 ### 1.2 Trust boundaries
 
-1. **User ↔ menubar app** — any local process can dial `127.0.0.1:<proxy>`. The System Extension + PAC arrangement ensures only allowlisted provider hostnames are redirected, but any local tool can still CONNECT manually.
-2. **Menubar app ↔ System Extension** — XPC channel between host and NE provider.
-3. **App ↔ upstream AI provider** — terminated TLS on both sides.
-4. **App ↔ Keychain** — CA key stored `kSecAttrAccessibleWhenUnlockedThisDeviceOnly`, login keychain only.
-5. **App ↔ disk** (SQLite, patterns.json) — Application Support directory, user-scoped perms.
-6. **App ↔ Sparkle update feed** — HTTPS + EdDSA signature.
-7. **App ↔ optional MDM webhook** — only configured via managed profile, never user input.
+1. **Local process ↔ gateway** — any local process can dial
+   `127.0.0.1:<port>`; the gateway has no allowlist of which local
+   processes may connect (there's no system-level redirection to police
+   this — see §4's accepted risk). A DNS-rebinding guard
+   (`GatewayWire.isLoopbackHostHeader`) rejects requests whose `Host`
+   header isn't a loopback literal, closing the "malicious webpage POSTs
+   to 127.0.0.1" variant of this boundary.
+2. **Gateway ↔ upstream AI provider** — client TLS, full certificate
+   verification (`certificateVerification = .fullVerification`), pinned
+   to HTTP/1.1 upstream so header casing survives.
+3. **Gateway ↔ Keychain** — secret real values stored
+   `kSecAttrAccessibleWhenUnlockedThisDeviceOnly`, login keychain only.
+4. **Gateway ↔ agent (secret request/approval IPC)** — an agent can
+   _propose_ enabling protection or requesting a secret via
+   `SecretRequestResponder`/`ProtectionApprovalCoordinator`; only the
+   human, via the app UI, can approve. The agent never has a code path
+   to unilaterally grant itself a secret or flip protection on.
+5. **Gateway ↔ disk** (SQLite) — Application Support directory,
+   user-scoped perms.
+6. **Gateway ↔ Sparkle update feed** — HTTPS + EdDSA signature.
+7. **Gateway ↔ optional MDM webhook** — only configured via managed
+   profile, never user input.
 
 ### 1.3 Adversary profiles
 
-| ID  | Actor                                | Capabilities                                             |
-| --- | ------------------------------------ | -------------------------------------------------------- |
-| T1  | Remote attacker via prompt injection | Can place text anywhere a model sees (docs, emails, web) |
-| T2  | Malicious local app (same user)      | Can open sockets, read user files w/o TCC                |
-| T3  | Co-resident malware w/ admin         | Can install launchd agents, tamper with patterns.json    |
-| T4  | MITM on coffee-shop Wi-Fi            | Full L3/4 interception, can spoof DNS                    |
-| T5  | Hostile upstream AI provider         | Returns attacker-chosen content in responses             |
-| T6  | Malicious MDM administrator          | Pushes hostile config profiles                           |
+| ID  | Actor                                          | Capabilities                                                                                                                 |
+| --- | ---------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| T1  | Prompt-injected / misbehaving agent            | Can attempt to have the model instruct the agent to exfiltrate a secret, or probe the gateway for placeholder↔value mappings |
+| T2  | Malicious local app (same user)                | Can open sockets to `127.0.0.1:<port>`, read user files w/o TCC                                                              |
+| T3  | Co-resident malware w/ admin                   | Can install launchd agents, read Keychain if unlocked                                                                        |
+| T4  | MITM on coffee-shop Wi-Fi                      | Full L3/4 interception between the gateway and the upstream provider, can spoof DNS                                          |
+| T5  | Hostile upstream AI provider                   | Returns attacker-chosen content in responses                                                                                 |
+| T6  | Malicious MDM administrator                    | Pushes hostile config profiles                                                                                               |
+| T7  | Malicious webpage (via a browser-driven agent) | Can attempt DNS-rebinding style requests to `127.0.0.1:<port>`                                                               |
 
 ---
 
@@ -75,79 +112,81 @@ The **System Extension** (NETransparentProxyProvider) redirects the allowlisted 
 
 ### 2.1 Spoofing
 
-| S1 | **Fake upstream provider via DNS hijack / rogue CA.** Attacker poisons DNS or installs a rogue root on the Mac, replies to `api.openai.com`. | `TLSProxy` pins upstream with `certificateVerification = .fullVerification` in `NIOSSLContext` (TLSProxy.swift). Real-world mitigation depends on the user/enterprise not having rogue roots. |
-| S2 | **Fake Bouclier.ai CA injected into other users' trust stores.** The CA is generated per-install and not shipped; every install has a unique key. Key only imported into **login keychain** and marked `kSecUseDataProtectionKeychain = false` for user-level trust. |
-| S3 | **CONNECT target smuggling** — attacker sends `CONNECT evil.com:443\r\nHost: api.openai.com:443` to bypass the allowlist. | `HTTPRequestInspector.parseConnectTarget` rejects any CR/LF, control bytes, whitespace, `@`, or non-hostname characters. See `HTTPRequestInspectorTests.rejectsCRLFInjection`. |
-| S4 | **Prompt spoofing an allowlisted host in the SNI while CONNECT-ing to an attacker IP.** | Out of scope — NIOSSL verifies the presented certificate against the SNI hostname. Mismatch closes the channel. |
-| S5 | **Forged Sparkle update.** | Sparkle EdDSA signature on appcast items (existing mitigation). |
+| S1 | **Fake upstream provider via DNS hijack / rogue CA.** Attacker poisons DNS or installs a rogue root on the Mac, replies to `api.openai.com`. | `GatewayServer.connectToUpstream` pins with `certificateVerification = .fullVerification` in `NIOSSLContext`. Real-world mitigation depends on the user/enterprise not having rogue roots. |
+| S2 | **DNS-rebinding: malicious webpage resolves a hostname to `127.0.0.1` and POSTs to the gateway.** | `GatewayWire.isLoopbackHostHeader` rejects any request whose `Host` header isn't a loopback literal (`127.0.0.1`, `localhost`, `::1`) with `421 Misdirected Request`. |
+| S3 | **Forged Sparkle update.** | Sparkle EdDSA signature on appcast items (unchanged from v1). |
+| S4 | **Upstream override SSRF: `*_TARGET_API_URL` repointed at loopback or cloud metadata.** | `UpstreamOverrides.parseTarget` rejects loopback (`CorporateProxy.isLoopbackHost`) and cloud-metadata (`NetworkGuards.isCloudMetadataHost`) targets. |
 
 ### 2.2 Tampering
 
-| T1 | **Tampering with `patterns.json` on disk.** A co-resident process with the same user could rewrite the bundle resource. | Patterns are loaded from the signed app bundle (`Bundle.main.url`). The bundle is code-signed; Gatekeeper quarantines modifications. Runtime SHA-256 of the loaded file is logged (`InjectionFilter.loadAndVerifyPatterns`) so tampering is observable in diagnostics/webhooks. |
-| T2 | **Tampering with in-memory regexes via FS.** | Not prevented; requires root + SIP disabled. Out of scope. |
-| T3 | **Tampering with the SQLite scan log.** | GRDB WAL file under `~/Library/Application Support/ai.bouclier.app.ai/`. Tamper-evident via audit webhook mirror (AuditLogger sends structured JSON to the MDM-configured SIEM endpoint in real time). |
-| T4 | **Tampering with the request body after redaction.** Malicious client sees redaction, resubmits bypassing Bouclier.ai. | Not in threat model — Bouclier.ai is a defense-in-depth layer. Bypass requires the user to manually route traffic around the proxy, which is detectable by the System Extension. |
+| T1 | **Tampering with the SQLite scan log.** A co-resident process with the same user could rewrite the WAL file. | GRDB WAL file under `~/Library/Application Support/ai.bouclier.app/`. Tamper-evident via audit webhook mirror (`AuditLogger` sends structured JSON to the MDM-configured SIEM endpoint in real time). |
+| T2 | **Tampering with the in-memory placeholder↔value mapping via a crafted request.** | The mapping is derived server-side from `SecretStore` on each connection (`connectionRules`), never accepted from the client. A request can't inject or alter it. |
+| T3 | **A prompt-injected agent tricked into echoing a placeholder back verbatim to bypass scrub.** | Scrub runs on every outbound request regardless of prior turns — there's no "already scrubbed, skip" state a compromised turn could exploit. |
+| T4 | **Config change mid-connection: secrets added/removed while a keep-alive connection is open.** | `connectionRules` is pinned at the first request on a connection; if live config diverges from the pinned set, the connection is refused with `503 Service Unavailable` rather than silently scrubbing against a stale rule set — see `GatewayServer.forwardUpstream`. |
 
 ### 2.3 Repudiation
 
-| R1 | **User denies issuing a blocked prompt.** | Every detection is logged to `scan_logs` table (timestamp, host, pattern ids, severity, match count) and mirrored to `os_log` (collectable by Jamf/Kandji) and optionally to the enterprise SIEM webhook. |
-| R2 | **Diagnostic bundle tampered before submission.** | Diagnostics export is JSON, not signed. Out of scope for v1; follow-up: add ed25519 signature over `DiagnosticsExport.Bundle`. |
+| R1 | **User denies a secret was scrubbed/injected/blocked.** | Every secret-keeper event is logged (`ProxyManager.handleSecretEvent`) to the activity feed, `os_log`, on-disk stats, and optionally the enterprise SIEM webhook (`AuditLogger`). |
+| R2 | **Diagnostic bundle tampered before submission.** | Diagnostics export is JSON, not signed. Out of scope for this version; follow-up: add an EdDSA signature over `DiagnosticsExport.Bundle`. |
 
 ### 2.4 Information disclosure
 
-| I1 | **User prompts captured in scan logs.** This would be worse than the problem it solves. | Scan logs **never contain request bodies or URIs** — only match metadata (pattern ids, category, severity, match count, body length). See `StorageManager.recordScan` and `ScanLogRow`. The privacy policy is enforced by test `DiagnosticsExportTests.encodes` which asserts the bundle does not contain the word `prompt`. |
-| I2 | **CA private key exfil.** | Stored `kSecAttrAccessibleWhenUnlockedThisDeviceOnly` in the login keychain. Not exported. Never written to disk in plaintext. |
-| I3 | **Webhook URL leak via diagnostics bundle.** | `DiagnosticsExport` does not include the webhook URL. Only structured metrics + logs. |
-| I4 | **Side-channel leak via match count.** Rare cases where match count alone reveals prompt contents (e.g. uniqueness attacks). | Accepted risk — match count is required for meaningful metrics. |
-| I5 | **Request URI logged when host is not allowlisted.** | `DiagnosticsExport.buildBundle` strips `targetHost` from log rows whose host is not on the allowlist. See `DiagnosticsExportTests.stripsUnlistedHost`. |
-| I6 | **Recent log rows leak in crash reports.** | `ScanLogRow` does not contain body content. Objective-C exception reporter is not customized. |
+| I1 | **Real secret value reaches the model provider.** The core invariant — see `docs/secret-injection.md`. | `SecretRedactionPass.apply` scrubs the real value to its placeholder before the request leaves the gateway, gated on `SecretRedactionPass.hasTrigger` so clean traffic with no secret material is provably byte-faithful. Pinned by `E2EProxyTests`-equivalent gateway E2E tests. |
+| I2 | **Secret real value exfil.** | Stored `kSecAttrAccessibleWhenUnlockedThisDeviceOnly` in the login keychain. Never written to disk in plaintext, never logged. |
+| I3 | **Scan logs capture request/response bodies.** | Scan logs **never contain request bodies or URIs** — only metadata (host, byte counts, event kind). |
+| I4 | **Webhook URL leak via diagnostics bundle.** | `DiagnosticsExport` does not include the webhook URL. Only structured metrics + logs. |
+| I5 | **A safety-invariant regression silently ships secrets in cleartext.** | `SecretKeeperMonitor.runSelfTest()` runs on every launch, before any traffic flows; on failure it trips a circuit breaker that disables secret injection/scrub entirely and forwards everything untouched, rather than risk a corrupted scrub/restore pipeline. |
 
 ### 2.5 Denial of service
 
-| D1 | **Slow-loris CONNECT** — attacker opens a TCP connection and drips bytes so the proxy never completes the CONNECT line. | `ConnectHandler` enforces `HTTPRequestInspector.maxConnectHeaderBytes = 8 KiB` and returns `431 Request Header Fields Too Large` on overflow. |
-| D2 | **Oversized request body** — OOM via multi-GB payload. | `HTTPInspectionHandler` enforces `HTTPRequestInspector.maxBodyBytes = 10 MiB` both during chunk accumulation and at final inspection; returns `413 Payload Too Large`. Covered by `ProxyPipelineTests.rejectsStreamedOversize`. |
-| D3 | **Regex catastrophic backtracking.** | All bundled patterns were authored without unbounded backreferences and have been benchmark-tested (`packages/patterns/src/__tests__/benchmark.test.ts` runs 442 attacks + 240 benign samples in ≤200ms; any regression blows up this test). NSRegularExpression uses ICU which is generally linear for the regex features we use. |
-| D4 | **SSE stream DoS** — attacker responds from an upstream with an endless trickle. | `SSEStreamInspector` holds a rolling 4096-char window; unbounded text does not grow its buffer. Client-side timeouts close the connection. |
-| D5 | **Event-loop saturation via many simultaneous connections.** | `TLSProxy.start()` binds on `127.0.0.1` only (no remote attack surface) and uses `MultiThreadedEventLoopGroup(numberOfThreads: System.coreCount)`. |
+| D1 | **Oversized request body** — OOM via multi-GB payload. | `GatewayHandler.channelRead` enforces `HTTPRequestInspector.maxBodyBytes` during body accumulation, returning `413 Payload Too Large` on overflow. Secret-scan itself is additionally capped by `GatewayServer.maxSecretScanBytes` (1 MiB) — larger bodies skip scrub/restore and forward untouched rather than block on a huge scan. |
+| D2 | **Event-loop saturation via many simultaneous connections.** | `GatewayServer.start()` binds on `127.0.0.1` only (no remote attack surface) and uses `MultiThreadedEventLoopGroup(numberOfThreads: System.coreCount)`. |
+| D3 | **Upstream unreachable / slow.** | Connection failures return an honest `502 Bad Gateway` rather than hanging the client indefinitely. |
 
 ### 2.6 Elevation of privilege
 
-| E1 | **Pattern-driven RCE** via a crafted regex string in a future hot-reload file. | `FilterPattern.init?(from:)` compiles via `NSRegularExpression` which has no code-generation capability. Pattern files are loaded from bundled resources signed by Apple Developer ID. Hot-reload from `~/Library/Application Support/.../patterns.json` is gated on a SHA-256 integrity check against a pinned baseline. |
-| E2 | **System Extension compromise.** | NE provider has no entitlements beyond `com.apple.developer.networking.networkextension` (transparent-proxy) and runs outside the app sandbox; it is a separate signed binary. No RPC from host to extension other than config pushes through the documented NEAppProxyProvider API. |
-| E3 | **Local LPE via Keychain prompt abuse.** Earlier Bouclier.ai builds used openssl CSR flow that triggered spurious Keychain prompts; corrected to Keychain Access native workflow for cert issuance. |
+| E1 | **Agent grants itself a secret or turns on protection unilaterally.** | The agent-facing MCP/status surface is read-only + propose-only: `ProtectionApprovalCoordinator.onEnable` and the secret-request flow require the human to approve via the app UI. There is no agent-reachable code path that performs either action directly. |
+| E2 | **Local LPE via Keychain prompt abuse.** | Secret values are stored/retrieved via the standard Keychain API with no custom CSR/cert-issuance flow (that flow existed only for extreme mode's CA and was removed along with it). |
 
 ---
 
 ## 3. Defense-in-depth summary
 
-| Layer                | Mechanism                                                              |
-| -------------------- | ---------------------------------------------------------------------- |
-| Network boundary     | 127.0.0.1-only bind; allowlist of 10 built-in + MDM-configurable hosts |
-| CONNECT parsing      | Strict hostname/port validation, CRLF rejection, 8 KiB header cap      |
-| HTTP request parsing | NIO `HTTPRequestDecoder`, 10 MiB body cap, Content-Type gate           |
-| Injection detection  | 161 regex patterns across 21 categories + 8 FP dampeners               |
-| Response detection   | `SSEStreamInspector` with rolling window, frame-boundary safe          |
-| Storage              | User-scoped SQLite, no request bodies persisted                        |
-| Observability        | os_log + optional MDM webhook + in-memory metrics actor                |
-| Updates              | Sparkle EdDSA-signed appcast                                           |
-| Code signing         | Developer ID + notarization; bundle integrity via Gatekeeper           |
-| Secret storage       | Keychain (login, `WhenUnlockedThisDeviceOnly`)                         |
+| Layer                | Mechanism                                                                                                     |
+| -------------------- | ------------------------------------------------------------------------------------------------------------- |
+| Network boundary     | 127.0.0.1-only bind; no system-wide redirection                                                               |
+| Request parsing      | NIO `HTTPRequestDecoder`, body cap, DNS-rebinding `Host` guard                                                |
+| Secret scrub/restore | Trigger-gated `SecretRedactionPass`/`SecretRestore`, per-connection rule pinning, fail-closed on config drift |
+| Self-test            | `SecretKeeperMonitor` circuit breaker on every launch                                                         |
+| SSRF guards          | Loopback + cloud-metadata rejection on upstream overrides and secret host bindings                            |
+| Storage              | User-scoped SQLite, no request bodies persisted                                                               |
+| Observability        | os_log + optional MDM webhook + in-memory metrics actor                                                       |
+| Updates              | Sparkle EdDSA-signed appcast                                                                                  |
+| Code signing         | Developer ID + notarization; bundle integrity via Gatekeeper                                                  |
+| Secret storage       | Keychain (login, `WhenUnlockedThisDeviceOnly`)                                                                |
 
 ---
 
-## 4. Accepted risks (v1)
+## 4. Accepted risks
 
-- **Root-level malware** can tamper with any Mac app; Bouclier.ai does not claim protection against this tier.
-- **User manually disabling the proxy** is a legitimate action. Enforcement requires MDM configuration profile + compliance tooling.
-- **Pattern false negatives** on novel jailbreaks. Mitigated by rolling benchmark (442 attacks, TPR ≥ 0.90) but not 100%.
-- **Diagnostics bundle tampering in transit** before reaching support — not signed in v1.
+- **Root-level malware** can tamper with any Mac app; Bouclier.ai does
+  not claim protection against this tier.
+- **The gateway is opt-in per process**, not system-wide. Any process
+  that doesn't set `ANTHROPIC_BASE_URL`/`OPENAI_BASE_URL` (or isn't
+  captured by `ShellEnvInjector`'s dotfile/launchctl wiring) bypasses
+  Bouclier entirely and is outside its reach. This is a deliberate
+  trade-off made when extreme mode's system-wide network filter was
+  removed: no CA, no System Extension, and no ability to see traffic
+  from a process that doesn't voluntarily route through the gateway.
+- **User manually disabling the gateway** is a legitimate action.
+  Enforcement requires MDM configuration profile + compliance tooling.
+- **Diagnostics bundle tampering in transit** before reaching support —
+  not signed.
 
 ---
 
 ## 5. Follow-ups
 
 - [ ] Sign `DiagnosticsExport.Bundle` with the Sparkle EdDSA key for tamper-evident support handoff.
-- [ ] Add SHA-256 integrity check between bundled and hot-reloaded `patterns.json`.
-- [ ] Prometheus `/metrics` endpoint behind a local unix-socket for ops consumption.
-- [ ] Extend SSE inspector to detect token-level exfiltration across streams (cross-stream rolling window).
 - [ ] Threat-model the MCP wrapper binary separately.
+- [ ] If destination-bound secret injection (`SecretInjectionPass`, currently dormant) is ever wired into the gateway, threat-model that path before it ships live.

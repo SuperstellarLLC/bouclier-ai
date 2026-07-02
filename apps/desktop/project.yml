@@ -63,12 +63,6 @@ targets:
       - package: swift-nio-transport-services
         product: NIOTransportServices
       - package: Sparkle
-      - target: BouclierExtension
-        embed: true
-        codeSign: true
-        buildPhase:
-          copyFiles:
-            destination: systemExtension
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: ai.bouclier.app
@@ -88,36 +82,9 @@ targets:
         CFBundleDisplayName: Bouclier
         CFBundleIconFile: Bouclier
         LSUIElement: true
-        NSSystemExtensionUsageDescription: "Bouclier needs a system extension to intercept AI API traffic for prompt injection scanning."
         SUPublicEDKey: "QNMtWO7H9Z9Hv1J9bAsunleicPvJVP2bMJQezjV3vmM="
         SUFeedURL: "https://www.bouclier.ai/appcast.xml"
         SUEnableAutomaticChecks: true
-
-  BouclierExtension:
-    type: tool
-    platform: macOS
-    sources:
-      - path: Sources/BouclierExtension
-    settings:
-      base:
-        PRODUCT_BUNDLE_IDENTIFIER: ai.bouclier.app.extension
-        PROVISIONING_PROFILE_SPECIFIER: "Bouclier Network Extension"
-        CODE_SIGN_ENTITLEMENTS: BouclierExtension.entitlements
-        ENABLE_HARDENED_RUNTIME: YES
-        SWIFT_VERSION: "6.0"
-      configs:
-        Release:
-          SWIFT_OPTIMIZATION_LEVEL: -O
-    info:
-      path: Sources/BouclierExtension/GeneratedInfo.plist
-      properties:
-        CFBundleName: BouclierExtension
-        CFBundleDisplayName: "Bouclier Network Extension"
-        CFBundlePackageType: SYSX
-        NSSystemExtensionUsageDescription: "Bouclier intercepts AI API traffic to scan for prompt injections."
-        NetworkExtension:
-          NEProviderClasses:
-            com.apple.networkextension.transparent-proxy: "$(PRODUCT_MODULE_NAME).TransparentProxyProvider"
 
   bouclier-ai-mcp-wrapper:
     type: tool

@@ -1,8 +1,8 @@
 import Foundation
-// Same NIO 2.x Sendable caveat as TLSProxy.swift: the handler types we
-// touch are event-loop-confined in practice; `@preconcurrency` quiets the
-// "conformance to Sendable unavailable" warnings without changing
-// behaviour. Drop the modifier once NIO ships full Sendable annotations.
+// The handler types we touch are event-loop-confined in practice;
+// `@preconcurrency` quiets the "conformance to Sendable unavailable"
+// warnings without changing behaviour. Drop the modifier once NIO ships
+// full Sendable annotations.
 @preconcurrency import NIO
 @preconcurrency import NIOCore
 import NIOHTTP1
@@ -10,12 +10,11 @@ import NIOPosix
 @preconcurrency import NIOSSL
 import NIOTLS
 
-/// Non-CA "base-URL redirection" gateway — the **standard mode** proxy.
+/// Non-CA "base-URL redirection" gateway — the whole of Bouclier's proxy.
 ///
-/// Unlike `TLSProxy` (the MITM/CONNECT "extreme mode"), this never
-/// terminates the client's TLS and installs no certificate authority.
-/// The agent points `ANTHROPIC_BASE_URL` / `OPENAI_BASE_URL` at
-/// `http://127.0.0.1:<port>` and speaks **plaintext HTTP to loopback**;
+/// This never terminates the client's TLS and installs no certificate
+/// authority. The agent points `ANTHROPIC_BASE_URL` / `OPENAI_BASE_URL`
+/// at `http://127.0.0.1:<port>` and speaks **plaintext HTTP to loopback**;
 /// the gateway re-issues each request to the real provider over TLS and
 /// streams the response back. No CA install, no system-trust changes —
 /// the friction that blocked adoption simply isn't here.
@@ -52,7 +51,7 @@ final class GatewayServer: Sendable {
     /// Override system trust roots for upstream TLS verification. Set only
     /// by the e2e test (in-process HTTPS upstream signed by a throwaway
     /// CA). `nil` in production keeps `.fullVerification` against the
-    /// system store. Mirrors `TLSProxy.upstreamTrustRootsPEM`.
+    /// system store.
     let upstreamTrustRootsPEM: [String]?
 
     init(
@@ -135,7 +134,7 @@ struct UpstreamOverrides: Sendable, Equatable {
         guard let url = ManagedConfigValidator.validatedProxyURL(raw),
               let host = url.host,
               !CorporateProxy.isLoopbackHost(host),
-              !TLSProxy.isCloudMetadataHost(host)
+              !NetworkGuards.isCloudMetadataHost(host)
         else { return nil }
         let port = url.port ?? (url.scheme == "http" ? 80 : 443)
         return (host, port)
@@ -205,14 +204,12 @@ enum GatewayRoute: Equatable {
 // MARK: - Gateway Handler (client-facing)
 
 /// Buffers one inbound request, resolves its upstream, and forwards it
-/// over TLS — the non-CA analog of `HTTPInspectionHandler`. Unlike that
-/// handler it connects upstream *lazily* (on `.end`), because the route —
+/// over TLS. Connects upstream *lazily* (on `.end`), because the route —
 /// and therefore the upstream host — isn't known until the request is
 /// parsed.
 ///
-/// Same NIO single-event-loop invariant as the TLSProxy handlers: every
-/// method runs on this channel's loop, so `@unchecked Sendable` documents
-/// that captures are loop-confined.
+/// Every method runs on this channel's event loop, so `@unchecked
+/// Sendable` documents that captures are loop-confined.
 private final class GatewayHandler: ChannelInboundHandler, RemovableChannelHandler, @unchecked Sendable {
     typealias InboundIn = HTTPServerRequestPart
     typealias OutboundOut = ByteBuffer
@@ -611,9 +608,9 @@ enum GatewayWire {
 
 /// Shovels response bytes from the provider back to the agent, raw and
 /// unmodified. Phase 1 is a pure passthrough — request-side handling is
-/// the only mutation path, exactly as in the MITM proxy. Phase 2 will
-/// interpose the placeholder→real restore here (straddle-safe over SSE
-/// frames), reusing `SSEStreamInspector`'s buffering.
+/// the only mutation path. Phase 2 will interpose the placeholder→real
+/// restore here (straddle-safe over SSE frames), reusing
+/// `SSEStreamInspector`'s buffering.
 private final class GatewayRelayHandler: ChannelInboundHandler, @unchecked Sendable {
     typealias InboundIn = ByteBuffer
 

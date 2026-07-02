@@ -4,31 +4,32 @@ import Testing
 
 @Suite("ProxyMode — resolution", .serialized)
 struct ProxyModeTests {
-    @Test("Default is standard (non-CA; extreme is never implicit)")
+    @Test("Standard is the only mode, and the default")
     func defaultStandard() {
         ProxyMode.setTestOverride(nil)
         UserDefaults.standard.removeObject(forKey: ProxyMode.userDefaultsKey)
         #expect(ProxyMode.current == .standard)
         #expect(ProxyMode.compileDefault == .standard)
+        #expect(ProxyMode.allCases == [.standard])
     }
 
-    @Test("User must explicitly opt into extreme")
-    func userDefaultExtreme() {
+    @Test("A stale 'extreme' value from a pre-removal install falls back to standard")
+    func staleExtremeValueFallsBack() {
         ProxyMode.setTestOverride(nil)
         UserDefaults.standard.set("extreme", forKey: ProxyMode.userDefaultsKey)
         defer { UserDefaults.standard.removeObject(forKey: ProxyMode.userDefaultsKey) }
-        #expect(ProxyMode.current == .extreme)
+        #expect(ProxyMode.current == .standard)
     }
 
     @Test("Test override wins over everything")
     func overrideWins() {
         UserDefaults.standard.set("standard", forKey: ProxyMode.userDefaultsKey)
-        ProxyMode.setTestOverride(.extreme)
+        ProxyMode.setTestOverride(.standard)
         defer {
             ProxyMode.setTestOverride(nil)
             UserDefaults.standard.removeObject(forKey: ProxyMode.userDefaultsKey)
         }
-        #expect(ProxyMode.current == .extreme)
+        #expect(ProxyMode.current == .standard)
     }
 }
 

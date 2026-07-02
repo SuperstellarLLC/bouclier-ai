@@ -5,7 +5,7 @@ import { APP_NAME, APP_URL } from "@/lib/constants";
 import "./globals.css";
 
 const DESCRIPTION =
-  "Let your AI coding agent use your secrets without ever seeing them. Local-only macOS app — keeps API keys out of the model, blocks prompt injection, strips PII. Experimental beta — not for production.";
+  "Let your AI coding agent use your secrets without ever seeing them. Local-only macOS app — keeps API keys out of the model. No certificate required. Experimental beta — not for production.";
 
 export const metadata: Metadata = {
   title: {

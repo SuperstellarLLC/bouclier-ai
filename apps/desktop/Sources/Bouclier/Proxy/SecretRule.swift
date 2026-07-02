@@ -94,10 +94,12 @@ struct SecretRule: Sendable, Codable, Equatable {
         allowedHosts.contains(host.lowercased())
     }
 
-    /// A scrub-only secret has no host binding: it's never *injected* into
-    /// a third-party request (that's extreme mode), it's only *scrubbed*
-    /// out of requests to the model provider (standard mode). Injectable
-    /// secrets carry at least one allowed host.
+    /// A scrub-only secret has no host binding: it's only *scrubbed* out
+    /// of requests to the model provider, never *injected* into a
+    /// third-party request. Host-bound (non-empty `allowedHosts`) secrets
+    /// validate and store today, but destination-bound injection
+    /// (`SecretInjectionPass`) has had no live caller since extreme mode
+    /// — the only proxy path that ever invoked it — was removed.
     var isScrubOnly: Bool { allowedHosts.isEmpty }
 
     /// Maximum stored secret length. Bounds Keychain/memory use and stops
@@ -114,7 +116,7 @@ struct SecretRule: Sendable, Codable, Equatable {
     static func validatedHost(_ raw: String) -> String? {
         let trimmed = raw.trimmingCharacters(in: .whitespaces).lowercased()
         guard let host = ManagedConfigValidator.validatedHostname(trimmed) else { return nil }
-        if TLSProxy.isCloudMetadataHost(host) { return nil }
+        if NetworkGuards.isCloudMetadataHost(host) { return nil }
         if CorporateProxy.isLoopbackHost(host) { return nil }
         return host
     }

@@ -1,9 +1,10 @@
 # Security Policy
 
-Bouclier.ai sits in your network path and decrypts AI API traffic on
-your machine. We take vulnerability reports seriously and ask that you
-disclose them responsibly so we can ship a fix before details become
-public.
+Bouclier.ai runs a local gateway that your AI agent's SDK points at
+(`ANTHROPIC_BASE_URL`/`OPENAI_BASE_URL`) and scrubs managed secrets from
+outbound requests before re-issuing them to the real provider. We take
+vulnerability reports seriously and ask that you disclose them
+responsibly so we can ship a fix before details become public.
 
 ## Supported versions
 
@@ -50,24 +51,28 @@ reporter.
 Bouclier.ai's threat model is documented in
 [`docs/THREAT_MODEL.md`](../docs/THREAT_MODEL.md). In scope:
 
-- Bypasses of the prompt-injection or PII scanners (including
-  detection-evasion payloads).
-- Memory-safety issues in the TLS proxy or System Extension.
-- Issues that allow plaintext request content to be persisted or
-  exfiltrated despite the privacy invariants in the threat model.
+- Bypasses of the secret scrub/restore invariant (a managed secret's real
+  value reaching the model provider, or a corrupted restore leaking a
+  placeholder to the agent).
+- Memory-safety issues in the gateway.
+- Issues that allow plaintext request content or secret values to be
+  persisted or exfiltrated despite the privacy invariants in the threat
+  model.
 - Code-signing, notarization, or update-channel weaknesses (Sparkle
   appcast tampering, downgrade, replay).
-- Logic bugs that cause the proxy to fail open (e.g., forwarding a
-  flagged payload unchanged).
+- Logic bugs that cause the gateway to fail open in a way that leaks a
+  secret (e.g., forwarding a request that should have been scrubbed).
 
 Out of scope:
 
 - Findings that require the attacker to have physical or
   administrator-level access to the user's Mac.
 - Social engineering, phishing, or attacks against `bouclier.ai`
-  marketing assets unrelated to the proxy or the app itself.
-- Best-effort detection coverage gaps for novel attack patterns —
-  please open a regular issue or pull request with a regression test.
+  marketing assets unrelated to the gateway or the app itself.
+- The dormant prompt-injection/PII detection engine (`packages/patterns`,
+  `InjectionFilter`, the multimodal scanners) — it isn't wired into any
+  live request path since extreme mode's removal, so it isn't a live
+  attack surface. General bugs there are welcome as a regular issue.
 
 ## Bug bounty
 

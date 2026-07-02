@@ -293,7 +293,7 @@ public struct SecretsMCPHandler: Sendable {
     public static var toolDefinitions: [[String: Any]] { [
         [
             "name": "status",
-            "description": "Read Bouclier's current state so you can orient yourself before acting: whether protection is on, which mode (standard/extreme), secret-keeper health, how many secrets you can use, and activity counts. Call this FIRST. Secret values are never returned. If it reports protection is off, you can call enable_protection to propose turning it on.",
+            "description": "Read Bouclier's current state so you can orient yourself before acting: whether protection is on, secret-keeper health, how many secrets you can use, and activity counts. Call this FIRST. Secret values are never returned. If it reports protection is off, you can call enable_protection to propose turning it on.",
             "inputSchema": ["type": "object", "properties": [String: Any](), "additionalProperties": false],
             "annotations": ["title": "Bouclier Status", "readOnlyHint": true, "openWorldHint": false],
         ],

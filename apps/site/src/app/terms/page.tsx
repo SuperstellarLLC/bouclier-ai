@@ -114,47 +114,47 @@ export default function TermsPage() {
           </p>
         </Section>
 
-        <Section title="4. Detection is best-effort and probabilistic">
+        <Section title="4. Secret scrubbing is best-effort">
           <p>
-            The Software performs regex pattern matching, structural validation, statistical
-            heuristics, and on-device machine learning to identify likely prompt injections and
-            likely PII. None of these techniques is exhaustive. Specifically and without limitation:
+            The Software identifies a managed secret&apos;s real value by exact match against the
+            value you stored in Keychain and replaces it with a placeholder before the request
+            reaches the model provider, restoring it in the response. This is deterministic, not
+            probabilistic, but it is not exhaustive. Specifically and without limitation:
           </p>
           <ul className="mt-3 list-disc space-y-2 pl-5">
             <li>
-              <strong>False negatives.</strong> The Software will fail to detect some prompt
-              injections and some PII. Novel attack patterns, unusual encodings, low-resolution or
-              heavily-stylised images, scanned PDFs with poor OCR quality, accented or low-quality
-              audio, and content the Software does not inspect will pass through unchanged.
+              <strong>Scope.</strong> Only traffic that is explicitly routed through the
+              Software&apos;s gateway (by configuring <code>ANTHROPIC_BASE_URL</code> /{" "}
+              <code>OPENAI_BASE_URL</code>
+              or equivalent, or via the Software&apos;s own shell/environment wiring) is in scope.
+              Any process, tool, or connection that does not route through the gateway is entirely
+              outside the Software&apos;s reach and unaffected by it.
             </li>
             <li>
-              <strong>False positives.</strong> The Software may classify benign content as a threat
-              or as PII, redact it, strip an attachment, and disrupt the user&apos;s intended
-              workflow.
+              <strong>Exact-match only.</strong> Scrub and restore require the stored value to
+              appear byte-for-byte. A transformed, re-encoded, partially-typed, or otherwise altered
+              copy of a secret value will not be recognised and will pass through unchanged.
             </li>
             <li>
-              <strong>Multimodal scope.</strong> When enabled, image OCR + face detection, PDF text
-              extraction + OCR fallback, and audio transcription (capped at 60 seconds, on-device
-              Apple Speech) run on attachments in JSON and multipart bodies. Video, encrypted or
-              password-protected PDFs, oversized files, unsupported audio formats, and any
-              attachment delivered through a channel outside the intercepted HTTPS traffic are not
-              inspected. Unscannable attachments inside a flagged request may be stripped rather
-              than forwarded.
+              <strong>Body size cap.</strong> Requests above a configured size threshold are not
+              scanned for secret material and are forwarded unchanged, so that large payloads (e.g.
+              file uploads) are not slowed or blocked.
             </li>
             <li>
-              <strong>Content the Software does not inspect.</strong> Traffic to providers not on
-              the intercepted-hosts list, traffic over non-HTTPS protocols, binary payloads outside
-              the recognised multimodal shapes, and content delivered through channels outside the
-              macOS network proxy are not inspected.
-            </li>
-            <li>
-              <strong>Coverage of regulated identifiers.</strong> The Software detects a small
-              subset of personal data categories defined by laws such as the EU GDPR, US HIPAA, UK
-              Data Protection Act, and the California CCPA. It is not a substitute for a data
-              protection impact assessment, a Business Associate Agreement, a SOC 2 control
-              framework, or any other compliance instrument.
+              <strong>The agent retains restored values.</strong> Scrubbing blinds the model
+              provider only. A restored secret value does reach the requesting agent/tool and may
+              persist in its local transcript or logs — see Section 6.
             </li>
           </ul>
+          <p className="mt-3 text-sm">
+            An earlier version of the Software additionally ran an on-device prompt-injection and
+            attachment-PII detection engine, which was probabilistic and had the false-positive/
+            false-negative characteristics typical of such systems. That engine is no longer wired
+            into any live request path — the code remains in the public repository, unmodified, but
+            does not process your traffic today. Do not rely on any representation, in this
+            document, marketing materials, or elsewhere, that the Software performs prompt-injection
+            or attachment-PII detection.
+          </p>
         </Section>
 
         <Section title="5. No compliance claim">
@@ -179,21 +179,20 @@ export default function TermsPage() {
             </li>
             <li>
               You are solely responsible for reviewing any rewrites performed by the Software —
-              today limited to attachment content blocks flagged as containing PII — before relying
-              on the result. The exported audit report is provided as an evaluation aid, not as a
-              certification.
+              today limited to the secret-scrub substitution described in Section 4 — before relying
+              on the result.
             </li>
             <li>
               You are solely responsible for evaluating whether the Software is appropriate for your
               environment, your data, and your obligations. You must not deploy the Software in any
-              environment in which a detection failure could cause harm to you, to your employer, to
+              environment in which a scrubbing failure could cause harm to you, to your employer, to
               your customers, or to any third party.
             </li>
             <li>
               You are solely responsible for the configuration of every Software setting, including
-              MDM-managed values. Misconfiguration may cause attachments containing PII to be
-              transmitted to upstream providers without inspection, or conversely may cause benign
-              attachments to be stripped from outbound requests.
+              MDM-managed values and which processes are routed through the gateway.
+              Misconfiguration, or simply not routing a given tool through the gateway, may cause a
+              managed secret to reach a model provider unscrubbed.
             </li>
             <li>
               You must comply with the terms of service of every AI provider you send traffic to.
@@ -256,13 +255,12 @@ export default function TermsPage() {
 
         <Section title="10. Third-party providers">
           <p>
-            The Software intercepts traffic to third-party AI providers and forwards it to them.
-            Text prompt bodies and HTTP request headers are forwarded byte-for-byte; the only
-            content the Software ever modifies on an outbound request is an attachment (image, PDF,
-            or audio file) that the on-device scanner has flagged as containing personal data, in
-            which case the attachment&apos;s content block is replaced with a short text
-            description. We have no control over those providers, their terms, their data handling,
-            their availability, or their pricing. Your use of those providers is governed by your
+            The Software re-issues requests you route through its gateway to third-party AI
+            providers. Text prompt bodies and HTTP request headers are forwarded byte-for-byte; the
+            only content the Software ever modifies on an outbound request is a managed
+            secret&apos;s real value, which is replaced with a placeholder as described in Section
+            4. We have no control over those providers, their terms, their data handling, their
+            availability, or their pricing. Your use of those providers is governed by your
             agreement with each of them. Content delivered to each provider is governed by that
             provider&apos;s own terms.
           </p>
@@ -271,9 +269,10 @@ export default function TermsPage() {
         <Section title="11. Open-source components">
           <p>
             The Software incorporates open-source components, including (without limitation)
-            Meta&apos;s Llama Prompt Guard 2 (governed by the Llama 4 Community License), Microsoft
-            Presidio recognition patterns derived from public references, and the Swift, NIO, GRDB,
-            and CryptoKit ecosystems. The corresponding notices are bundled with the Software and
+            Meta&apos;s Llama Prompt Guard 2 model weights (governed by the Llama 4 Community
+            License; bundled but, per Section 4, not on any live request path), Microsoft Presidio
+            recognition patterns derived from public references, and the Swift, NIO, GRDB, and
+            CryptoKit ecosystems. The corresponding notices are bundled with the Software and
             reproduced in the project&apos;s LICENSE and NOTICE files. These components remain
             governed by their respective licences.
           </p>
@@ -353,9 +352,6 @@ export default function TermsPage() {
             </Link>
             <Link href="/privacy" className="hover:text-text transition-colors">
               Privacy
-            </Link>
-            <Link href="/blocked" className="hover:text-text transition-colors">
-              Blocked
             </Link>
           </div>
         </div>

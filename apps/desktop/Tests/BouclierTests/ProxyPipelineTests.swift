@@ -167,23 +167,15 @@ struct ProxyPipelineTests {
         _ = result
     }
 
-    @Test("Whitelisted domain is in the built-in allowlist")
+    @Test("Built-in AI domain set covers the providers we speak to")
     func domainAllowlistSanity() {
-        // The allowlist is the SSRF guard. Ensure the providers we actually
-        // speak to are all present and some that we don't are absent.
+        // Reported by the diagnostics export and the secret-keeper's host
+        // bookkeeping. Ensure the providers we actually speak to are all
+        // present and some that we don't are absent.
         #expect(SystemProxy.builtinDomains.contains("api.openai.com"))
         #expect(SystemProxy.builtinDomains.contains("api.anthropic.com"))
         #expect(!SystemProxy.builtinDomains.contains("example.com"))
         #expect(!SystemProxy.builtinDomains.contains("169.254.169.254"))
-    }
-
-    @Test("CONNECT targets for every allowlisted domain parse successfully")
-    func connectParsesForAllAllowlisted() {
-        for host in SystemProxy.builtinDomains {
-            let parsed = HTTPRequestInspector.parseConnectTarget("\(host):443")
-            #expect(parsed?.host == host)
-            #expect(parsed?.port == 443)
-        }
     }
 
     @Test("Query string injection is caught via URI scan")

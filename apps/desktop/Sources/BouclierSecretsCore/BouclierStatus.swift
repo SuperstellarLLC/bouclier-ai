@@ -38,7 +38,12 @@ public struct BouclierStatus: Codable, Sendable, Equatable {
     public let pid: Int32
     public let appVersion: String
     public let running: Bool
-    public let mode: String        // "standard" | "extreme"
+    /// Always "standard" now — extreme mode (CA-based interception) was
+    /// removed. Kept as a field (rather than dropped) for status-schema
+    /// stability across the removal; see `ProxyMode`.
+    public let mode: String
+    /// Always false now — extreme mode was the only feature that ever
+    /// installed a CA. Kept for status-schema stability.
     public let caInstalled: Bool
     public let protectionEnabled: Bool
     public let secretKeeper: SecretKeeper

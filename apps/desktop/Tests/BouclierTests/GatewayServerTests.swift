@@ -547,3 +547,217 @@ private final class PlaintextRequestHandler: ChannelInboundHandler, @unchecked S
         context.fireChannelInactive()
     }
 }
+
+// MARK: - Throwaway PKI
+//
+// Relocated from the now-deleted E2EProxyTests.swift (extreme-mode's
+// CONNECT/TLS-intercept integration tests) — these three types are
+// mode-agnostic test infrastructure this file's own upstream-over-real-TLS
+// tests depend on.
+
+/// Generates a CA + a leaf cert for a single hostname using the system
+/// `openssl`. The keys never leave the test's tmp directory; nothing
+/// touches the user's Keychain or Application Support.
+struct TestPKI {
+    let caKeyPEM: String
+    let caCertPEM: String
+    let upstreamKeyPEM: String
+    let upstreamCertPEM: String
+
+    static func generate(upstreamHost: String) throws -> TestPKI {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("bouclier-e2e-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        let caKey = tmp.appendingPathComponent("ca.key")
+        let caCert = tmp.appendingPathComponent("ca.pem")
+        try runOpenSSL([
+            "req", "-x509", "-new", "-newkey", "rsa:2048",
+            "-keyout", caKey.path, "-out", caCert.path,
+            "-days", "1", "-nodes",
+            "-subj", "/CN=Bouclier Test CA",
+            "-addext", "basicConstraints=critical,CA:TRUE,pathlen:0",
+            "-addext", "keyUsage=critical,keyCertSign,cRLSign",
+        ])
+
+        let leafKey = tmp.appendingPathComponent("leaf.key")
+        let leafCsr = tmp.appendingPathComponent("leaf.csr")
+        let leafCert = tmp.appendingPathComponent("leaf.pem")
+        let ext = tmp.appendingPathComponent("ext.cnf")
+
+        try runOpenSSL([
+            "req", "-new", "-newkey", "rsa:2048", "-nodes",
+            "-keyout", leafKey.path, "-out", leafCsr.path,
+            "-subj", "/CN=\(upstreamHost)",
+        ])
+        try """
+        authorityKeyIdentifier=keyid,issuer
+        basicConstraints=CA:FALSE
+        keyUsage=digitalSignature,keyEncipherment
+        extendedKeyUsage=serverAuth
+        subjectAltName=DNS:\(upstreamHost)
+        """.write(to: ext, atomically: true, encoding: .utf8)
+        try runOpenSSL([
+            "x509", "-req", "-in", leafCsr.path,
+            "-CA", caCert.path, "-CAkey", caKey.path,
+            "-CAcreateserial", "-out", leafCert.path,
+            "-days", "1", "-sha256",
+            "-extfile", ext.path,
+        ])
+
+        return TestPKI(
+            caKeyPEM: try String(contentsOf: caKey, encoding: .utf8),
+            caCertPEM: try String(contentsOf: caCert, encoding: .utf8),
+            upstreamKeyPEM: try String(contentsOf: leafKey, encoding: .utf8),
+            upstreamCertPEM: try String(contentsOf: leafCert, encoding: .utf8)
+        )
+    }
+
+    private static func runOpenSSL(_ args: [String]) throws {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/usr/bin/openssl")
+        p.arguments = args
+        p.standardOutput = FileHandle.nullDevice
+        p.standardError = FileHandle.nullDevice
+        try p.run()
+        p.waitUntilExit()
+        if p.terminationStatus != 0 {
+            throw TestPKIError.opensslFailed(args.first ?? "?", p.terminationStatus)
+        }
+    }
+
+    enum TestPKIError: Error { case opensslFailed(String, Int32) }
+}
+
+// MARK: - In-process HTTPS upstream that records the request body
+
+/// Thread-safe holder for the bytes the upstream observed. The
+/// recorder handler writes from a NIO event loop thread; the test
+/// awaits the response and then reads from the main actor — we need
+/// the synchronization edge or TSan would flag it.
+final class LockedBytes: @unchecked Sendable {
+    private let lock = NSLock()
+    private var data = Data()
+    private var headers: [(String, String)] = []
+    func store(_ d: Data) { lock.lock(); data = d; lock.unlock() }
+    func read() -> Data { lock.lock(); defer { lock.unlock() }; return data }
+    func storeHeaders(_ h: [(String, String)]) { lock.lock(); headers = h; lock.unlock() }
+    func readHeaders() -> [(String, String)] { lock.lock(); defer { lock.unlock() }; return headers }
+}
+
+/// Minimal NIO HTTPS server that accepts a single POST, records the
+/// body bytes, and answers `200 OK`. Bound to 127.0.0.1 on an ephemeral
+/// port so a flaky CI runner can't collide with another listener.
+actor UpstreamRecorder {
+    let port: Int
+    private let group: MultiThreadedEventLoopGroup
+    private let channel: Channel
+    private var recordedBody: Data = Data()
+
+    private init(port: Int, group: MultiThreadedEventLoopGroup, channel: Channel) {
+        self.port = port
+        self.group = group
+        self.channel = channel
+    }
+
+    static func start(certificatePEM: String, keyPEM: String) async throws -> UpstreamRecorder {
+        let cert = try NIOSSLCertificate.fromPEMBytes(Array(certificatePEM.utf8))
+        let key = try NIOSSLPrivateKey(bytes: Array(keyPEM.utf8), format: .pem)
+        var config = TLSConfiguration.makeServerConfiguration(
+            certificateChain: cert.map { .certificate($0) },
+            privateKey: .privateKey(key)
+        )
+        config.minimumTLSVersion = .tlsv12
+        let sslContext = try NIOSSLContext(configuration: config)
+
+        let group = MultiThreadedEventLoopGroup(numberOfThreads: 1)
+        let recorder = LockedBytes()
+
+        let bootstrap = ServerBootstrap(group: group)
+            .serverChannelOption(.backlog, value: 16)
+            .serverChannelOption(.socketOption(.so_reuseaddr), value: 1)
+            .childChannelInitializer { channel in
+                let sslHandler = NIOSSLServerHandler(context: sslContext)
+                return channel.pipeline.addHandler(sslHandler).flatMap {
+                    channel.pipeline.configureHTTPServerPipeline().flatMap {
+                        channel.pipeline.addHandler(RecorderHandler(recorder: recorder))
+                    }
+                }
+            }
+            .childChannelOption(.socketOption(.so_reuseaddr), value: 1)
+
+        let channel = try await bootstrap.bind(host: "127.0.0.1", port: 0).get()
+        guard let port = channel.localAddress?.port else {
+            try? await group.shutdownGracefully()
+            throw UpstreamError.didNotBind
+        }
+
+        let server = UpstreamRecorder(port: port, group: group, channel: channel)
+        await server.attachRecorder(recorder)
+        return server
+    }
+
+    private var recorderBox: LockedBytes?
+
+    private func attachRecorder(_ box: LockedBytes) {
+        recorderBox = box
+    }
+
+    /// The bytes the upstream actually saw. Read after the response
+    /// round-trips so we know the handler had a chance to populate it.
+    func observedRequestBody() -> Data {
+        recorderBox?.read() ?? Data()
+    }
+
+    /// The headers the upstream actually saw. Order-preserving so a
+    /// test can assert against the wire ordering if it ever matters.
+    func observedRequestHeaders() -> [(String, String)] {
+        recorderBox?.readHeaders() ?? []
+    }
+
+    nonisolated func shutdown() {
+        try? channel.close().wait()
+        try? group.syncShutdownGracefully()
+    }
+
+    enum UpstreamError: Error { case didNotBind }
+}
+
+/// Captures the request body into the shared `NIOLockedValueBox` and
+/// answers a fixed `200 OK`. Lives only as long as the connection.
+private final class RecorderHandler: ChannelInboundHandler, @unchecked Sendable {
+    typealias InboundIn = HTTPServerRequestPart
+    typealias OutboundOut = HTTPServerResponsePart
+
+    private let recorder: LockedBytes
+    private var accumulator = Data()
+
+    init(recorder: LockedBytes) {
+        self.recorder = recorder
+    }
+
+    func channelRead(context: ChannelHandlerContext, data: NIOAny) {
+        switch unwrapInboundIn(data) {
+        case .head(let head):
+            accumulator.removeAll(keepingCapacity: true)
+            recorder.storeHeaders(head.headers.map { ($0.name, $0.value) })
+        case .body(let buffer):
+            if let bytes = buffer.getBytes(at: buffer.readerIndex, length: buffer.readableBytes) {
+                accumulator.append(contentsOf: bytes)
+            }
+        case .end:
+            recorder.store(accumulator)
+
+            var headers = HTTPHeaders()
+            headers.add(name: "Content-Type", value: "application/json")
+            headers.add(name: "Content-Length", value: "2")
+            let head = HTTPResponseHead(version: .init(major: 1, minor: 1), status: .ok, headers: headers)
+            context.write(wrapOutboundOut(.head(head)), promise: nil)
+            var buf = context.channel.allocator.buffer(capacity: 2)
+            buf.writeString("{}")
+            context.write(wrapOutboundOut(.body(.byteBuffer(buf))), promise: nil)
+            context.writeAndFlush(wrapOutboundOut(.end(nil)), promise: nil)
+        }
+    }
+}

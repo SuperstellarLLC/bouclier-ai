@@ -89,19 +89,6 @@ let package = Package(
                 .swiftLanguageMode(.v6),
             ]
         ),
-        .executableTarget(
-            name: "BouclierExtension",
-            dependencies: [],
-            path: "Sources/BouclierExtension",
-            exclude: ["GeneratedInfo.plist"],
-            swiftSettings: [
-                .swiftLanguageMode(.v6),
-                .unsafeFlags(["-Xfrontend", "-enable-upcoming-feature", "-Xfrontend", "InternalImportsByDefault"], .when(platforms: [])),
-            ],
-            linkerSettings: [
-                .linkedFramework("NetworkExtension"),
-            ]
-        ),
         .testTarget(
             name: "BouclierTests",
             dependencies: [
