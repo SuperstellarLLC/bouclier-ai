@@ -25,7 +25,7 @@ COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV SKIP_ENV_VALIDATION=true
 
-RUN pnpm --filter @ilvarion/patterns build
+RUN pnpm --filter @bouclier-ai/patterns build
 RUN pnpm --filter site build
 
 # ── Stage 3: Production ──────────────────────
