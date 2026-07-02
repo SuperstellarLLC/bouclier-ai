@@ -6,29 +6,29 @@
     <description>Updates for Bouclier.ai — prompt injection firewall for macOS</description>
     <language>en</language>
     <item>
-      <title>Version 0.6.0</title>
-      <pubDate>Wed, 27 May 2026 18:41:36 +0200</pubDate>
-      <sparkle:version>0.6.0</sparkle:version>
-      <sparkle:shortVersionString>0.6.0</sparkle:shortVersionString>
+      <title>Version 0.7.0</title>
+      <pubDate>Thu, 02 Jul 2026 15:56:49 +0200</pubDate>
+      <sparkle:version>0.7.0</sparkle:version>
+      <sparkle:shortVersionString>0.7.0</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
       <description><![CDATA[
-<h2>Bouclier.ai v0.6.0</h2>
-<h4>Changed</h4>
-<ul>
-<li><strong>Bouclier no longer modifies your text prompts.</strong> Earlier versions replaced detected PII with reversible placeholders before forwarding; that approach was tripping Anthropic's abuse detection and risked touching analytics fields (like OpenAI's <code>user</code>) inside JSON bodies. Text bodies now reach the LLM unchanged. A new end-to-end test pins this against future regressions.</li>
-<li><strong>PII protection is now attachment-focused.</strong> Images, PDFs, and short audio clips you attach to LLM requests are still scanned on-device for PII; flagged attachments are replaced with a plain-English description so the model can still answer.</li>
-<li><strong>Auth, API keys, and trace headers are forwarded byte-for-byte.</strong> A new regression test sends <code>Authorization</code>, <code>x-api-key</code>, <code>X-Trace-ID</code>, and <code>User-Agent</code> through the proxy and asserts the upstream sees them unmodified.</li>
-<li><strong>Settings → Privacy is one screen.</strong> The text-redaction toggles, preview-before-send, strict-credentials mode, and per-host allow/deny lists are gone — the file-inspection toggle, audit counts, and PDF report stay.</li>
-</ul>
+<h2>Bouclier.ai v0.7.0</h2>
 <h4>Removed</h4>
 <ul>
-<li>Text-prompt PII redaction, the per-connection token session, the response-path reverser, the SSE stream reverser, the per-host PII policy, the operator pause switch, and the pre-send preview modal. Pre-v0.6 audit rows from these are wiped on first launch; orphan UserDefaults keys are cleared in the same one-shot migration.</li>
+<li><strong>Extreme mode is gone.</strong> The CA-based "full interception" mode — installing a trusted root certificate and a System Extension to decrypt and inspect all AI traffic system-wide — has been removed entirely. Standard mode (the certificate-free gateway your agent's SDK points at via <code>ANTHROPIC_BASE_URL</code>/<code>OPENAI_BASE_URL</code>) is now the only way Bouclier runs. If you had extreme mode enabled, this update automatically uninstalls the CA from your Keychain, deactivates the System Extension, and clears any leftover system proxy configuration — no action needed.</li>
+<li><strong>Prompt-injection and attachment PII detection are no longer active.</strong> That engine only ever ran through extreme mode's interception path, so removing extreme mode removes it from your outbound traffic too. The secret keeper (scrub real credential values before they reach the model, restore them in the response) is unaffected and remains Bouclier's primary protection. Settings → Privacy (the attachment-scanning toggle and redaction audit) is gone with it.</li>
+<li><strong>The on-device ML models are no longer bundled.</strong> Nothing has called them since extreme mode's removal, so the app no longer ships ~600MB of model weights it never uses. A typical install is now ~6MB instead of ~600MB.</li>
+</ul>
+<h4>Changed</h4>
+<ul>
+<li>Settings → Protection is simplified to a single mode: no more mode picker, CA status, or System Extension status. It now shows gateway status, certificate status (not needed), and secret-keeper status.</li>
+<li>Patched all known dependency vulnerabilities (<code>vitest</code>, <code>vite</code>, <code>undici</code>, <code>esbuild</code>, <code>@babel/core</code>, <code>js-yaml</code>).</li>
 </ul>
 ]]></description>
       <enclosure
-        url="https://0tdi95zyjwsefpzx.public.blob.vercel-storage.com/download/Bouclier-ai-v0.6.0-macOS.dmg"
-        sparkle:edSignature="N8g52f2CVroOSBK1BU5eZXymJ27BIrwEmvWU9PaoCUWpVWsU6J9gxyafMxzq8TjgTUbDm4TR3E/O5oHkbz8NDQ=="
-        length="535827167"
+        url="https://0tdi95zyjwsefpzx.public.blob.vercel-storage.com/download/Bouclier-ai-v0.7.0-macOS.dmg"
+        sparkle:edSignature="oaQnJWe4mqgkhR8Gx0EZKT4Rn7fyM3li4BaPHsneJGRx4i0MkMbJNS02aXeoyADSORxccsb4C958Lqt+a3bZDA=="
+        length="8929999"
         type="application/octet-stream"
       />
     </item>
