@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-# Builds the Bouclier-ai.app bundle with all binaries and the embedded System Extension.
+# Builds the Bouclier-ai.app bundle with all binaries.
 #
 # Usage:
 #   ./scripts/build-app.sh                    # Debug build
@@ -50,7 +50,6 @@ rm -rf "$APP"
 CONTENTS="$APP/Contents"
 mkdir -p "$CONTENTS/MacOS"
 mkdir -p "$CONTENTS/Resources"
-mkdir -p "$CONTENTS/Library/SystemExtensions"
 
 # Binaries
 cp "$BUILD_DIR/Bouclier" "$CONTENTS/MacOS/"
@@ -128,8 +127,6 @@ cat > "$CONTENTS/Info.plist" << EOF
     <key>LSMinimumSystemVersion</key><string>14.0</string>
     <key>NSHumanReadableCopyright</key><string>Copyright 2026 Bouclier.ai</string>
     <key>CFBundleIconFile</key><string>AppIcon</string>
-    <key>NSSystemExtensionUsageDescription</key>
-    <string>Bouclier.ai needs a system extension to intercept AI API traffic for prompt injection scanning.</string>
     <key>SUPublicEDKey</key>
     <string>QNMtWO7H9Z9Hv1J9bAsunleicPvJVP2bMJQezjV3vmM=</string>
     <key>SUFeedURL</key>
@@ -140,58 +137,14 @@ cat > "$CONTENTS/Info.plist" << EOF
 </plist>
 EOF
 
-# ── System Extension Bundle ─────────────────────
-SYSEXT="$CONTENTS/Library/SystemExtensions/ai.bouclier.app.extension.systemextension"
-SYSEXT_CONTENTS="$SYSEXT/Contents"
-mkdir -p "$SYSEXT_CONTENTS/MacOS"
-
-cp "$BUILD_DIR/BouclierExtension" "$SYSEXT_CONTENTS/MacOS/"
-
-cat > "$SYSEXT_CONTENTS/Info.plist" << EOF
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>CFBundleName</key><string>BouclierExtension</string>
-    <key>CFBundleDisplayName</key><string>Bouclier-ai Network Extension</string>
-    <key>CFBundleIdentifier</key><string>ai.bouclier.app.extension</string>
-    <key>CFBundleVersion</key><string>$VERSION</string>
-    <key>CFBundleShortVersionString</key><string>$VERSION</string>
-    <key>CFBundleExecutable</key><string>BouclierExtension</string>
-    <key>CFBundlePackageType</key><string>SYSX</string>
-    <key>LSMinimumSystemVersion</key><string>14.0</string>
-    <key>NetworkExtension</key>
-    <dict>
-        <key>NEProviderClasses</key>
-        <dict>
-            <key>com.apple.networkextension.transparent-proxy</key>
-            <string>BouclierExtension.TransparentProxyProvider</string>
-        </dict>
-    </dict>
-    <key>NSSystemExtensionUsageDescription</key>
-    <string>Bouclier.ai intercepts AI API traffic to scan for prompt injections.</string>
-</dict>
-</plist>
-EOF
-
-# ── Embed Provisioning Profiles ─────────────────
+# ── Embed Provisioning Profile ──────────────────
 APP_PROFILE="$PROJECT_DIR/profiles/Bouclierai.provisionprofile"
-EXT_PROFILE="$PROJECT_DIR/profiles/Bouclierai_Network_Extension.provisionprofile"
 
 if [ -f "$APP_PROFILE" ]; then
   cp "$APP_PROFILE" "$CONTENTS/embedded.provisionprofile"
   echo "Embedded app provisioning profile"
 else
   echo "ERROR: App provisioning profile not found at $APP_PROFILE"
-  echo "Download from: https://developer.apple.com/account/resources/profiles/list"
-  exit 1
-fi
-
-if [ -f "$EXT_PROFILE" ]; then
-  cp "$EXT_PROFILE" "$SYSEXT_CONTENTS/embedded.provisionprofile"
-  echo "Embedded extension provisioning profile"
-else
-  echo "ERROR: Extension provisioning profile not found at $EXT_PROFILE"
   echo "Download from: https://developer.apple.com/account/resources/profiles/list"
   exit 1
 fi
@@ -254,13 +207,7 @@ if [ "$SIGN" = true ]; then
     --entitlements "$PROJECT_DIR/BouclierHelpers.entitlements" \
     "$CONTENTS/MacOS/bouclier-ai-secrets-mcp"
 
-  # 3. System Extension
-  echo "Signing System Extension..."
-  $CODESIGN "$IDENTITY" \
-    --entitlements "$PROJECT_DIR/BouclierExtension.entitlements" \
-    "$SYSEXT"
-
-  # 4. Main app (outermost — must be last)
+  # 3. Main app (outermost — must be last)
   echo "Signing main app..."
   $CODESIGN "$IDENTITY" \
     --entitlements "$PROJECT_DIR/Bouclier.entitlements" \
@@ -282,7 +229,6 @@ fi
 echo ""
 echo "Built: $APP"
 echo ""
-echo "To run in development (requires SIP adjustment for unsigned extensions):"
-echo "  systemextensionsctl developer on"
+echo "To run in development:"
 echo "  open $APP"
 echo ""
