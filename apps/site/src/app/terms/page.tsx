@@ -50,9 +50,9 @@ export default function TermsPage() {
             <strong>not</strong> sold, distributed, or offered for production use, and is{" "}
             <strong>not</strong> intended for regulated workloads, safety-critical systems,
             healthcare, financial services, payment processing, identity verification, fraud
-            prevention, or any environment in which a detection failure could cause harm, financial
-            loss, regulatory non-compliance, or other material damage. Detection is best-effort and
-            probabilistic; false negatives and false positives will occur. You may not deploy the
+            prevention, or any environment in which a secret-scrubbing failure could cause harm,
+            financial loss, regulatory non-compliance, or other material damage. Secret scrubbing is
+            best-effort; false negatives and false positives will occur. You may not deploy the
             Software as a security control on which any other person or system relies. Use at your
             own risk and at your own cost.
           </p>
@@ -105,12 +105,11 @@ export default function TermsPage() {
             NON-INFRINGEMENT, OR ANY WARRANTY ARISING OUT OF COURSE OF DEALING OR USAGE OF TRADE.
           </p>
           <p className="mt-3">
-            Without limiting the foregoing, we make no warranty that the Software will detect any
-            specific class of prompt injection, redact any specific category of personal
-            information, preserve any specific behaviour across sessions or releases, be free of
-            errors, operate without interruption, be secure against any specific threat,
-            interoperate with any third-party tool or service, or meet any regulatory or compliance
-            requirement.
+            Without limiting the foregoing, we make no warranty that the Software will correctly
+            scrub or restore any specific secret value, preserve any specific behaviour across
+            sessions or releases, be free of errors, operate without interruption, be secure against
+            any specific threat, interoperate with any third-party tool or service, or meet any
+            regulatory or compliance requirement.
           </p>
         </Section>
 
@@ -239,10 +238,10 @@ export default function TermsPage() {
 
         <Section title="9. Local-only processing; no data collection">
           <p>
-            The Software is designed to process all prompt content, attachment content, and
-            detection signals locally on your device. We do not operate servers that receive prompt
-            content, attachment content, audit logs, or user telemetry. The only outbound network
-            calls initiated by the Software are described in the{" "}
+            The Software is designed to process managed-secret scrub/restore locally on your device.
+            We do not operate servers that receive prompt content, attachment content, secret
+            values, audit logs, or user telemetry. The only outbound network calls initiated by the
+            Software are described in the{" "}
             <Link href="/privacy" className="text-bouclier hover:underline">
               Privacy Policy
             </Link>

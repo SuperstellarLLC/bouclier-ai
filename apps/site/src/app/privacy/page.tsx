@@ -55,11 +55,12 @@ export default function PrivacyPage() {
         {/* Summary box */}
         <div className="border-accent-green/30 mt-6 rounded-xl border-2 bg-emerald-50 p-6">
           <p className="font-medium text-emerald-900">
-            Bouclier.ai processes all prompt and attachment content locally on your device. The app
-            collects no personal data, has no analytics, no crash reporting, and no user accounts.
-            The only information that ever reaches a bouclier.ai server is a single anonymous
-            timestamp when you click the Download button on this marketing site — full scope
-            described below.
+            Bouclier.ai runs entirely on your device — the gateway only ever touches a request when
+            a managed secret&apos;s real value is present, scrubbing it before it reaches the model.
+            The app collects no personal data, has no analytics, no crash reporting, and no user
+            accounts. The only information that ever reaches a bouclier.ai server is a single
+            anonymous timestamp when you click the Download button on this marketing site — full
+            scope described below.
           </p>
         </div>
 

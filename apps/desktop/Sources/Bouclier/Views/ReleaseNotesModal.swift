@@ -5,14 +5,17 @@ import SwiftUI
 /// `CFBundleShortVersionString` against a UserDefaults watermark; on
 /// mismatch the sheet appears once and the watermark advances.
 ///
-/// v0.6 changed Bouclier's scope: text prompts are no longer modified
-/// (the placeholder shape was tripping upstream abuse detectors and
-/// the JSON-blind rewriter risked touching `user` / `metadata` /
-/// auth fields). This sheet is what tells a returning user the
-/// previous text-PII feature is gone and what stayed.
+/// This release removed "extreme mode" (the CA-based TLS-intercepting
+/// proxy + System Extension) entirely, which also took the
+/// prompt-injection/attachment-PII detection engine with it — that
+/// engine had no caller outside extreme mode's proxy path. This sheet
+/// is what tells a returning user those features are gone and the
+/// secret keeper (the part that was actually load-bearing) is
+/// unaffected. See `ProxyManager.migrateAwayFromExtremeModeIfNeeded`
+/// for the automatic CA/extension cleanup this same launch performs.
 struct ReleaseNotesModal: View {
     let version: String
-    let onOpenPrivacySettings: () -> Void
+    let onOpenSettings: () -> Void
     let onDismiss: () -> Void
 
     var body: some View {
@@ -22,7 +25,7 @@ struct ReleaseNotesModal: View {
                     .foregroundStyle(.purple)
                     .font(.title2)
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Cleaner scope, safer defaults.")
+                    Text("Simpler, lighter, no certificate.")
                         .font(.title3.bold())
                     Text("New in Bouclier.ai v\(version)")
                         .font(.caption)
@@ -32,20 +35,20 @@ struct ReleaseNotesModal: View {
 
             VStack(alignment: .leading, spacing: 10) {
                 bullet(
-                    icon: "text.alignleft",
-                    text: "Your text prompts now reach the LLM unchanged. Bouclier no longer rewrites prompt bodies — the placeholder approach was tripping upstream abuse detectors and risked touching auth / analytics fields inside JSON requests."
+                    icon: "checkmark.shield",
+                    text: "Extreme mode is gone. The CA-based \"full interception\" mode — installing a trusted certificate and a System Extension — has been removed. If you had it on, this launch automatically uninstalled the CA and deactivated the extension. The certificate-free gateway is now the only mode."
                 )
                 bullet(
-                    icon: "paperclip",
-                    text: "PII protection now focuses on attachments. Images, PDFs, and short audio clips still get scanned on-device; flagged attachments are replaced with a plain-English description so the model can still answer."
-                )
-                bullet(
-                    icon: "shield.checkered",
-                    text: "Prompt-injection detection is unchanged — outbound prompts are still scanned and blocked when they match an attack pattern."
+                    icon: "shield.slash",
+                    text: "Prompt-injection and attachment-PII scanning are no longer active. That engine only ever ran through extreme mode's interception path, so it left with it."
                 )
                 bullet(
                     icon: "key.fill",
-                    text: "Auth headers, x-api-key, custom trace IDs, user-agent — all forwarded byte-for-byte. Pinned by a regression test so a future change can't drift."
+                    text: "The secret keeper is unaffected and remains Bouclier's primary protection: managed credentials are still scrubbed before reaching the model and restored in the response."
+                )
+                bullet(
+                    icon: "shippingbox",
+                    text: "The app is dramatically smaller — it no longer bundles the on-device ML models that scanning used, since nothing calls them anymore."
                 )
             }
 
@@ -55,7 +58,7 @@ struct ReleaseNotesModal: View {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .foregroundStyle(.orange)
                     .font(.caption)
-                Text("Prototype software. Detection is best-effort — false positives and false negatives will occur. Not for production or regulated workloads.")
+                Text("Prototype software. Secret handling is best-effort — false positives and false negatives will occur. Not for production or regulated workloads.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -72,8 +75,8 @@ struct ReleaseNotesModal: View {
                 Spacer()
                 Button("Later") { onDismiss() }
                     .keyboardShortcut(.cancelAction)
-                Button("Open Privacy settings") {
-                    onOpenPrivacySettings()
+                Button("Open Settings") {
+                    onOpenSettings()
                     onDismiss()
                 }
                 .keyboardShortcut(.defaultAction)

@@ -26,8 +26,6 @@ enum DiagnosticsExport {
             let bundleIdentifier: String
             let osVersion: String
             let generatedAt: Date
-            let patternsLoaded: Int
-            let patternsSHA256Prefix: String?
         }
 
         struct DailyStatEntry: Codable {
@@ -53,8 +51,6 @@ enum DiagnosticsExport {
         metricsSnapshot: MetricsSnapshot,
         dailyStats: [DailyStatsRow],
         recentLogs: [ScanLogRow],
-        patternsLoaded: Int,
-        patternsSHA256Prefix: String?,
         allowedHosts: Set<String>,
         now: Date = Date()
     ) -> Bundle {
@@ -62,9 +58,7 @@ enum DiagnosticsExport {
             appVersion: Self.appVersion(),
             bundleIdentifier: Bundle.bundleIdentifier(),
             osVersion: ProcessInfo.processInfo.operatingSystemVersionString,
-            generatedAt: now,
-            patternsLoaded: patternsLoaded,
-            patternsSHA256Prefix: patternsSHA256Prefix
+            generatedAt: now
         )
 
         let daily = dailyStats.map {

@@ -55,7 +55,7 @@ struct BouclierApp: App {
         Window("What's new", id: "release-notes") {
             ReleaseNotesModal(
                 version: ReleaseNotes.currentVersion,
-                onOpenPrivacySettings: {
+                onOpenSettings: {
                     NSApp.activate(ignoringOtherApps: true)
                     openSettings()
                 },

@@ -110,7 +110,7 @@ public enum CLICore {
             var l = ["Bouclier \(s.appVersion): protection \(s.running ? "ON" : "OFF") (\(s.mode) mode)"]
             l.append("  secret keeper: \(s.secretKeeper.circuitBreakerTripped ? "TRIPPED (not protecting)" : (s.secretKeeper.enabled ? (s.secretKeeper.healthy ? "on, healthy" : "on, unhealthy") : "off"))")
             l.append("  secrets: \(s.secrets.total) stored, \(s.secrets.agentAccessible) agent-usable, \(s.secrets.active) active")
-            l.append("  activity: \(s.activity.requestsScanned) inspected, \(s.activity.secretsScrubbed) scrubbed, \(s.activity.injectionsBlocked + s.activity.secretsBlocked) blocked")
+            l.append("  activity: \(s.activity.requestsScanned) inspected, \(s.activity.secretsScrubbed) scrubbed, \(s.activity.secretsBlocked) blocked")
             return CLIResult(CLIExit.ok, stdout: l.joined(separator: "\n") + "\n")
         }
     }

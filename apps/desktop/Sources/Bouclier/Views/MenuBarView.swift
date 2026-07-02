@@ -207,9 +207,9 @@ struct MenuBarView: View {
 
     private var activitySummary: String {
         let n = proxyManager.stats.requestsScanned
-        let threats = proxyManager.stats.injectionsBlocked + proxyManager.stats.secretsBlocked
+        let blocked = proxyManager.stats.secretsBlocked
         let base = "\(n) request\(n == 1 ? "" : "s") inspected"
-        return threats > 0 ? "\(base) · \(threats) blocked" : "\(base) · all clear"
+        return blocked > 0 ? "\(base) · \(blocked) blocked" : "\(base) · all clear"
     }
 
     private func relativeTime(_ date: Date) -> String {
@@ -266,8 +266,6 @@ struct MenuBarView: View {
                 metricsSnapshot: snapshot,
                 dailyStats: daily,
                 recentLogs: logs,
-                patternsLoaded: proxyManager.patternsLoadedCount,
-                patternsSHA256Prefix: proxyManager.patternsSHA256Prefix,
                 allowedHosts: SystemProxy.interceptedDomains
             )
 

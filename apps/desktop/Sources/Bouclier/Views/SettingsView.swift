@@ -7,15 +7,12 @@ struct SettingsView: View {
 
     var body: some View {
         // Tab order follows user task frequency: a first-time user wants
-        // to know "is it on and what does it cover" (Protection), then
-        // tune "what gets redacted" (Privacy). Operational knobs
-        // (General, Logs) and About come after.
+        // to know "is it on" (Protection), then manage what it protects
+        // (Secrets). Operational knobs (General, Logs) and About come
+        // after.
         TabView {
             ProtectionSettingsView(proxyManager: proxyManager)
                 .tabItem { Label("Protection", systemImage: "shield.checkered") }
-
-            PrivacySettingsView(proxyManager: proxyManager)
-                .tabItem { Label("Privacy", systemImage: "eye.slash") }
 
             SecretsSettingsView(proxyManager: proxyManager)
                 .tabItem { Label("Secrets", systemImage: "key.fill") }
@@ -33,122 +30,13 @@ struct SettingsView: View {
     }
 }
 
-// MARK: - Privacy / File PII inspection
-
-/// Settings panel for outbound file-attachment PII inspection. Bouclier
-/// does not modify text prompts — only attachments (images, PDFs,
-/// audio) are scanned and stripped of PII before forwarding. This
-/// scopes the trust surface to "files Bouclier rewrote", which is
-/// unambiguously user-attached content rather than fields like `user`
-/// or `metadata.user_id` that some upstream LLM APIs read for abuse
-/// monitoring.
-struct PrivacySettingsView: View {
-    @ObservedObject var proxyManager: ProxyManager
-
-    /// Whether image / PDF / audio attachments in outbound LLM requests
-    /// get scanned and rewritten when they contain PII.
-    @AppStorage("multimodalInspectionEnabled") private var multimodalInspectionEnabled: Bool = false
-    /// Days to retain redaction audit entries. Mirrors the cleanup
-    /// window in `StorageManager.cleanup()`; surfaced here so users can
-    /// see what the retention is (the value itself is informational).
-    @AppStorage("piiAuditRetentionDays") private var auditRetentionDays: Int = 30
-
-    @State private var auditCounts: [String: Int] = [:]
-
-    var body: some View {
-        Form {
-            Section {
-                Toggle("Inspect images, PDFs, and audio in outbound attachments", isOn: $multimodalInspectionEnabled)
-                Button("Export redaction report…") {
-                    exportRedactionReport()
-                }
-                .disabled(!multimodalInspectionEnabled)
-                .help("Generate a PDF summarising attachment-redaction activity. Hand to a compliance officer or attach to an audit binder.")
-            } header: {
-                Text("File PII inspection (beta)")
-            } footer: {
-                Text("Runs Apple's Vision OCR on every image, PDFKit on every PDF, and on-device Apple Speech on every audio clip attached to an outbound prompt (OpenAI, Anthropic, Gemini, plus Files-API uploads). When PII or faces appear inside an attachment, the attachment is replaced with a descriptive placeholder so the model still answers but never sees the cleartext. Encrypted PDFs and unreadable audio are stripped because they can't be inspected. Text prompts are never modified — only attachments. All inspection runs on-device; nothing about your attachments leaves your Mac.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            Section {
-                if auditCounts.isEmpty {
-                    Text("No attachment redactions in the last \(auditRetentionDays) days.")
-                        .foregroundStyle(.secondary)
-                        .font(.callout)
-                } else {
-                    ForEach(auditCounts.sorted(by: { $0.value > $1.value }), id: \.key) { type, count in
-                        HStack {
-                            Text(humanLabel(type))
-                            Spacer()
-                            Text("\(count)")
-                                .monospacedDigit()
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                }
-            } header: {
-                Text("Audit (last \(auditRetentionDays) days)")
-            } footer: {
-                Text("Counts per entity type detected inside outbound attachments. Bouclier.ai never logs the redacted values themselves, only the type and a hash.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .formStyle(.grouped)
-        .padding()
-        .onAppear { refreshAudit() }
-        .onChange(of: multimodalInspectionEnabled) { _, _ in refreshAudit() }
-    }
-
-    private func exportRedactionReport() {
-        guard let storage = proxyManager.storage else { return }
-        let panel = NSSavePanel()
-        panel.allowedContentTypes = [.pdf]
-        panel.nameFieldStringValue = "Bouclier-Redaction-Report-\(Self.fileDateFormatter.string(from: Date())).pdf"
-        if panel.runModal() == .OK, let url = panel.url {
-            let pdf = RedactionReport.renderPDF(
-                storage: storage,
-                windowDays: auditRetentionDays,
-                generatedAt: Date()
-            )
-            try? pdf.write(to: url)
-            NSWorkspace.shared.activateFileViewerSelecting([url])
-        }
-    }
-
-    private static let fileDateFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.dateFormat = "yyyy-MM-dd"
-        return f
-    }()
-
-    private func refreshAudit() {
-        auditCounts = proxyManager.storage?.piiRedactionCounts(days: auditRetentionDays) ?? [:]
-    }
-
-    private func humanLabel(_ type: String) -> String {
-        switch type {
-        case "EMAIL": return "Email addresses"
-        case "IBAN": return "IBAN account numbers"
-        case "CREDIT_CARD": return "Credit cards"
-        case "US_SSN": return "US Social Security numbers"
-        case "IPV4": return "IPv4 addresses"
-        case "IPV6": return "IPv6 addresses"
-        case "AWS_ACCESS_KEY": return "AWS access keys"
-        case "JWT": return "JWT tokens"
-        case "FR_SIRET": return "French SIRET (establishment)"
-        case "FR_SIREN": return "French SIREN (company)"
-        case "FR_NIR": return "French NIR (social security)"
-        case "UK_NHS": return "UK NHS numbers"
-        case "UK_NINO": return "UK National Insurance numbers"
-        case "UK_POSTCODE": return "UK postcodes"
-        case "US_NPI": return "US National Provider IDs"
-        default: return type
-        }
-    }
-}
+// Attachment PII inspection had its own Settings tab here (a toggle for
+// scanning images/PDFs/audio, a redaction audit, and a PDF export). It's
+// removed — the toggle had been non-functional since extreme mode's
+// removal: MultimodalPIIInspector has no caller outside that path, so
+// the toggle changed a UserDefaults flag nothing read. The underlying
+// utilities (RedactionReport, StorageManager.piiRedactionCounts) are
+// left in place, dormant, alongside the rest of the detection engine.
 
 // MARK: - Secrets (secret keeper)
 
@@ -470,7 +358,7 @@ struct GeneralSettingsView: View {
                     Button("Reset", role: .destructive) { proxyManager.stats.reset() }
                     Button("Cancel", role: .cancel) {}
                 } message: {
-                    Text("Clears the menu-bar counters (scanned / blocked / redacted / media). The audit log and on-disk stats are untouched.")
+                    Text("Clears the menu-bar counters (requests inspected / secrets scrubbed / secrets blocked). The audit log and on-disk stats are untouched.")
                 }
             } header: {
                 Text("Diagnostics")

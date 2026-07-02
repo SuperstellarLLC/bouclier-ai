@@ -61,7 +61,7 @@ struct OnboardingView: View {
                     .foregroundStyle(.orange)
                     .accessibilityLabel("Beta release")
             }
-            Text("A local firewall for AI traffic on your Mac. It scans every outbound request for prompt injections and inspects the attachments you send — images, PDFs, short audio clips — for PII before they reach the model. Your text prompts are forwarded byte-for-byte. Nothing ever leaves your machine.")
+            Text("A local secret keeper for your AI agent's traffic. Managed API keys and secrets are scrubbed from outbound requests before they reach the model and restored in the response, so your local tools keep working but the model never sees them. Everything else is forwarded byte-for-byte. Nothing ever leaves your machine.")
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: 380)
@@ -94,7 +94,7 @@ struct OnboardingView: View {
                     .accessibilityHidden(true)
                 Text("Enable Protection")
                     .font(.title2.bold())
-                Text("Bouclier routes your AI tools (Claude Code, Cursor, …) through a local gateway — no certificate to install. It keeps your secrets out of the model and lets your agent request and use credentials without ever seeing them. (Advanced full-interception mode is available later in Settings.)")
+                Text("Bouclier routes your AI tools (Claude Code, Cursor, …) through a local gateway — no certificate to install. It keeps your secrets out of the model and lets your agent request and use credentials without ever seeing them.")
                     .multilineTextAlignment(.center)
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: 380)

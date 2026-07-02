@@ -106,7 +106,7 @@ export default function Home() {
                   not meant for production, regulated workloads, or any environment where a failure
                   could cause harm
                 </strong>
-                . Secret handling and detection are best-effort; review what you store. See the{" "}
+                . Secret handling is best-effort; review what you store. See the{" "}
                 <Link href="/terms" className="underline">
                   Terms
                 </Link>{" "}
@@ -207,7 +207,7 @@ export default function Home() {
               <code className="rounded bg-zinc-100 px-1 py-0.5 text-xs">bouclier</code> CLI that
               share one core. An agent can orient itself, list and request secrets, and ask you to
               turn protection on. What it <em>can&apos;t</em> do is the point: it can never read a
-              value, disable the firewall, or widen a secret&apos;s policy. The agent proposes; you
+              value, disable protection, or widen a secret&apos;s policy. The agent proposes; you
               approve; Bouclier enforces.
             </p>
           </div>
