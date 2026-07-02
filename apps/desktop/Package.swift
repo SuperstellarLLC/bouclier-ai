@@ -11,7 +11,14 @@ let package = Package(
         .executable(name: "bouclier-ai-mcp-wrapper", targets: ["MCPWrapper"]),
         .executable(name: "bouclier-ai-env", targets: ["EnvHelper"]),
         .executable(name: "bouclier-ai-secrets-mcp", targets: ["SecretsMCP"]),
-        .executable(name: "bouclier", targets: ["BouclierCLI"]),
+        // Named "bouclier-cli", not "bouclier": on case-insensitive
+        // filesystems (default macOS/APFS) a product named "bouclier"
+        // collides with the "Bouclier" app product above — cp/codesign
+        // silently overwrite one with the other and the shipped app
+        // executable ends up being the CLI. The public command is still
+        // `bouclier`, created by the install-time symlink (see
+        // CLICore.installCmd), not by this product's build name.
+        .executable(name: "bouclier-cli", targets: ["BouclierCLI"]),
     ],
     dependencies: [
         .package(url: "https://github.com/groue/GRDB.swift.git", from: "7.0.0"),

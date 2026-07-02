@@ -56,7 +56,7 @@ cp "$BUILD_DIR/Bouclier" "$CONTENTS/MacOS/"
 cp "$BUILD_DIR/bouclier-ai-mcp-wrapper" "$CONTENTS/MacOS/"
 cp "$BUILD_DIR/bouclier-ai-env" "$CONTENTS/MacOS/"
 cp "$BUILD_DIR/bouclier-ai-secrets-mcp" "$CONTENTS/MacOS/"
-cp "$BUILD_DIR/bouclier" "$CONTENTS/MacOS/"
+cp "$BUILD_DIR/bouclier-cli" "$CONTENTS/MacOS/"
 
 # Resources (patterns.json bundle)
 if [ -d "$BUILD_DIR/Bouclier_Bouclier.bundle" ]; then
@@ -180,10 +180,10 @@ if [ "$SIGN" = true ]; then
   # 2. Helper executables
   echo "Signing helper binaries..."
   $CODESIGN "$IDENTITY" "$CONTENTS/MacOS/bouclier-ai-mcp-wrapper"
-  # The `bouclier` CLI reads status + drives the approval IPC, but never
-  # touches the Keychain (no secret-value path), so it needs no special
-  # entitlement — least privilege.
-  $CODESIGN "$IDENTITY" "$CONTENTS/MacOS/bouclier"
+  # The `bouclier` CLI (built as bouclier-cli — see Package.swift) reads
+  # status + drives the approval IPC, but never touches the Keychain (no
+  # secret-value path), so it needs no special entitlement — least privilege.
+  $CODESIGN "$IDENTITY" "$CONTENTS/MacOS/bouclier-cli"
   # env + secrets-mcp share the app's Keychain access group so the agent
   # can use stored secrets without a per-access prompt (see
   # BouclierHelpers.entitlements).
