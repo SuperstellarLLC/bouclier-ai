@@ -8,6 +8,12 @@ The `[VERSION]` section for each release is extracted verbatim by
 `apps/desktop/scripts/publish-update.sh` and injected into the Sparkle
 appcast. Write for end users, not for internal engineering notes.
 
+## [0.8.0] — 2026-07-03
+
+### Added
+
+- **Install the `bouclier` CLI with one click.** Settings → General has a new "Install bouclier command" button that puts `bouclier` on your PATH via the standard macOS administrator-privileges prompt (Touch ID / password) — no more copying a `sudo ln -sf …` command into Terminal. A "Copy Claude Code MCP command" button sits next to it to register the MCP server in one paste.
+
 ## [0.7.0] — 2026-07-02
 
 ### Removed
