@@ -1,5 +1,5 @@
 export const APP_NAME = "Bouclier.ai";
-export const APP_VERSION = "0.7.0";
+export const APP_VERSION = "0.8.0";
 export const APP_DESCRIPTION =
   "Let your AI coding agent use your secrets without ever seeing them. Bouclier runs on your Mac and keeps API keys out of the model. No certificate required.";
 export const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? "https://www.bouclier.ai";
