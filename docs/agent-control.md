@@ -6,7 +6,7 @@ ask the user for new ones — while never being able to **weaken** it. Two
 surfaces, one shared core (so they enforce the same rules):
 
 - **MCP server** — `bouclier-ai-secrets-mcp` (stdio). Register with
-  `claude mcp add bouclier -- /Applications/Bouclier.app/Contents/MacOS/bouclier-ai-secrets-mcp`.
+  `claude mcp add bouclier -- /Applications/Bouclier-ai.app/Contents/MacOS/bouclier-ai-secrets-mcp`.
 - **CLI** — `bouclier` (on `PATH` after `bouclier install`). For agents that
   drive via Bash, and for scripts.
 
@@ -86,9 +86,19 @@ is still a successful read); use the `state` field to branch.
 
 ## Install / discovery
 
-`bouclier install` prints the two commands to run: the `sudo ln -s …` to put
-`bouclier` on your `PATH` (so Bash agents find it) and the `claude mcp add …`
-to register the MCP server. It's print-only by design — the CLI doesn't
-mutate `/usr/local/bin` itself (that's a privileged step a human should run).
+Easiest path: Bouclier → Settings → General → "Install `bouclier` command".
+This triggers the standard macOS administrator-privileges prompt (Touch ID /
+password) and symlinks the CLI onto `PATH` — no terminal required. The same
+section has a "Copy Claude Code MCP command" button for registering the
+MCP server.
+
+Terminal alternative: `bouclier install` (once the CLI is somewhere you can
+invoke it — e.g. `/Applications/Bouclier-ai.app/Contents/MacOS/bouclier-cli
+install` before it's on `PATH`) prints the same two commands: the `sudo ln
+-s …` to put `bouclier` on your `PATH` and the `claude mcp add …` to
+register the MCP server. It's print-only by design — the CLI doesn't mutate
+`/usr/local/bin` itself; that privileged step is either the GUI's auth
+prompt or a human running `sudo` themselves, never an unattended write.
+
 Afterward, `which bouclier` answers "installed?"; `bouclier status` answers
 "running?".

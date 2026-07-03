@@ -52,7 +52,7 @@ net; this is the primary mechanism.
 **Register the server** (one-time):
 
 ```sh
-claude mcp add bouclier-secrets -- /Applications/Bouclier.app/Contents/MacOS/bouclier-ai-secrets-mcp
+claude mcp add bouclier-secrets -- /Applications/Bouclier-ai.app/Contents/MacOS/bouclier-ai-secrets-mcp
 ```
 
 ### Just-in-time secret requests (the natural flow)

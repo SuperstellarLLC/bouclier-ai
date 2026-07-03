@@ -314,6 +314,9 @@ struct GeneralSettingsView: View {
     @AppStorage(ShellEnvInjector.autoConfigureKey) private var autoConfigureShell: Bool = true
     @State private var showResetConfirm = false
     @State private var showResetProxiesConfirm = false
+    @State private var cliInstalled = CLIInstaller.isInstalled()
+    @State private var cliInstallError: String?
+    @State private var mcpCommandCopied = false
 
     var body: some View {
         Form {
@@ -338,6 +341,35 @@ struct GeneralSettingsView: View {
                 Text("CLI capture")
             } footer: {
                 Text("Bouclier writes `ANTHROPIC_BASE_URL` / `OPENAI_BASE_URL` into your shell startup files and the launchctl session so command-line AI tools route through the gateway. Without this, only GUI apps (ChatGPT, Claude Desktop) are protected — Claude Code and other CLIs bypass it.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Section {
+                if cliInstalled {
+                    Label("Installed at \(CLIInstaller.symlinkPath)", systemImage: "checkmark.circle.fill")
+                        .foregroundStyle(.green)
+                } else {
+                    Button("Install `bouclier` command") {
+                        installCLI()
+                    }
+                    if let cliInstallError {
+                        Text(cliInstallError)
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                    }
+                }
+                Button(mcpCommandCopied ? "Copied" : "Copy Claude Code MCP command") {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(
+                        "claude mcp add bouclier -- \(CLIInstaller.mcpBinaryPath)",
+                        forType: .string
+                    )
+                    mcpCommandCopied = true
+                }
+            } header: {
+                Text("Agent command-line access")
+            } footer: {
+                Text("Puts `bouclier` on PATH (macOS will ask you to approve it — same as any app installing a helper tool) so Bash-driven agents can call `bouclier status` / `bouclier secrets …` directly. Paste the MCP command into a terminal once so Claude Code can request and use secrets without ever seeing their values.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -392,6 +424,22 @@ struct GeneralSettingsView: View {
         }
         .formStyle(.grouped)
         .padding()
+    }
+
+    private func installCLI() {
+        cliInstallError = nil
+        Task.detached(priority: .userInitiated) {
+            do {
+                try CLIInstaller.install()
+                await MainActor.run {
+                    cliInstalled = CLIInstaller.isInstalled()
+                }
+            } catch {
+                await MainActor.run {
+                    cliInstallError = error.localizedDescription
+                }
+            }
+        }
     }
 }
 
