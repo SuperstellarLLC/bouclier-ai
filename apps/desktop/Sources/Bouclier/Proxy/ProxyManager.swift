@@ -426,7 +426,8 @@ final class ProxyManager: ObservableObject {
             // differently:
             //
             //  - **Regex-driven block** (matchCount > 0). At least one
-            //    pattern matched and the body got sanitized in place.
+            //    pattern matched in untrusted content and the gateway
+            //    refused the request with a 403 (it is never rewritten).
             //    Names the patterns and counts as a hard block.
             //
             //  - **ML/entropy-only flag** (matchCount == 0). Prompt

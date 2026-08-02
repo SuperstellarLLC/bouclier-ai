@@ -329,7 +329,7 @@ struct GeneralSettingsView: View {
                     }
             }
             Section {
-                Toggle("Capture CLI tools (Claude Code, Cursor, Python, Node)", isOn: $autoConfigureShell)
+                Toggle("Capture CLI tools (Claude Code, Python, Node SDKs)", isOn: $autoConfigureShell)
                     .onChange(of: autoConfigureShell) { _, newValue in
                         if newValue {
                             ShellEnvInjector.applyStandard(gatewayPort: proxyManager.port)
@@ -340,7 +340,7 @@ struct GeneralSettingsView: View {
             } header: {
                 Text("CLI capture")
             } footer: {
-                Text("Bouclier writes `ANTHROPIC_BASE_URL` / `OPENAI_BASE_URL` into your shell startup files and the launchctl session so command-line AI tools route through the gateway. Without this, only GUI apps (ChatGPT, Claude Desktop) are protected — Claude Code and other CLIs bypass it.")
+                Text("Bouclier writes `ANTHROPIC_BASE_URL` / `OPENAI_BASE_URL` into your shell startup files and the launchctl session so command-line AI tools route through the gateway. Without this, tools that don't already have those variables set bypass Bouclier and talk to the provider directly. Only processes that read these variables are inspected — an app with its own backend (e.g. Cursor's agent) or a hard-coded base URL is not.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -482,7 +482,7 @@ struct ProtectionSettingsView: View {
                         .foregroundStyle(ShellEnvInjector.isEnabled ? .green : .orange)
                         .font(.callout)
                     Text(ShellEnvInjector.isEnabled
-                         ? "Claude Code, Cursor, Python, Node — all captured. Open a new terminal to pick up the change."
+                         ? "Command-line tools that read ANTHROPIC_BASE_URL / OPENAI_BASE_URL (Claude Code, the openai/anthropic SDKs) route through the gateway. Open a new terminal to pick up the change."
                          : "CLI capture is off — Settings → General to re-enable.")
                         .font(.callout)
                         .foregroundStyle(.secondary)

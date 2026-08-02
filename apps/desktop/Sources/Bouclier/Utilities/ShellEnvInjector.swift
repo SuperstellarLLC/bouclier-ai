@@ -1,28 +1,35 @@
 import Foundation
 
 /// Wires the user's shells and GUI apps to route through the Bouclier
-/// TLS proxy automatically — without the user pasting anything into a
+/// gateway automatically — without the user pasting anything into a
 /// dotfile.
 ///
-/// **Why this exists.** The System Extension claims AI flows at the
-/// socket level for any process, but TLS trust is a separate axis.
-/// URLSession-based apps (ChatGPT/Claude Desktop) read the login
-/// Keychain and accept our leaf cert transparently. Node, Python's
-/// `requests`, and other runtimes ship their own CA bundle and ignore
-/// the Keychain entirely — so without `NODE_EXTRA_CA_CERTS` /
-/// `SSL_CERT_FILE` / `REQUESTS_CA_BUNDLE` pointing at our root, every
-/// Claude Code / Cursor / `openai` CLI invocation either errors on the
-/// handshake or silently falls through to direct egress. The user
-/// thinks they're protected; the LLM still sees cleartext. That is the
-/// "seatbelt made of paper" failure mode we have to eliminate.
+/// **Why this exists.** The gateway is certificate-free: an agent opts in
+/// by pointing `ANTHROPIC_BASE_URL` / `OPENAI_BASE_URL` at
+/// `http://127.0.0.1:<port>`, and nothing that doesn't set those vars is
+/// inspected. Expecting every user to export them by hand in every shell
+/// is the "seatbelt made of paper" failure mode — they enable protection,
+/// forget the export, and their agent talks straight to the provider
+/// while the shield reads green. So enabling protection sets the vars for
+/// them, everywhere a CLI or GUI-launched agent will look.
 ///
 /// **What it does.** When the user enables protection we (a) write
 /// canonical env files at `~/.config/bouclier-ai/env.sh` and
-/// `env.fish`, (b) inject a delimited, idempotent block into
-/// `~/.zshenv`, `~/.bash_profile`, `~/.bashrc`, `~/.profile`, and
+/// `env.fish` that export `ANTHROPIC_BASE_URL` / `OPENAI_BASE_URL`,
+/// (b) inject a delimited, idempotent block into `~/.zshenv`,
+/// `~/.bash_profile`, `~/.bashrc`, `~/.profile`, and
 /// `~/.config/fish/config.fish` that sources those files, and (c) call
 /// `launchctl setenv` so GUI apps launched via Spotlight/Finder/Dock
-/// inherit the same vars for the rest of the login session.
+/// inherit the same vars for the rest of the login session. No CA-bundle
+/// vars and no `HTTPS_PROXY`: the front hop is plaintext loopback to an
+/// LLM origin, not a CONNECT proxy or a TLS-terminating one.
+///
+/// **Routing is opt-in per process.** Only shells started *after* enable
+/// (which source the new block) and GUI processes launched *after*
+/// `launchctl setenv` pick the vars up. An already-running terminal,
+/// tmux session, or editor keeps talking direct until it is restarted —
+/// which is why "open a new terminal" is the one instruction onboarding
+/// must give.
 ///
 /// **Why `.zshenv` specifically.** Non-interactive shells (the ones
 /// Claude Code and most editor-launched processes use) read `.zshenv`
@@ -48,44 +55,13 @@ enum ShellEnvInjector {
         UserDefaults.standard.object(forKey: autoConfigureKey) as? Bool ?? true
     }
 
-    /// Apply the injection. Idempotent: safe to call on every launch.
-    /// Returns true if any change was made (used for the activity log).
-    @discardableResult
-    static func apply(proxyPort: Int, caCertPath: String?) -> Bool {
-        guard isEnabled else { return false }
-
-        let proxyURL = "http://127.0.0.1:\(proxyPort)"
-        let exports = buildExports(proxyURL: proxyURL, caCertPath: caCertPath)
-
-        let envSh = configDir().appendingPathComponent("env.sh")
-        let envFish = configDir().appendingPathComponent("env.fish")
-        _ = ensureConfigDir()
-        writeAtomically(content: posixEnvFileContent(exports: exports, secretsHelperPath: envHelperExecutablePath()), to: envSh)
-        writeAtomically(content: fishEnvFileContent(exports: exports, secretsHelperPath: envHelperExecutablePath()), to: envFish)
-
-        let posixSource = "[ -f \"\(envSh.path)\" ] && . \"\(envSh.path)\""
-        let fishSource = "if test -f \"\(envFish.path)\"; source \"\(envFish.path)\"; end"
-
-        injectBlock(into: home(".zshenv"), payload: posixSource)
-        injectBlock(into: home(".bash_profile"), payload: posixSource)
-        injectBlock(into: home(".bashrc"), payload: posixSource)
-        injectBlock(into: home(".profile"), payload: posixSource)
-        injectBlock(into: fishConfigPath(), payload: fishSource, createParent: true)
-
-        // Idempotent stale-state cleanup before re-setting. If the
-        // previous Bouclier session hard-crashed, the launchctl env
-        // still points at the dead port; clearing first guarantees a
-        // clean slate even if our SIGTERM/atexit handlers never ran.
-        unsetLaunchctl()
-        applyLaunchctlSetenv(exports: exports)
-
-        // Install the watchdog LaunchAgent so a Bouclier crash gets
-        // cleaned up within the next minute, even if no Bouclier
-        // process ever runs the SIGTERM handler. Idempotent — reloading
-        // an already-loaded agent is a no-op.
-        installWatchdog(proxyPort: proxyPort)
-        return true
-    }
+    // The former `apply(proxyPort:caCertPath:)` + `buildExports` (which
+    // exported HTTPS_PROXY/HTTP_PROXY and NODE_EXTRA_CA_CERTS/SSL_CERT_FILE/
+    // REQUESTS_CA_BUNDLE for extreme mode's TLS-terminating proxy) were
+    // removed in v0.9.0. Extreme mode is gone; `applyStandard` below is the
+    // only live path and it sets base-URL vars only. `envVarKeys` still
+    // lists the old keys so a machine upgrading from a pre-removal install
+    // gets them unset by `unsetLaunchctl`.
 
     /// Remove everything we injected. Called on uninstall and when
     /// the user flips the General toggle off. Best-effort: a missing
@@ -179,19 +155,6 @@ enum ShellEnvInjector {
         return true
     }
 
-    static func buildExports(proxyURL: String, caCertPath: String?) -> Exports {
-        var pairs: [(String, String)] = [
-            ("HTTPS_PROXY", proxyURL),
-            ("HTTP_PROXY", proxyURL),
-        ]
-        if let path = caCertPath {
-            pairs.append(("NODE_EXTRA_CA_CERTS", path))
-            pairs.append(("SSL_CERT_FILE", path))
-            pairs.append(("REQUESTS_CA_BUNDLE", path))
-        }
-        return Exports(pairs: pairs)
-    }
-
     /// Port the proxy is bound to. Used by the shell scripts'
     /// fail-open TCP check.
     private static func proxyPort(from url: String) -> Int {
@@ -221,8 +184,8 @@ enum ShellEnvInjector {
         let keys = exports.pairs.map(\.0).joined(separator: " ")
         var lines = [
             "# Bouclier.ai — auto-generated. Do not edit by hand.",
-            "# Routes AI traffic through the local interception proxy and",
-            "# extends the system CA bundle to trust Bouclier's leaf certs.",
+            "# Points AI SDKs at the local certificate-free gateway by",
+            "# exporting ANTHROPIC_BASE_URL / OPENAI_BASE_URL.",
             "#",
             "# Fail-open: if Bouclier isn't listening we *unset* the proxy",
             "# vars so CLI tools talk direct instead of erroring with",

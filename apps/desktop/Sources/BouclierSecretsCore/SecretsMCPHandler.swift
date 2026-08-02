@@ -202,7 +202,7 @@ public struct SecretsMCPHandler: Sendable {
                 lines.append("Secret keeper: \(sk.enabled ? (sk.healthy ? "on and healthy" : "on but unhealthy") : "off").")
             }
             lines.append("Secrets: \(s.secrets.total) stored, \(s.secrets.agentAccessible) you can use, \(s.secrets.active) active in shells.")
-            lines.append("Activity: \(s.activity.requestsScanned) requests inspected, \(s.activity.secretsScrubbed) secrets scrubbed, \(s.activity.secretsBlocked) blocked.")
+            lines.append("Activity: \(s.activity.requestsScanned) requests inspected, \(s.activity.injectionsBlocked) injections blocked, \(s.activity.secretsScrubbed) secrets scrubbed.")
             if !s.running {
                 lines.append("Protection is OFF — call enable_protection to propose turning it on (the user approves).")
             }

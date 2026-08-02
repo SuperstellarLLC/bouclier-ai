@@ -34,11 +34,15 @@ struct CLICoreTests {
             caInstalled: false, protectionEnabled: true,
             secretKeeper: .init(enabled: true, healthy: true, circuitBreakerTripped: false),
             secrets: .init(total: 1, agentAccessible: 1, active: 0),
-            activity: .init(requestsScanned: 2, injectionsBlocked: 0, secretsScrubbed: 1, secretsInjected: 0, secretsBlocked: 0))
+            activity: .init(requestsScanned: 7, injectionsBlocked: 3, secretsScrubbed: 1, secretsInjected: 0, secretsBlocked: 0))
         let r = CLICore.run(["status"], env: env(status: .running(s)))
         #expect(r.exitCode == CLIExit.ok)
         #expect(r.stdout.contains("ON"))
         #expect(r.stdout.contains("standard"))
+        // The flagship metric must be visible in `bouclier status` — it is
+        // tracked and published to status.json but used to be printed
+        // nowhere (the whole point of the firewall is a number, not a vibe).
+        #expect(r.stdout.contains("3 injections blocked"))
     }
 
     @Test("secrets list shows names not values")
