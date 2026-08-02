@@ -49,6 +49,20 @@ export function MobileNav({ downloadUrl }: { downloadUrl: string }) {
               <span className="text-text-secondary text-xs">Experimental — not for production</span>
             </div>
             <a
+              href="#playground"
+              onClick={() => setOpen(false)}
+              className="text-text-secondary hover:text-text py-1 text-sm"
+            >
+              Live demo
+            </a>
+            <a
+              href="#how"
+              onClick={() => setOpen(false)}
+              className="text-text-secondary hover:text-text py-1 text-sm"
+            >
+              How it works
+            </a>
+            <a
               href="#secrets"
               onClick={() => setOpen(false)}
               className="text-text-secondary hover:text-text py-1 text-sm"

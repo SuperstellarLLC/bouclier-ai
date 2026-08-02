@@ -1,6 +1,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { MobileNav } from "./mobile-nav";
+import { Playground } from "./playground";
 import { APP_VERSION, DOWNLOAD_URL } from "@/lib/constants";
 
 export default function Home() {
@@ -27,16 +28,22 @@ export default function Home() {
           </Link>
           <div className="hidden items-center gap-6 sm:flex">
             <a
+              href="#playground"
+              className="text-text-secondary hover:text-text text-sm transition-colors"
+            >
+              Live demo
+            </a>
+            <a
+              href="#how"
+              className="text-text-secondary hover:text-text text-sm transition-colors"
+            >
+              How it works
+            </a>
+            <a
               href="#secrets"
               className="text-text-secondary hover:text-text text-sm transition-colors"
             >
               Secret keeper
-            </a>
-            <a
-              href="#agents"
-              className="text-text-secondary hover:text-text text-sm transition-colors"
-            >
-              For agents
             </a>
             <Link
               href="/privacy"
@@ -82,16 +89,17 @@ export default function Home() {
             </div>
 
             <h1 className="text-text mx-auto max-w-3xl text-5xl font-bold leading-[1.1] tracking-tight sm:text-6xl">
-              Your AI agent can use your secrets.
+              A web page should not be able
               <br />
-              <span className="text-bouclier">It never sees them.</span>
+              <span className="text-bouclier">to give your agent orders.</span>
             </h1>
 
             <p className="text-text-secondary mx-auto mt-6 max-w-2xl text-lg leading-relaxed">
-              Bouclier.ai runs on your Mac, between your AI tools and the providers. When your
-              coding agent — Claude Code, Cursor — needs an API key, it gets it through your shell,
-              never into the model&apos;s context. It can provision a whole project&apos;s
-              environment variables in a single approval. No certificate to install.
+              Bouclier.ai is a prompt-injection firewall that runs on your Mac, between your coding
+              agent and the model provider. It reads every tool result on its way into the model — a
+              fetched page, a README, an MCP response — and refuses the request when something in
+              there is trying to reprogram your agent. Your own prompts are never touched. No
+              certificate to install.
             </p>
 
             <div className="mx-auto mt-5 max-w-2xl rounded-xl border-2 border-amber-300 bg-amber-50 p-4 text-left">
@@ -106,7 +114,8 @@ export default function Home() {
                   not meant for production, regulated workloads, or any environment where a failure
                   could cause harm
                 </strong>
-                . Secret handling is best-effort; review what you store. See the{" "}
+                . Detection is best-effort and evadable by a determined attacker — it raises cost,
+                it is not a guarantee. See the{" "}
                 <Link href="/terms" className="underline">
                   Terms
                 </Link>{" "}
@@ -123,30 +132,97 @@ export default function Home() {
                 Download for macOS
               </a>
               <a
-                href="#secrets"
+                href="#playground"
                 className="border-border text-text hover:border-bouclier/30 inline-flex items-center gap-2 rounded-xl border bg-white px-6 py-3.5 text-[15px] font-semibold shadow-sm transition-all hover:shadow-md"
               >
-                How the secret keeper works
+                Try to sneak one past it
                 <ArrowDown />
               </a>
             </div>
 
             <p className="text-text-secondary mt-5 text-sm">
-              <span className="text-text font-semibold">Local-only.</span> Secrets live in your
-              macOS Keychain and never leave this Mac.
+              <span className="text-text font-semibold">Local-only.</span> 161 detection patterns
+              run on your Mac. No cloud scanning, no telemetry, no accounts.
             </p>
           </div>
         </div>
       </section>
 
-      {/* ── Secret keeper (the centerpiece) ───────── */}
-      <section id="secrets" className="border-border border-t bg-white py-24">
+      {/* ── Live playground ──────────────────────── */}
+      <Playground />
+
+      {/* ── How it works: provenance ─────────────── */}
+      <section id="how" className="border-border border-t bg-white py-24">
         <div className="mx-auto max-w-5xl px-6">
           <div className="reveal">
-            <SectionLabel>Secret keeper</SectionLabel>
+            <SectionLabel>How it works</SectionLabel>
+            <h2 className="mt-3 text-3xl font-bold tracking-tight">
+              It knows which bytes you wrote.
+            </h2>
+            <p className="text-text-secondary mt-4 max-w-2xl">
+              Every guardrail that scans &quot;the prompt&quot; eventually blocks its own user — the
+              security engineer pasting an advisory, the developer testing a jailbreak. Bouclier
+              splits the request by origin before it scores anything, so the action it takes depends
+              on <em>who</em> said it, not just what was said.
+            </p>
+          </div>
+
+          <div className="reveal-stagger reveal-stagger-2 mt-12 grid gap-6 md:grid-cols-2">
+            <div className="rounded-2xl border-2 border-red-200 bg-red-50/40 p-6">
+              <div className="flex items-center gap-2">
+                <span className="h-2 w-2 rounded-full bg-red-500" />
+                <h3 className="text-base font-semibold text-red-900">Untrusted — refused</h3>
+              </div>
+              <p className="text-text-secondary mt-3 text-sm leading-relaxed">
+                <code className="rounded bg-white px-1 py-0.5 text-xs">tool_result</code> blocks,{" "}
+                <code className="rounded bg-white px-1 py-0.5 text-xs">role: &quot;tool&quot;</code>{" "}
+                messages,{" "}
+                <code className="rounded bg-white px-1 py-0.5 text-xs">function_call_output</code>{" "}
+                items. Content your agent fetched on its own. Nobody in the session typed it, so an
+                instruction in there is an attack by definition — the request is refused with a 403
+                naming the pattern and the JSON path.
+              </p>
+            </div>
+            <div className="border-border rounded-2xl border-2 bg-white p-6">
+              <div className="flex items-center gap-2">
+                <span className="bg-accent-green h-2 w-2 rounded-full" />
+                <h3 className="text-base font-semibold">Yours — never blocked</h3>
+              </div>
+              <p className="text-text-secondary mt-3 text-sm leading-relaxed">
+                Your prompt text and system prompt. Scanned so the activity log stays useful, then
+                forwarded byte-for-byte no matter what it says. You are the principal; you are
+                allowed to discuss attacks with your own model. Teams that want the stricter posture
+                can turn it on by MDM policy.
+              </p>
+            </div>
+          </div>
+
+          <div className="reveal border-border mt-8 rounded-2xl border bg-white p-6">
+            <h3 className="text-lg font-semibold">What it does not claim</h3>
+            <p className="text-text-secondary mt-2 text-sm leading-relaxed">
+              Prompt injection is not solved, and a pattern engine is not a solution to it. The
+              defences that actually hold are structural — constraining what a hijacked agent can
+              reach, keeping untrusted input away from privileged actions. Bouclier is defence in
+              depth on the untrusted leg: it raises the cost of the easy attacks and shows you when
+              one arrives. Treat it the way you treat a WAF, not the way you treat a proof.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      {/* ── Secret keeper (now secondary) ─────────── */}
+      <section id="secrets" className="border-border bg-surface border-t py-24">
+        <div className="mx-auto max-w-5xl px-6">
+          <div className="reveal">
+            <SectionLabel>Also included — secret keeper</SectionLabel>
             <h2 className="mt-3 text-3xl font-bold tracking-tight">
               Your agent uses the key. You keep the secret.
             </h2>
+            <p className="text-text-secondary mt-4 max-w-2xl text-sm">
+              The other half of containing a hijacked agent: if an injection does get through, the
+              credentials it tries to exfiltrate were never in the model&apos;s context to begin
+              with. Opt-in, under Settings → Secrets.
+            </p>
             <p className="text-text-secondary mt-4 max-w-2xl">
               When your agent needs a credential, Bouclier asks <em>you</em> — in a local dialog,
               not in the chat. You paste it (or let Bouclier generate one). It&apos;s stored in your
@@ -195,7 +271,7 @@ export default function Home() {
       </section>
 
       {/* ── Built for agents (MCP + CLI) ──────────── */}
-      <section id="agents" className="border-border bg-surface border-t py-24">
+      <section id="agents" className="border-border border-t bg-white py-24">
         <div className="mx-auto max-w-5xl px-6">
           <div className="reveal">
             <SectionLabel>Built for agents</SectionLabel>

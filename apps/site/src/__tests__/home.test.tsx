@@ -6,14 +6,34 @@ import { APP_VERSION } from "@/lib/constants";
 describe("Home page", () => {
   it("renders the hero heading", () => {
     render(<Home />);
-    expect(screen.getByText(/your ai agent can use your secrets/i)).toBeInTheDocument();
-    expect(screen.getByText(/it never sees them/i)).toBeInTheDocument();
+    expect(screen.getByText(/a web page should not be able/i)).toBeInTheDocument();
+    expect(screen.getByText(/to give your agent orders/i)).toBeInTheDocument();
   });
 
-  it("leads with the secret keeper and the agent surface", () => {
+  it("leads with prompt-injection defence, not the secret keeper", () => {
+    render(<Home />);
+    expect(screen.getByText(/it knows which bytes you wrote/i)).toBeInTheDocument();
+    expect(screen.getByText(/untrusted — refused/i)).toBeInTheDocument();
+    expect(screen.getByText(/yours — never blocked/i)).toBeInTheDocument();
+  });
+
+  it("still documents the secret keeper and the agent surface", () => {
     render(<Home />);
     expect(screen.getByText(/you keep the secret/i)).toBeInTheDocument();
     expect(screen.getByText(/drive it from claude code/i)).toBeInTheDocument();
+  });
+
+  it("renders the live playground", () => {
+    render(<Home />);
+    expect(screen.getByText(/same words\. different verdict/i)).toBeInTheDocument();
+    expect(
+      screen.getByRole("radiogroup", { name: /where this content came from/i }),
+    ).toBeInTheDocument();
+  });
+
+  it("does not overclaim — states the limits of detection", () => {
+    render(<Home />);
+    expect(screen.getByText(/what it does not claim/i)).toBeInTheDocument();
   });
 
   it("flags the product as beta", () => {

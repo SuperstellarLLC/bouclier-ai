@@ -20,6 +20,46 @@ test.describe("Home page", () => {
   });
 });
 
+test.describe("Injection playground", () => {
+  // The provenance split is the product claim. If the toggle stops
+  // changing the verdict, the homepage is advertising something the
+  // gateway does but the demo no longer demonstrates.
+  test("same payload flips between REFUSED and FLAGGED with its origin", async ({ page }) => {
+    await page.goto("/#playground");
+
+    const playground = page.locator("#playground");
+    const verdict = playground.getByText(/^(REFUSED|FLAGGED|CLEAN)$/);
+    const toolOutput = playground.getByRole("radio", { name: /tool output/i });
+    const youTyped = playground.getByRole("radio", { name: /you typed it/i });
+
+    // Default preset is a poisoned page arriving as tool output.
+    await expect(toolOutput).toBeVisible();
+    await expect(verdict).toHaveText("REFUSED");
+
+    // Same text, reattributed to the operator — must not be refused.
+    await youTyped.click();
+    await expect(verdict).toHaveText("FLAGGED");
+
+    // And back.
+    await toolOutput.click();
+    await expect(verdict).toHaveText("REFUSED");
+  });
+
+  test("an ordinary request is clean", async ({ page }) => {
+    await page.goto("/#playground");
+    const playground = page.locator("#playground");
+    await playground.getByRole("button", { name: /you, ordinary request/i }).click();
+    await expect(playground.getByText(/^(REFUSED|FLAGGED|CLEAN)$/)).toHaveText("CLEAN");
+  });
+});
+
+test.describe("Blocked explainer", () => {
+  test("renders the page the 403 points at", async ({ page }) => {
+    await page.goto("/blocked");
+    await expect(page.getByRole("heading", { name: /your request was refused/i })).toBeVisible();
+  });
+});
+
 test.describe("404 page", () => {
   test("should show not found for invalid routes", async ({ page }) => {
     await page.goto("/this-page-does-not-exist");
