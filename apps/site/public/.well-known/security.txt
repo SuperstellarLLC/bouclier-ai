@@ -1,6 +1,6 @@
 Contact: mailto:security@bouclier.ai
-Contact: https://github.com/SuperstellarLLC/ilvarion/security/advisories/new
+Contact: https://github.com/SuperstellarLLC/bouclier-ai/security/advisories/new
 Expires: 2027-05-18T00:00:00.000Z
 Preferred-Languages: en, fr
 Canonical: https://www.bouclier.ai/.well-known/security.txt
-Policy: https://github.com/SuperstellarLLC/ilvarion/blob/main/.github/SECURITY.md
+Policy: https://github.com/SuperstellarLLC/bouclier-ai/blob/main/.github/SECURITY.md
