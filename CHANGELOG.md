@@ -8,6 +8,32 @@ The `[VERSION]` section for each release is extracted verbatim by
 `apps/desktop/scripts/publish-update.sh` and injected into the Sparkle
 appcast. Write for end users, not for internal engineering notes.
 
+## [0.9.0] — 2026-08-02
+
+### Added
+
+- **Bouclier is a prompt-injection firewall again.** The detection engine is live for the first time since v0.7.0 — and for the first time ever without a certificate. It now runs inside the loopback gateway, which already sees every request body in plaintext before re-issuing it upstream. No root CA, no System Extension, no system-wide network filter: the machinery that used to be a prerequisite for detection turns out never to have been one.
+- **It refuses attacks in tool output, and leaves your own prompts alone.** Bouclier splits each request by where the text came from. Content your agent fetched by itself — `tool_result` blocks, `role: "tool"` messages, `function_call_output` items — is untrusted: an instruction in there came from a web page, a README, or an MCP server, and the request is refused. Your own prompt and system prompt are scanned for the activity log and then **forwarded byte-for-byte, whatever they say**. You can paste an OWASP advisory or test a jailbreak against your own model without Bouclier getting in the way.
+- **Refusals explain themselves.** A blocked request returns a `403` with a provider-shaped JSON error naming the pattern that matched and the exact JSON path it came from (`messages[2].content[0].tool_result`), so your SDK raises a readable error instead of dying on a closed socket. Details at <https://www.bouclier.ai/blocked>, which is back.
+- **Live playground on the homepage, rebuilt around the provenance split.** Paste anything, flip the origin toggle, and watch the same sentence get refused as tool output and forwarded as your own prompt. The regex tier runs in your browser; nothing is uploaded.
+- **Strict mode for managed fleets.** `injectionStrict` (MDM only, off by default) also blocks detections in the operator's own prompt, for organisations that want it and accept the false positives.
+
+### Fixed
+
+- **The shipped pattern file was three months stale.** `patterns.json` in the app's resources still held the 35 patterns generated on 2026-04-04, while the source package had grown to 161 across 21 categories. Release builds resynced it, but every developer build ran on the old set. It is now regenerated and checked in, and a test fails the build if it drifts again.
+- **One detector never worked on macOS at all.** `encode-004`, the ASCII-smuggling detector for invisible Unicode Tags characters (U+E0020–U+E007E), was written with JavaScript's `\u{…}` escape. `NSRegularExpression` is ICU, which rejects that syntax outright, and `FilterPattern(from:)` drops any pattern that fails to compile _silently_ — so the detector simply did not exist in the Swift engine. Patterns can now carry an ICU-specific form, and a test asserts all 161 compile.
+
+### Changed
+
+- **Nothing rewrites your prompt. Ever.** The old engine replaced matched spans with a redaction notice — and, when only the ML or entropy signal fired, replaced the _entire_ prompt body with a one-line notice and forwarded it anyway. That behaviour is not coming back with the engine: a request is now either forwarded unmodified or refused outright. This keeps the v0.6.0 promise (text bodies reach the provider untouched) rather than quietly reversing it.
+- **Flagged is not blocked in the activity log either.** Detections that don't meet the refusal bar are recorded with their score and pattern names but without the red shield, closing the same honesty gap v0.6.1 fixed for the ML/entropy path.
+- Homepage leads with injection defence; the secret keeper is now presented as what it is — the other half of containing a hijacked agent, still opt-in under Settings → Secrets.
+
+### Known limits
+
+- **The on-device ML tier is still not bundled.** Prompt Guard 2's weights were removed in v0.7.0 to get the download from ~600 MB to ~6 MB, and they stay out. Detection is the 161-pattern regex tier plus an entropy heuristic. The fused scorer and the CoreML loader are intact, so supplying a model locally lights the ML tier back up.
+- **This is defence in depth, not a solution.** Prompt injection is unsolved, and a pattern engine is evadable by anyone who is trying. The defences that actually hold are structural — constraining what a hijacked agent can reach. Bouclier raises the cost of the easy attacks and shows you when one arrives. Treat it like a WAF, not like a proof.
+
 ## [0.8.0] — 2026-07-03
 
 ### Added

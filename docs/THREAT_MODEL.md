@@ -16,11 +16,15 @@ mode ("extreme"): a CA-based TLS-terminating proxy paired with a system
 to it system-wide, plus a prompt-injection/PII detection engine that
 only ran through that path. Extreme mode has been removed — no CA, no
 System Extension, no system-wide network filter. This document is a
-from-scratch threat model of what remains: the loopback gateway and the
-secret keeper. It does not cover the detection engine (`InjectionFilter`,
-`MLClassifier`, the multimodal scanners), which is dormant, unreachable
-from the live request path, and out of scope for this review — see
-`ARCHITECTURE.md`'s "What was removed" section.
+from-scratch threat model of the loopback gateway and the secret keeper.
+
+**What changed in v0.9.0.** The prompt-injection engine is live again,
+called from the gateway by `InjectionInspectionPass` rather than from the
+removed extreme mode. Its threats are covered in §2.7 below. The **PII**
+tier (`PIIScanner`, `PIIClassifier`, the multimodal scanners) and
+`SecretInjectionPass` remain dormant and unreachable from the live
+request path, and stay out of scope — see `ARCHITECTURE.md`'s "What was
+removed" section.
 
 ---
 
@@ -148,6 +152,21 @@ oversight — see §4.
 | E1 | **Agent grants itself a secret or turns on protection unilaterally.** | The agent-facing MCP/status surface is read-only + propose-only: `ProtectionApprovalCoordinator.onEnable` and the secret-request flow require the human to approve via the app UI. There is no agent-reachable code path that performs either action directly. |
 | E2 | **Local LPE via Keychain prompt abuse.** | Secret values are stored/retrieved via the standard Keychain API with no custom CSR/cert-issuance flow (that flow existed only for extreme mode's CA and was removed along with it). |
 
+### 2.7 Injection inspection (v0.9.0)
+
+The pass is a _detector_, and detectors are evadable. The threats worth
+enumerating are mostly about what a failure does, not whether one occurs.
+
+| ID  | Threat                                                                          | Mitigation / accepted position                                                                                                                                                                                                                                                                                            |
+| --- | ------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| J1  | **Evasion — a crafted payload in tool output is not matched.**                  | Accepted and expected; see §4. Normalization (NFKC, homoglyph folding, zero-width stripping) raises the bar on the cheap obfuscations, and 161 patterns cover the published families, but an adaptive attacker wins. Detection is defence in depth on the untrusted leg, never the sole control.                          |
+| J2  | **False positive refuses legitimate work.**                                     | Bounded by design: only `.untrusted` spans can cause a refusal. The operator's own prompt is never blocked (default), so the classic guardrail failure — blocking a security engineer discussing attacks — cannot occur unless a fleet opts into `injectionStrict`. Pinned by `principalPromptNeverFiltered`.             |
+| J3  | **The pass corrupts an ordinary request.**                                      | Structurally prevented. `hasTrigger` is an independent raw-byte gate: no untrusted marker ⇒ the pass never runs. And the pass has no mutation path at all — it returns a decision, never a body. Same discipline as `SecretRedactionPass`.                                                                                |
+| J4  | **A refused request leaks the payload upstream anyway.**                        | Inspection runs _before_ the secret scrub and before any upstream connection is opened; a refusal returns locally. Pinned by `blocksInjectionArrivingAsToolOutput`, which asserts the upstream recorder saw nothing.                                                                                                      |
+| J5  | **Detector becomes the attack surface** — ReDoS via a pathological tool result. | Per-span scan input capped at `maxSpanScanChars` (64 KiB), whole-body scan capped at 1 MiB, and the pattern set was ReDoS-audited in `e089deb`. A regression here degrades latency on one request, not availability of the gateway.                                                                                       |
+| J6  | **Silent engine failure — patterns fail to load and nothing detects.**          | This has happened before: a stale `patterns.json` and an ICU-incompatible regex both silently shrank the live set. `bundledPatternsCompile` now fails the build if any pattern fails to compile or the count regresses; the menu bar surfaces the live pattern count. Fail-open is deliberate (J7) but must be _visible_. |
+| J7  | **Fail-open leaves traffic unprotected.**                                       | Accepted. If the engine hasn't loaded, requests forward unmodified rather than break the user's agent — the same rule as v0.5.2's fail-open shell. A firewall that bricks Claude Code when it can't load a regex file will be uninstalled, and an uninstalled firewall protects nothing.                                  |
+
 ---
 
 ## 3. Defense-in-depth summary
@@ -178,6 +197,18 @@ oversight — see §4.
   trade-off made when extreme mode's system-wide network filter was
   removed: no CA, no System Extension, and no ability to see traffic
   from a process that doesn't voluntarily route through the gateway.
+- **Prompt-injection detection is evadable and always will be.** The
+  pattern engine catches published attack families and the cheap
+  obfuscations around them. It does not stop an attacker who is adapting
+  to it, and no deployed detector does — the 2026 consensus is that the
+  defences that hold are structural (constraining what a hijacked agent
+  can reach), not classificatory. Bouclier raises attacker cost and makes
+  an arriving attack visible. Anyone treating a clean pass as evidence of
+  safety has misunderstood the control.
+- **Detection sees only what crosses the gateway.** Injected content that
+  reaches the model by any other route — a process not pointed at the
+  gateway, an attachment, content the agent summarises before sending —
+  is not inspected.
 - **User manually disabling the gateway** is a legitimate action.
   Enforcement requires MDM configuration profile + compliance tooling.
 - **Diagnostics bundle tampering in transit** before reaching support —

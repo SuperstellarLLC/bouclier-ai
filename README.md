@@ -3,7 +3,7 @@
 
   <h1>Bouclier.ai</h1>
 
-  <p><strong>A local-only macOS proxy that keeps your API keys and other secrets out of the model — scrubbed before the request reaches the provider, restored in the response. No certificate to install.</strong></p>
+  <p><strong>A local-only macOS prompt-injection firewall for AI coding agents. It reads every tool result on its way into the model and refuses the request when a fetched page, a README, or an MCP response is trying to give your agent orders. Your own prompts are never touched. No certificate to install.</strong></p>
 
   <p>
     <a href="https://github.com/SuperstellarLLC/bouclier-ai/actions/workflows/ci.yml"><img src="https://github.com/SuperstellarLLC/bouclier-ai/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
@@ -26,9 +26,10 @@
 > **not sold or supported**, and is **not meant to be used live** — that is,
 > not in production, not as a security control anyone or anything relies on,
 > and not in regulated workloads (healthcare, payments, identity, fraud
-> prevention, anything safety-critical). Secret scrubbing is best-effort;
-> false positives and false negatives will occur. APIs and behaviour may
-> change without notice between releases.
+> prevention, anything safety-critical). Injection detection and secret
+> scrubbing are both best-effort; false positives and false negatives will
+> occur, and a determined attacker can evade a pattern engine. APIs and
+> behaviour may change without notice between releases.
 >
 > If a failure could cause harm, financial loss, or regulatory consequence
 > in your environment, do not deploy Bouclier. See
@@ -41,20 +42,49 @@ it (`ANTHROPIC_BASE_URL` / `OPENAI_BASE_URL`) instead of the provider
 directly; it re-issues each request to the real provider over TLS and
 streams the response back.
 
-- **Secret keeper.** Managed secrets (API keys, tokens) are stored in your
-  macOS Keychain behind an opaque placeholder. Before a request reaches the
-  model provider, any real secret value is scrubbed to its placeholder; the
-  matching response is restored so your local tools still see the real
-  value. The model vendor never sees the secret.
+- **Prompt-injection firewall.** 161 detection patterns across 21
+  categories run on every request body. When an instruction shows up in
+  content your agent fetched by itself, the request is refused before it
+  reaches the provider.
+- **Provenance decides the action — this is the whole design.** Bouclier
+  splits each request by where the text came from:
+  - **Untrusted** — `tool_result` blocks (Anthropic), `role: "tool"`
+    messages (OpenAI chat), `function_call_output` items (OpenAI
+    Responses). Nobody in your session typed these, so an instruction
+    here is an attack by definition and the request is **refused** with a
+    `403` naming the pattern and the JSON path.
+  - **Principal** — your prompt and your system prompt. Scanned so the
+    activity log stays useful, then **forwarded byte-for-byte no matter
+    what they say**. You are allowed to discuss jailbreaks with your own
+    model. Pinned by an end-to-end test.
+- **Nothing is ever rewritten.** A request is forwarded unmodified or
+  refused outright. Earlier versions spliced a redaction notice into
+  flagged prompts; that broke prompt caching and tripped provider abuse
+  detection, and it is gone for good.
+- **Secret keeper (opt-in).** Managed secrets are stored in your macOS
+  Keychain behind an opaque placeholder, scrubbed on the way out and
+  restored in the response — so if an injection does get through, the
+  credentials it wants were never in the model's context. Off by default;
+  enable under Settings → Secrets.
 - **No certificate to install.** The gateway is a plaintext-loopback →
   TLS-upstream relay, not a TLS-terminating proxy — there's no root CA, no
-  system-trust change, and nothing else on your Mac is affected.
-- **Text prompts and headers untouched.** Prompt bodies and HTTP request
-  headers (`Authorization`, `x-api-key`, custom trace IDs, `User-Agent`)
-  traverse the gateway byte-for-byte except for the secret-scrub
-  substitution described above. Pinned by an end-to-end test so a future
-  change can't drift.
+  system-trust change, and nothing else on your Mac is affected. Detection
+  used to require a CA and a System Extension; as of v0.9.0 it doesn't.
 - **Local only.** No cloud calls, no telemetry, no accounts.
+
+### What this does not claim
+
+Prompt injection is not solved, and a pattern engine is not a solution to
+it. The defences that hold are structural — constraining what a hijacked
+agent can reach, keeping untrusted input away from privileged actions.
+Bouclier is defence in depth on the untrusted leg: it raises the cost of
+the easy attacks and shows you when one arrives. Treat it the way you
+treat a WAF, not the way you treat a proof.
+
+The on-device ML tier (Meta Prompt Guard 2) is **not bundled** — the
+weights were removed in v0.7.0 to keep the download at ~6 MB instead of
+~600 MB. The fused regex + ML + entropy scorer and the CoreML loader are
+intact, so supplying a model locally lights the ML tier back up.
 
 ## Quickstart
 
@@ -83,16 +113,27 @@ A full developer setup is in [CONTRIBUTING.md](CONTRIBUTING.md).
 ## How it works
 
 ```
-┌─────────────┐  HTTP (loopback)  ┌─────────────────────┐    HTTPS    ┌──────────┐
-│ AI client   │ ────────────────► │  Bouclier.ai gateway │ ──────────► │ Provider │
-│ (Claude     │                   │  (local, on Mac)     │             │ (OpenAI, │
-│  Code,      │ ◄──────────────── │                       │ ◄────────── │  Claude, │
-│  Cursor, …) │                   │  ┌─────────────────┐  │             │  Gemini) │
-└─────────────┘                   │  │ Secret scrub /   │  │             └──────────┘
-                                   │  │ restore          │  │
-                                   │  └─────────────────┘  │
-                                   └───────────────────────┘
+┌─────────────┐  HTTP (loopback)  ┌────────────────────────┐  HTTPS   ┌──────────┐
+│ AI client   │ ────────────────► │ Bouclier.ai gateway    │ ───────► │ Provider │
+│ (Claude     │                   │ (local, on Mac)        │          │ (OpenAI, │
+│  Code,      │                   │                        │          │  Claude, │
+│  Cursor, …) │ ◄──────────────── │ ┌────────────────────┐ │ ◄─────── │  Gemini) │
+└─────────────┘   403 if refused  │ │ Injection pass     │ │          └──────────┘
+                                  │ │  untrusted → block │ │
+                                  │ │  principal → log   │ │
+                                  │ └────────────────────┘ │
+                                  │ ┌────────────────────┐ │
+                                  │ │ Secret scrub /     │ │
+                                  │ │ restore (opt-in)   │ │
+                                  │ └────────────────────┘ │
+                                  └────────────────────────┘
 ```
+
+The injection pass runs **before** the secret scrub: a refused request
+never had secrets substituted into it, and scoring sees the untouched
+body. Both passes sit behind a cheap trigger gate, so a request with no
+tool output and no managed secret in it is forwarded byte-for-byte
+without either pass running.
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for the request-handling pipeline,
 session model, and persistence layer.
@@ -105,8 +146,11 @@ apps/
 └── site/          Next.js marketing & docs site (bouclier.ai)
 
 packages/
-└── patterns/      Injection + PII pattern library (dormant — see
-                    ARCHITECTURE.md; not currently invoked on live traffic)
+└── patterns/      Injection + PII pattern library. The injection tier is
+                    live: `pnpm --filter @bouclier-ai/patterns build` then
+                    `apps/desktop/scripts/sync-patterns.sh` regenerates the
+                    161-pattern patterns.json the app compiles. The PII
+                    tier is dormant — see ARCHITECTURE.md.
 
 docs/
 └── THREAT_MODEL.md
@@ -131,8 +175,9 @@ open a public issue.
 
 Apache License, Version 2.0. See [LICENSE](LICENSE).
 
-The repository still bundles the Meta Llama Prompt Guard 2 model weights
-(part of the dormant detection engine — see [ARCHITECTURE.md](ARCHITECTURE.md)).
+The repository retains the Meta Llama Prompt Guard 2 integration code and
+tokenizer (the weights themselves are not bundled — see
+[ARCHITECTURE.md](ARCHITECTURE.md)).
 They're governed by the Llama 4 Community License
 (`LICENSES/Llama-4-Community-License.txt`); see [NOTICE.txt](NOTICE.txt) for
 attribution.

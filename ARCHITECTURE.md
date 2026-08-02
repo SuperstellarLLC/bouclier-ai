@@ -51,20 +51,37 @@ it system-wide. Extreme mode was removed entirely: no CA is generated or
 installed, no System Extension ships, and there is no system-wide network
 filter. The gateway is now the only proxy path.
 
-Extreme mode was also the only thing that ever called the prompt-injection
-and PII detection engine (`PatternManager`, `InjectionFilter`,
-`MLClassifier`, the multimodal image/PDF/audio scanners under
-`Sources/Bouclier/Proxy/`) — the loopback gateway never did and still
-doesn't invoke any of it. Rather than delete that engine outright, it was
-left in the tree, unmodified and dormant: it still compiles, its unit
-tests still exercise it directly, and it remains available if
-destination-bound detection is ever wired into the gateway as a
-deliberate follow-up. It is not part of the request path today and
-nothing in the shipped product currently uses it. The same applies to
-`SecretInjectionPass` — destination-bound secret injection into a
-third-party host, which only ever ran through `TLSProxy`. `SecretRule`
-still validates and stores host bindings, but nothing currently acts on
-them; only scrub→restore (below) is live.
+Extreme mode was also, until v0.9.0, the only thing that ever called the
+prompt-injection detection engine (`PatternManager`, `InjectionFilter`,
+`MLClassifier`). That coupling was an accident of how the engine was
+first wired, not a technical requirement: the loopback gateway already
+sees every request body in plaintext before re-issuing it upstream, which
+is all the visibility detection ever needed.
+
+**As of v0.9.0 the injection engine is live again, on the gateway.**
+`InjectionInspectionPass` (`Sources/Bouclier/Proxy/`) is the caller —
+see "Injection inspection" below. Nothing about the CA or the System
+Extension came back; they remain removed.
+
+Still dormant, with no caller on the live path:
+
+- The **PII tier** — `PIIScanner`, `PIIClassifier`, `PIINativeDetector`
+  and the multimodal image/PDF/audio scanners. Text-prompt PII rewriting
+  was withdrawn in v0.6.0 for cause (it tripped provider abuse
+  detection); the attachment path went with extreme mode in v0.7.0. The
+  code still compiles and its unit tests exercise it directly.
+- `SecretInjectionPass` — destination-bound secret injection into a
+  third-party host, which only ever ran through `TLSProxy`. `SecretRule`
+  still validates and stores host bindings, but nothing currently acts on
+  them; only scrub→restore (below) is live.
+- `HTTPRequestInspector.inspect(...)` and `SSEStreamInspector` — the
+  extreme-mode inspection entry points. Note that both, and
+  `InjectionFilter.scan`'s own `sanitized` output, implement the old
+  **rewrite** behaviour: matched spans replaced with a redaction notice,
+  and on an ML/entropy-only hit the _entire_ body replaced with that
+  notice. `InjectionInspectionPass` deliberately ignores `sanitized` and
+  never mutates a body — the gateway forwards unmodified or refuses. Do
+  not reintroduce the rewrite path without revisiting v0.6.0's reasoning.
 
 Installs that had extreme mode active before this removal are migrated
 automatically on first launch of the new version
@@ -85,6 +102,17 @@ inbound HTTP (loopback) ─► GatewayServer.GatewayHandler
                            Route resolution (GatewayRoute.resolve)
                                │  - path prefix / auth-header sniff
                                │    decides Anthropic vs OpenAI
+                               ▼
+                           Injection inspection
+                               │  - InjectionInspectionPass.hasTrigger:
+                               │    raw substring scan for tool_result /
+                               │    role:"tool" / function_call_output.
+                               │    No marker ⇒ pass skipped entirely.
+                               │  - .inspect: spans split by provenance,
+                               │    scored by the live InjectionFilter.
+                               │  - untrusted + critical (or fused ≥ .60)
+                               │    ⇒ 403, request never leaves the box
+                               │  - principal ⇒ logged, forwarded as-is
                                ▼
                            Secret scrub (if secrets configured)
                                │  - SecretRedactionPass.apply: managed
@@ -110,6 +138,40 @@ Inbound response handling:
 - With no secrets configured, the response is relayed verbatim — no body
   rewriting, no buffering. Zero-copy for the common case.
 
+## Injection inspection
+
+`InjectionInspectionPass` is the gateway's detection hook. Two properties
+define it.
+
+**Provenance, not content, decides the action.** The pass parses the
+request body and tags every model-visible span:
+
+| Origin       | Source                                                                      | Action on detection                            |
+| ------------ | --------------------------------------------------------------------------- | ---------------------------------------------- |
+| `.untrusted` | `tool_result` blocks, `role: "tool"` messages, `function_call_output` items | **Refuse** — 403, request never leaves the box |
+| `.principal` | the operator's prompt text and system prompt                                | **Log only** — forwarded byte-for-byte         |
+
+Scanning "the prompt" undifferentiated is what makes guardrails unusable:
+a developer who pastes an OWASP advisory or types _"ignore previous
+instructions"_ into their own agent is the principal, and blocking them
+is a false positive by construction. It is also what drove this project's
+retreat from text rewriting in v0.6.0. `injectionStrict` (MDM, off by
+default) opts a managed fleet into blocking principal text too.
+
+**A cheap independent gate runs first**, mirroring `SecretRedactionPass`:
+a raw substring search for the four untrusted-shape markers. No marker,
+no JSON parse, no scoring — so ordinary chat traffic is provably
+untouched and a bug in the scoring path cannot corrupt it.
+
+Thresholds: an untrusted span blocks on any `critical`-severity match, or
+a fused score ≥ 0.60. With the ML weights unbundled the fused score tops
+out around 0.60, so in the shipped configuration `critical` severity is
+the operative trigger; the fused threshold becomes load-bearing again if
+a classifier is supplied. Fail-open throughout — if
+`InjectionFilter.active.current()` is nil because the engine hasn't
+loaded, requests forward unmodified, per the v0.5.2 rule that Bouclier
+being unavailable must never break the user's agent.
+
 ## Scope: what we modify and what we don't
 
 Bouclier touches outbound traffic in exactly one way: **secret scrub**.
@@ -119,8 +181,13 @@ leaves the gateway; the matching response is restored so local tooling
 still works. Everything else is forwarded byte-for-byte, including the
 header set (`Authorization`, `x-api-key`, custom trace IDs, `User-Agent`,
 …). **Bouclier does not modify prompt bodies beyond secret placeholders.**
-The no-modification invariant (outside the scrub/restore path) is pinned
-by the E2E gateway tests.
+
+The injection pass is not an exception to this: it is a _binary_ control.
+A request is forwarded unmodified or refused with a 403 — the pass never
+edits a body, and deliberately ignores `FilterResult.sanitized`, which
+still carries the withdrawn v0.2-era rewrite. Both invariants are pinned
+by the E2E gateway tests, including one that sends a matching payload as
+the operator's own prompt and asserts byte-identical delivery upstream.
 
 ## Persistence
 
@@ -171,5 +238,7 @@ update path is documented at length in `scripts/release.sh` and
 
 - Gateway + request handling: `apps/desktop/Sources/Bouclier/Proxy/GatewayServer.swift`
 - Secret scrub/restore: `SecretRedactionPass.swift`, `SecretRestore.swift`, `SecretRule.swift`, `SecretStore.swift`
-- Dormant detection engine (not in the live request path): `HTTPRequestInspector.swift`, `InjectionFilter.swift`, `MLClassifier.swift`, `MultimodalPIIInspector.swift` and neighbors
+- Injection inspection (live): `InjectionInspectionPass.swift`, `InjectionFilter.swift`, `EntropyAnalyzer.swift`, `MLClassifier.swift`, `Patterns/PatternManager.swift`
+- Pattern source of truth: `packages/patterns/src/` → `apps/desktop/scripts/sync-patterns.sh` → `Sources/Bouclier/Resources/patterns.json`
+- Dormant (not in the live request path): `HTTPRequestInspector.inspect`, `SSEStreamInspector.swift`, `PIIScanner.swift`, `MultimodalPIIInspector.swift` and neighbours, `SecretInjectionPass.swift`
 - Persistence: `apps/desktop/Sources/Bouclier/Utilities/StorageManager.swift`
