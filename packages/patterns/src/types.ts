@@ -57,6 +57,19 @@ export interface Pattern {
   severity: Severity;
   /** Regex pattern string (compatible with both JS and Swift NSRegularExpression) */
   regex: string;
+  /**
+   * ICU-syntax override, emitted into `patterns.json` in place of `regex`
+   * for the Swift engine (NSRegularExpression is ICU, not JS RegExp).
+   *
+   * Only set this where the two syntaxes genuinely cannot be reconciled.
+   * The one real case today is an astral-plane code-point range: JS needs
+   * `\u{...}` with the `u` flag, ICU needs `\x{...}` and rejects the JS
+   * form outright — a pattern that fails to compile is dropped silently
+   * by `FilterPattern(from:)`, so the detector just disappears from the
+   * shipped app. `InjectionInspectionPassTests.bundledPatternsCompile`
+   * fails the build if any pattern regresses this way.
+   */
+  icuRegex?: string;
   /** Regex flags (e.g., "i" for case-insensitive) */
   flags: string;
   /** Example strings this pattern should match */

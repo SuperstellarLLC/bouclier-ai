@@ -125,6 +125,9 @@ export const evolutionPatterns: Pattern[] = [
     category: "encoding-bypass",
     severity: "critical",
     regex: "[\\u{E0020}-\\u{E007E}]{5,}",
+    // ICU spells astral ranges \x{...} and rejects the JS \u{...} form.
+    // Without this the detector silently vanished from the Swift engine.
+    icuRegex: "[\\x{E0020}-\\x{E007E}]{5,}",
     flags: "u",
     examples: [
       "Normal text \u{E0049}\u{E0067}\u{E006E}\u{E006F}\u{E0072}\u{E0065}",
