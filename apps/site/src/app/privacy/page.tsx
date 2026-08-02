@@ -55,12 +55,13 @@ export default function PrivacyPage() {
         {/* Summary box */}
         <div className="border-accent-green/30 mt-6 rounded-xl border-2 bg-emerald-50 p-6">
           <p className="font-medium text-emerald-900">
-            Bouclier.ai runs entirely on your device — the gateway only ever touches a request when
-            a managed secret&apos;s real value is present, scrubbing it before it reaches the model.
-            The app collects no personal data, has no analytics, no crash reporting, and no user
-            accounts. The only information that ever reaches a bouclier.ai server is a single
-            anonymous timestamp when you click the Download button on this marketing site — full
-            scope described below.
+            Bouclier.ai runs entirely on your device. The gateway inspects requests locally — for
+            prompt-injection patterns in tool output, and for a managed secret&apos;s real value —
+            and never stores, transmits, or logs your prompts or responses anywhere. The app
+            collects no personal data, has no analytics, no crash reporting, and no user accounts.
+            The only information that ever reaches a bouclier.ai server is a single anonymous
+            timestamp when you click the Download button on this marketing site — full scope
+            described below.
           </p>
         </div>
 
@@ -193,10 +194,11 @@ export default function PrivacyPage() {
             repository.
           </p>
           <p className="mt-3 text-sm">
-            An earlier version of the Software additionally ran an on-device prompt-injection and
-            attachment-PII detection engine. That engine is no longer wired into any live request
-            path — its code remains in the public repository, unmodified, but does not run against
-            your traffic today.
+            The Software also inspects request bodies on-device for prompt-injection patterns in
+            untrusted content (tool results and other model-visible text the agent fetched itself).
+            This inspection reads the request but never stores or transmits it; a flagged request is
+            refused locally with a 403, never rewritten. The attachment-PII detection engine
+            described in earlier versions of this policy is not on any live request path.
           </p>
         </Section>
 

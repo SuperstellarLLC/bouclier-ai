@@ -22,18 +22,20 @@
 > **Beta — research prototype. Not for live use.**
 >
 > Bouclier.ai is published for evaluation, security research, academic study,
-> and personal experimentation only. It is **not a commercial product**, is
-> **not sold or supported**, and is **not meant to be used live** — that is,
-> not in production, not as a security control anyone or anything relies on,
-> and not in regulated workloads (healthcare, payments, identity, fraud
-> prevention, anything safety-critical). Injection detection and secret
-> scrubbing are both best-effort; false positives and false negatives will
-> occur, and a determined attacker can evade a pattern engine. APIs and
+> and personal experimentation. It is **not a commercial product**, is **not
+> sold or supported**, and is **pre-1.0** — not for production or regulated
+> workloads (healthcare, payments, identity, fraud prevention, anything
+> safety-critical).
+>
+> Treat it the way you treat a WAF: **defence in depth, never your only
+> control.** Injection detection is best-effort and evadable by a determined
+> attacker; secret scrubbing is best-effort; false positives and false
+> negatives will occur. A clean pass is not evidence of safety. APIs and
 > behaviour may change without notice between releases.
 >
 > If a failure could cause harm, financial loss, or regulatory consequence
-> in your environment, do not deploy Bouclier. See
-> [Terms](https://www.bouclier.ai/terms) before installing.
+> in your environment, do not rely on Bouclier as the control that prevents
+> it. See [Terms](https://www.bouclier.ai/terms) before installing.
 
 ## What it does
 

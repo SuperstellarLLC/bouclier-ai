@@ -37,7 +37,7 @@ export default function TermsPage() {
 
       <article className="mx-auto max-w-3xl px-6 py-16">
         <h1 className="text-3xl font-bold tracking-tight">Terms of Use</h1>
-        <p className="text-text-secondary mt-2 text-sm">Last updated: 27 May 2026</p>
+        <p className="text-text-secondary mt-2 text-sm">Last updated: 3 August 2026</p>
 
         {/* Loud prototype banner — anyone evaluating the software must see this first. */}
         <div className="mt-10 rounded-xl border-2 border-amber-300 bg-amber-50 p-6">
@@ -89,8 +89,8 @@ export default function TermsPage() {
           </p>
           <p className="mt-3">
             Pre-1.0 version numbering reflects this status. APIs, detection behaviour, file formats,
-            default settings, the set of detected entities, the rewriter behaviour, and the scope of
-            intercepted traffic may change without notice between releases. Features described in
+            default settings, the detection pattern set, the refusal thresholds, and the scope of
+            inspected traffic may change without notice between releases. Features described in
             marketing materials, documentation, the README, the changelog, or in-app text may be
             removed, altered, or replaced at any time. You must not rely on any specific behaviour
             persisting across releases.
@@ -146,13 +146,15 @@ export default function TermsPage() {
             </li>
           </ul>
           <p className="mt-3 text-sm">
-            An earlier version of the Software additionally ran an on-device prompt-injection and
-            attachment-PII detection engine, which was probabilistic and had the false-positive/
-            false-negative characteristics typical of such systems. That engine is no longer wired
-            into any live request path — the code remains in the public repository, unmodified, but
-            does not process your traffic today. Do not rely on any representation, in this
-            document, marketing materials, or elsewhere, that the Software performs prompt-injection
-            or attachment-PII detection.
+            The Software also inspects requests for prompt-injection patterns in <em>untrusted</em>{" "}
+            content — tool results and other model-visible text your agent fetched rather than text
+            you typed — and may refuse such a request. This detection is probabilistic,
+            pattern-based, and best-effort: it has the false-positive and false-negative
+            characteristics typical of such systems, and a determined attacker can evade it. It is
+            defence-in-depth, not a guarantee, and must not be relied upon as the sole control
+            protecting you from prompt injection or data exfiltration. Detected content is refused,
+            never rewritten; your own prompts are forwarded unchanged. The attachment-PII detection
+            engine described in earlier versions of these Terms is not on any live request path.
           </p>
         </Section>
 
@@ -267,13 +269,13 @@ export default function TermsPage() {
 
         <Section title="11. Open-source components">
           <p>
-            The Software incorporates open-source components, including (without limitation)
-            Meta&apos;s Llama Prompt Guard 2 model weights (governed by the Llama 4 Community
-            License; bundled but, per Section 4, not on any live request path), Microsoft Presidio
-            recognition patterns derived from public references, and the Swift, NIO, GRDB, and
-            CryptoKit ecosystems. The corresponding notices are bundled with the Software and
-            reproduced in the project&apos;s LICENSE and NOTICE files. These components remain
-            governed by their respective licences.
+            The Software incorporates open-source components, including (without limitation) the
+            Meta Llama Prompt Guard 2 integration (governed by the Llama 4 Community License; the
+            model weights are not bundled — the optional on-device ML tier is inactive unless a
+            model is supplied locally), Microsoft Presidio recognition patterns derived from public
+            references, and the Swift, NIO, GRDB, and CryptoKit ecosystems. The corresponding
+            notices are bundled with the Software and reproduced in the project&apos;s LICENSE and
+            NOTICE files. These components remain governed by their respective licences.
           </p>
         </Section>
 

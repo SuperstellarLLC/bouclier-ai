@@ -207,6 +207,35 @@ export default function Home() {
               one arrives. Treat it the way you treat a WAF, not the way you treat a proof.
             </p>
           </div>
+
+          <div className="reveal mt-6 rounded-2xl border-2 border-amber-200 bg-amber-50/50 p-6">
+            <h3 className="text-lg font-semibold text-amber-900">What it does not stop</h3>
+            <ul className="text-text-secondary mt-3 space-y-2 text-sm leading-relaxed">
+              <li>
+                <strong>An adaptive attacker.</strong> The detector matches known patterns; someone
+                deliberately shaping a payload to slip past it will succeed. Public red-team results
+                bypass every pattern-layer defence eventually.
+              </li>
+              <li>
+                <strong>A process that doesn&apos;t route through the gateway.</strong> Protection
+                is opt-in per process via{" "}
+                <code className="rounded bg-white px-1 py-0.5">ANTHROPIC_BASE_URL</code> /{" "}
+                <code className="rounded bg-white px-1 py-0.5">OPENAI_BASE_URL</code>. Anything that
+                ignores those env vars (a tool with a hard-coded base URL, an already-running shell,
+                an app with its own backend) talks to the provider directly.
+              </li>
+              <li>
+                <strong>Injection the model reads by another path.</strong> Content in your own
+                prompt or system prompt is treated as yours and forwarded unchanged; very large tool
+                results are size-capped; today only Anthropic and OpenAI traffic is routed.
+              </li>
+              <li>
+                <strong>Damage from an action that already ran.</strong> Bouclier inspects the
+                request going out, not the model&apos;s tool calls coming back. Response-side action
+                gating is on the roadmap, not shipped.
+              </li>
+            </ul>
+          </div>
         </div>
       </section>
 

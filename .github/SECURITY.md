@@ -14,8 +14,8 @@ A semver `1.0` will introduce a longer support window.
 
 | Version | Supported           |
 | ------- | ------------------- |
-| 0.4.x   | ✅                  |
-| ≤ 0.3.x | ❌ (please upgrade) |
+| 0.9.x   | ✅                  |
+| ≤ 0.8.x | ❌ (please upgrade) |
 
 ## Reporting a vulnerability
 
