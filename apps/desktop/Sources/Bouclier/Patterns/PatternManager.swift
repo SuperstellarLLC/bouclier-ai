@@ -70,7 +70,13 @@ final class PatternManager: @unchecked Sendable {
     }
 
     /// Initialize with optional change callback (e.g., to log reloads).
-    init(onChange: (() -> Void)? = nil) {
+    ///
+    /// - Parameter loadPIITier: whether to also kick off the Piiranha PII
+    ///   classifier load. The PII path has had no caller since v0.7.0 and
+    ///   its model is no longer bundled, so the gateway passes `false` and
+    ///   skips a background task that can only fail. Defaults to `true`
+    ///   so the existing tests keep exercising both loaders.
+    init(onChange: (() -> Void)? = nil, loadPIITier: Bool = true) {
         self.onChange = onChange
 
         // Load best available patterns
@@ -81,13 +87,20 @@ final class PatternManager: @unchecked Sendable {
         }
         _classifier = nil
         _filter = InjectionFilter(patterns: _patterns, classifier: nil)
+        // Publish immediately in regex-only mode so the gateway is
+        // protected from the first request, not from whenever CoreML
+        // finishes loading (which, with the models unbundled since
+        // v0.7.0, may be never).
+        InjectionFilter.active.install(_filter)
 
         startWatching()
         Task.detached(priority: .utility) { [weak self] in
             await self?.loadClassifierAsync()
         }
-        Task.detached(priority: .utility) { [weak self] in
-            await self?.loadPIIClassifierAsync()
+        if loadPIITier {
+            Task.detached(priority: .utility) { [weak self] in
+                await self?.loadPIIClassifierAsync()
+            }
         }
     }
 
@@ -157,6 +170,7 @@ final class PatternManager: @unchecked Sendable {
         lock.lock()
         _classifier = classifier
         _filter = InjectionFilter(patterns: _patterns, classifier: classifier)
+        InjectionFilter.active.install(_filter)
         let count = _patterns.count
         lock.unlock()
         print("[bouclier.ai] ML classifier loaded — fused detection active (\(count) patterns + Prompt Guard 2)")
@@ -242,6 +256,7 @@ final class PatternManager: @unchecked Sendable {
         // Preserve any classifier that has already been loaded so we
         // don't lose ML detection on every patterns.json edit.
         _filter = InjectionFilter(patterns: newPatterns, classifier: _classifier)
+        InjectionFilter.active.install(_filter)
         lock.unlock()
         print("[bouclier.ai] Patterns hot-reloaded")
         onChange?()

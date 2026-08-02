@@ -17,7 +17,14 @@ import Foundation
 /// All inference runs locally; no network calls. Inputs are still
 /// scanned through NSRegularExpression so the existing redaction-offset
 /// machinery works unchanged.
+///
+/// Callers on the live request path do not construct this directly —
+/// they read `InjectionFilter.active.current()`, which `PatternManager`
+/// keeps pointed at the newest engine. See `ActiveInjectionFilterRegistry`.
 final class InjectionFilter: @unchecked Sendable {
+    /// The process-wide active filter. Mirrors `PIIScanner.active`.
+    static let active = ActiveInjectionFilterRegistry()
+
     private let patterns: [FilterPattern]
     private let classifier: MLClassifier?
 
@@ -275,6 +282,46 @@ final class InjectionFilter: @unchecked Sendable {
             }
             return FilterPattern(id: id, name: name, category: category, severity: severity, regex: compiled, enabled: true)
         }
+    }
+}
+
+// MARK: - Active filter registry
+
+/// Process-wide registry for the live `InjectionFilter`.
+///
+/// Same rationale as `ActivePIIScannerRegistry`: the engine is mutable
+/// across the process lifetime because the CoreML classifier loads
+/// asynchronously and `patterns.json` can hot-reload, but the gateway
+/// handler is constructed per-connection long before either settles.
+/// Threading a provider closure through the NIO pipeline would be
+/// boilerplate for a swap that happens once or twice per process.
+///
+/// `PatternManager` owns the lifecycle and calls `install(_:)` on every
+/// swap; `GatewayHandler` reads `current()` per request, so a request in
+/// flight before the ML swap picks the fused engine up on the next one.
+///
+/// `current()` is `nil` until the engine has loaded. Callers treat nil as
+/// **fail-open** — forward the request untouched — matching the v0.5.2
+/// rule that Bouclier being unavailable must never break the user's
+/// agent.
+final class ActiveInjectionFilterRegistry: @unchecked Sendable {
+    private let lock = NSLock()
+    private var filter: InjectionFilter?
+
+    func current() -> InjectionFilter? {
+        lock.lock(); defer { lock.unlock() }
+        return filter
+    }
+
+    func install(_ new: InjectionFilter) {
+        lock.lock(); defer { lock.unlock() }
+        filter = new
+    }
+
+    /// Test hook — drop the engine so a test can exercise the fail-open path.
+    func reset() {
+        lock.lock(); defer { lock.unlock() }
+        filter = nil
     }
 }
 

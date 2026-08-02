@@ -22,6 +22,29 @@ import Foundation
 /// </dict>
 /// ```
 enum FeatureFlags {
+    /// Whether the gateway inspects request bodies for prompt injection
+    /// arriving through **untrusted** content — tool results, retrieved
+    /// documents, MCP tool output. Default: **on**. This is Bouclier's
+    /// primary protection; turning it off leaves a bare relay.
+    ///
+    /// Distinct from `injectionStrict`: with this on and strict off, a
+    /// detection inside tool output blocks the request, while the same
+    /// text typed by the operator is only logged. See
+    /// `InjectionInspectionPass` for why provenance decides the action.
+    static var injectionDetection: Bool {
+        resolve(key: "injectionDetection", default: true)
+    }
+
+    /// Whether a detection on the operator's **own** prompt also blocks.
+    /// Default: **off**. The user is the principal — they are allowed to
+    /// paste an OWASP advisory or say "ignore previous instructions" to
+    /// their own model, and blocking that is the false positive that made
+    /// the pre-v0.6 text-rewriting path unusable. MDM deployments that
+    /// want to police user prompts, and accept the cost, can flip it.
+    static var injectionStrict: Bool {
+        resolve(key: "injectionStrict", default: false)
+    }
+
     /// Whether the upstream relay runs SSE streams through the
     /// `SSEStreamInspector`. Default: on. Turning this off restores
     /// pre-v0.2 behaviour of raw pass-through for streaming responses.

@@ -29,6 +29,21 @@ final class ProxyManager: ObservableObject {
         return (1...65535).contains(p) ? p : 8484
     }
 
+    /// Owns the live prompt-injection engine: loads `patterns.json`,
+    /// publishes to `InjectionFilter.active`, hot-reloads, and swaps in
+    /// the CoreML classifier if one is present. Held for the app's
+    /// lifetime — the registry it feeds is what the gateway reads.
+    private var patternManager: PatternManager?
+
+    /// Number of enabled detection patterns currently loaded. Shown in
+    /// the menu bar so "protected" is a number, not a vibe.
+    var patternCount: Int { InjectionFilter.active.current()?.patternCount ?? 0 }
+
+    /// Whether the on-device ML tier is attached. False in the shipped
+    /// DMG — the Prompt Guard 2 weights were unbundled in v0.7.0 and the
+    /// engine runs regex-only unless a model is supplied locally.
+    var mlTierActive: Bool { InjectionFilter.active.current()?.hasMLClassifier ?? false }
+
     private var gatewayServer: GatewayServer?
     /// Watches for just-in-time secret requests from the MCP server and
     /// presents the approval dialog. Independent of the proxy: runs for the
@@ -51,15 +66,17 @@ final class ProxyManager: ObservableObject {
     private(set) var didInitializeStorage = false
 
     init() {
-        // Note: this used to also construct a PatternManager here (loads
-        // patterns.json + attempts to load the on-device ML classifier in
-        // the background) purely to mirror its state into published
-        // properties for a menu-bar "ML active" badge and a "Run detection
-        // test" button. Both were removed along with the rest of the
-        // detection engine's UI surface — it had no caller outside extreme
-        // mode's proxy path (see ARCHITECTURE.md). PatternManager itself
-        // is untouched and still available if that engine is ever wired
-        // into the gateway; it's just no longer constructed at launch.
+        // The detection engine is live again as of v0.9.0, this time
+        // hanging off the certificate-free gateway rather than the
+        // removed extreme mode. PatternManager loads patterns.json,
+        // publishes the regex-only filter to `InjectionFilter.active`
+        // immediately, watches for hot-reloads, and swaps in the fused
+        // engine if the CoreML classifier ever loads. The gateway reads
+        // the registry per request; see `InjectionInspectionPass`.
+        //
+        // `loadPIITier: false` — the Piiranha model has been unbundled
+        // since v0.7.0 and nothing calls the PII path.
+        patternManager = PatternManager(loadPIITier: false)
 
         // Register crash cleanup — disable system proxy if we die unexpectedly
         registerCleanupHandlers()

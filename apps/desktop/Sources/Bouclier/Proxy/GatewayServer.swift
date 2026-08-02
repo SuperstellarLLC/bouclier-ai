@@ -307,6 +307,56 @@ private final class GatewayHandler: ChannelInboundHandler, RemovableChannelHandl
         var mutableBody = bodyBuffer
         var scrubbedNames: [String] = []
 
+        // ─── Prompt-injection inspection (primary protection) ───
+        // Runs BEFORE the secret scrub for two reasons: a refused request
+        // must never have had its secrets substituted (nothing leaves the
+        // box, so there is nothing to scrub), and scoring the untouched
+        // body means placeholders can't perturb detection.
+        //
+        // Cheap `hasTrigger` gate first — a request with no tool output in
+        // it is forwarded byte-for-byte, exactly as before. Fail-open if
+        // the engine hasn't loaded: Bouclier being unready must not break
+        // the user's agent.
+        var injection: InjectionInspectionPass.Outcome = .clean
+        if FeatureFlags.injectionDetection,
+           mutableBody.readableBytes > 0,
+           mutableBody.readableBytes <= InjectionInspectionPass.maxScanBytes,
+           let filter = InjectionFilter.active.current()
+        {
+            // Gate on the buffer in place; only materialise a `Data` once
+            // we know we're going to parse it.
+            let triggered = mutableBody.withUnsafeReadableBytes {
+                InjectionInspectionPass.hasTrigger(bytes: $0)
+            }
+            if triggered {
+                injection = InjectionInspectionPass.inspect(
+                    body: Data(mutableBody.readableBytesView),
+                    filter: filter,
+                    strict: FeatureFlags.injectionStrict
+                )
+            }
+        }
+
+        if injection.decision == .block {
+            onRequest(RequestLog(
+                timestamp: Date(),
+                targetHost: host,
+                detected: true,
+                matchCount: injection.findings.reduce(0) { $0 + $1.matchCount },
+                patternNames: Array(Set(injection.findings.flatMap(\.patternNames))),
+                bodySize: mutableBody.readableBytes,
+                mlScore: injection.blockedFinding?.mlScore,
+                entropyAnomaly: injection.blockedFinding?.entropyAnomaly ?? 0,
+                fusedScore: injection.topScore,
+                mlAvailable: injection.mlAvailable,
+                multimodal: nil
+            ))
+            respondWithRefusal(context: context, outcome: injection)
+            requestHead = nil
+            bodyBuffer.clear()
+            return
+        }
+
         // Secrets configured ⇒ standard-mode sandwich is live for this
         // connection: scrub the request and restore the response. Pin the
         // rule set on the FIRST request so scrub and the (per-connection)
@@ -409,17 +459,23 @@ private final class GatewayHandler: ChannelInboundHandler, RemovableChannelHandl
             writeRequest = { ch in ch.writeAndFlush(NIOAny(raw), promise: nil) }
         }
 
+        // `detected` drives the red shield in the activity log and is
+        // reserved for requests we actually refused. A `.flag` outcome
+        // (something matched, but on the operator's own text) is recorded
+        // with its score and pattern names and forwarded unchanged — the
+        // v0.6.1 lesson about not showing a block indicator for something
+        // that wasn't blocked.
         onRequest(RequestLog(
             timestamp: Date(),
             targetHost: host,
             detected: false,
-            matchCount: 0,
-            patternNames: [],
+            matchCount: injection.findings.reduce(0) { $0 + $1.matchCount },
+            patternNames: Array(Set(injection.findings.flatMap(\.patternNames))),
             bodySize: bodySize,
-            mlScore: nil,
-            entropyAnomaly: 0,
-            fusedScore: 0,
-            mlAvailable: false,
+            mlScore: injection.findings.first?.mlScore,
+            entropyAnomaly: injection.findings.first?.entropyAnomaly ?? 0,
+            fusedScore: injection.topScore,
+            mlAvailable: injection.mlAvailable,
             multimodal: nil
         ))
         if !scrubbedNames.isEmpty {
@@ -541,6 +597,21 @@ private final class GatewayHandler: ChannelInboundHandler, RemovableChannelHandl
         respondLocally(channel: context.channel, status: status)
         requestHead = nil
         bodyBuffer.clear()
+    }
+
+    /// Refuse a request whose untrusted content carried instructions.
+    ///
+    /// 403 with a provider-shaped JSON error body: the agent SDK raises a
+    /// readable API error naming the offending location instead of dying
+    /// on a closed socket, so the operator can see *what* was blocked and
+    /// *where* without opening the menu bar.
+    private func respondWithRefusal(context: ChannelHandlerContext, outcome: InjectionInspectionPass.Outcome) {
+        respondLocally(
+            channel: context.channel,
+            status: "403 Forbidden",
+            body: InjectionInspectionPass.refusalJSON(for: outcome),
+            contentType: "application/json"
+        )
     }
 
     private func respondLocally(channel: Channel, status: String, body: String = "", contentType: String = "text/plain") {
