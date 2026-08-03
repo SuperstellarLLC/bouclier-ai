@@ -44,21 +44,29 @@ it (`ANTHROPIC_BASE_URL` / `OPENAI_BASE_URL`) instead of the provider
 directly; it re-issues each request to the real provider over TLS and
 streams the response back.
 
-- **Prompt-injection firewall.** 161 detection patterns across 21
-  categories run on every request body. When an instruction shows up in
-  content your agent fetched by itself, the request is refused before it
-  reaches the provider.
+- **Prompt-injection firewall.** 161 regex patterns across 21 categories
+  **plus an on-device ML classifier** (Meta Prompt Guard 2) run on every
+  request body, fused into one score with false-positive dampeners. When
+  an instruction shows up in content your agent fetched by itself, the
+  request is refused before it reaches the provider.
 - **Provenance decides the action — this is the whole design.** Bouclier
   splits each request by where the text came from:
   - **Untrusted** — `tool_result` blocks (Anthropic), `role: "tool"`
     messages (OpenAI chat), `function_call_output` items (OpenAI
-    Responses). Nobody in your session typed these, so an instruction
-    here is an attack by definition and the request is **refused** with a
-    `403` naming the pattern and the JSON path.
+    Responses), and **retrieved content**: `document` / `search_result`
+    blocks and anything wrapped in the `<document>` RAG convention, even
+    when it arrives inside a user turn. Nobody in your session typed
+    these, so an instruction here is an attack by definition and the
+    request is **refused** with a `403` naming the pattern and the JSON
+    path.
   - **Principal** — your prompt and your system prompt. Scanned so the
     activity log stays useful, then **forwarded byte-for-byte no matter
     what they say**. You are allowed to discuss jailbreaks with your own
     model. Pinned by an end-to-end test.
+- **Benign context isn't punished.** A match inside a security advisory,
+  a tutorial, a quoted payload, or a fenced code block is dampened and
+  forwarded, not blocked — so an agent reading about attacks all day
+  doesn't trip the filter.
 - **Nothing is ever rewritten.** A request is forwarded unmodified or
   refused outright. Earlier versions spliced a redaction notice into
   flagged prompts; that broke prompt caching and tripped provider abuse
@@ -83,10 +91,14 @@ Bouclier is defence in depth on the untrusted leg: it raises the cost of
 the easy attacks and shows you when one arrives. Treat it the way you
 treat a WAF, not the way you treat a proof.
 
-The on-device ML tier (Meta Prompt Guard 2) is **not bundled** — the
-weights were removed in v0.7.0 to keep the download at ~6 MB instead of
-~600 MB. The fused regex + ML + entropy scorer and the CoreML loader are
-intact, so supplying a model locally lights the ML tier back up.
+The on-device ML tier (Meta Prompt Guard 2, 86M) is **bundled** as of
+v0.9.1 — it runs fully on-device (CoreML, no network), which is the point:
+your traffic never leaves the machine to be classified. The tradeoff is a
+larger download (~300 MB vs ~6 MB). Even so, Prompt Guard 2 is a small
+classifier, not a frontier judge: it lifts recall on novel/multilingual
+attacks but is still evadable under adaptive/encoding attacks. The model
+is gated (Meta HuggingFace) and produced at release time by
+`scripts/ensure-model.sh`; it is not committed to the repo.
 
 ## Quickstart
 
@@ -177,9 +189,9 @@ open a public issue.
 
 Apache License, Version 2.0. See [LICENSE](LICENSE).
 
-The repository retains the Meta Llama Prompt Guard 2 integration code and
-tokenizer (the weights themselves are not bundled — see
-[ARCHITECTURE.md](ARCHITECTURE.md)).
-They're governed by the Llama 4 Community License
-(`LICENSES/Llama-4-Community-License.txt`); see [NOTICE.txt](NOTICE.txt) for
-attribution.
+Release builds bundle the Meta Llama Prompt Guard 2 model (converted to
+CoreML by `scripts/ensure-model.sh`; the weights are gitignored and
+fetched from Meta's gated HuggingFace repo at release time, not committed
+— see [ARCHITECTURE.md](ARCHITECTURE.md)). They're governed by the Llama 4
+Community License (`LICENSES/Llama-4-Community-License.txt`); see
+[NOTICE.txt](NOTICE.txt) for attribution.

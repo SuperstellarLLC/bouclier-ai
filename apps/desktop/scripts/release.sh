@@ -68,17 +68,27 @@ sed -i '' "/<key>CFBundleShortVersionString<\/key>/{n;s|<string>.*</string>|<str
 echo "  ✓ Version bumped in constants.ts + Info.plist"
 echo ""
 
-# ── Step 1: Build + Sign ────────────────────────
-echo "▸ Step 1/5: Building and signing..."
+# ── Step 1: Ensure the on-device model is built ──
+# Prompt Guard 2 (86M) is gitignored (288MB, gated HuggingFace model) but
+# reproducible via ensure-model.sh. It must be in Resources BEFORE the
+# swift build so SPM's .copy("Resources") bundles it. First run downloads
+# ~350MB + converts (~5 min); subsequent runs are instant. Requires a
+# one-time `huggingface-cli login` with access to the gated model.
+echo "▸ Step 1/6: Ensuring on-device model (Prompt Guard 2)..."
+"$SCRIPT_DIR/ensure-model.sh"
+echo ""
+
+# ── Step 2: Build + Sign ────────────────────────
+echo "▸ Step 2/6: Building and signing..."
 VERSION="$VERSION" "$SCRIPT_DIR/build-app.sh" --release --sign
 echo "  ✓ App built and signed at $APP"
 echo ""
 
-# ── Step 2: Notarize the .app ───────────────────
+# ── Step 3: Notarize the .app ───────────────────
 # We notarize the app as a zip first, then staple the ticket onto the
 # .app before packaging the DMG. This way the app inside the DMG has
 # the notarization ticket embedded and Gatekeeper won't block it.
-echo "▸ Step 2/5: Notarizing app..."
+echo "▸ Step 3/6: Notarizing app..."
 APP_ZIP="$PROJECT_DIR/build/Bouclier-ai-notarize.zip"
 ditto -c -k --keepParent "$APP" "$APP_ZIP"
 
@@ -95,8 +105,8 @@ rm -f "$APP_ZIP"
 echo "  ✓ App notarized and stapled"
 echo ""
 
-# ── Step 3: Create DMG with Applications shortcut ──
-echo "▸ Step 3/5: Creating DMG..."
+# ── Step 4: Create DMG with Applications shortcut ──
+echo "▸ Step 4/6: Creating DMG..."
 rm -f "$DMG"
 
 DMG_STAGE="$PROJECT_DIR/build/dmg-stage"
@@ -113,12 +123,12 @@ echo "  ✓ DMG created at $DMG (with stapled app + Applications shortcut)"
 echo "  ✓ Notarized and stapled"
 echo ""
 
-# ── Step 4: Sparkle sign + appcast ──────────────
-echo "▸ Step 4/5: Signing for Sparkle and generating appcast..."
+# ── Step 5: Sparkle sign + appcast ──────────────
+echo "▸ Step 5/6: Signing for Sparkle and generating appcast..."
 VERSION="$VERSION" DOWNLOAD_BASE_URL="$DOWNLOAD_BASE_URL" "$SCRIPT_DIR/publish-update.sh"
 echo ""
 
-# ── Step 5: Upload DMG ──────────────────────────
+# ── Step 6: Upload DMG ──────────────────────────
 # Correct subcommand is `vercel blob put` — `upload` was silently
 # failing because of the 2>/dev/null muzzle below it. Token is passed
 # as env var so the CLI can find the target store without folder
@@ -131,7 +141,7 @@ echo ""
 DOWNLOAD_PATH=$(echo "$DOWNLOAD_BASE_URL" | sed -E 's|^https?://[^/]+||; s|^/||; s|/$||')
 UPLOAD_PATHNAME="${DOWNLOAD_PATH:+${DOWNLOAD_PATH}/}Bouclier-ai-v${VERSION}-macOS.dmg"
 
-echo "▸ Step 5/5: Uploading DMG to Vercel Blob..."
+echo "▸ Step 6/6: Uploading DMG to Vercel Blob..."
 echo "  Target pathname: $UPLOAD_PATHNAME"
 # `--access public` is required by Vercel CLI >= ~48 (older releases
 # defaulted to public); without it `vercel blob put` exits with

@@ -10,6 +10,11 @@ appcast. Write for end users, not for internal engineering notes.
 
 ## [0.9.1] — 2026-08-03
 
+### Added
+
+- **On-device ML detection is back (Meta Prompt Guard 2).** The 86M classifier is bundled again and fused with the regex tier, so novel, paraphrased, and multilingual injections the pattern set misses get caught — all on-device (CoreML, no network; your traffic never leaves the machine to be classified). The tradeoff is download size (~300 MB vs ~6 MB), which is the price of local-only inference. It's a small classifier, not a frontier judge — it raises recall but is still evadable under adaptive/encoding attacks. The weights are gated (Meta HuggingFace) and produced at release time by `scripts/ensure-model.sh`, not committed to the repo.
+- **Retrieved content is treated as untrusted, even inside a user turn.** Previously only `tool_result` / `role:"tool"` / `function_call_output` were untrusted, so a poisoned document or search result pasted into a user message slipped through as "your own text." Now Anthropic `document` and `search_result` blocks — and anything wrapped in the `<document>` RAG convention embedded in principal text — are inspected as untrusted. Your own words around a quoted document are still principal and never blocked.
+
 ### Fixed
 
 - **Far fewer false positives on tool output.** The gateway used to refuse a request whenever tool output matched _any_ critical pattern, with no regard for context — so an agent reading an OWASP advisory, a security tutorial, a fenced code block, or a page that merely _quotes_ "ignore all previous instructions" could get a hard 403, and because the whole conversation is resent each turn, one benign-but-matching tool result could wedge the session on every retry. The false-positive dampeners that the pattern benchmark already measures (academic/tutorial/quoted/fenced-code/OWASP-reference context) are now applied on the desktop path too: a match inside benign context has its weight reduced and is **flagged-and-forwarded** instead of blocked. A genuine injection with no such context still blocks. This brings the desktop false-positive rate on the benign corpus from ~4.2% toward the benchmark's ~2.9%.

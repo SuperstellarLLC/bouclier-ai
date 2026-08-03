@@ -63,12 +63,29 @@ if [ -d "$BUILD_DIR/Bouclier_Bouclier.bundle" ]; then
   cp -r "$BUILD_DIR/Bouclier_Bouclier.bundle" "$CONTENTS/Resources/"
 fi
 
-# Note: this used to also compile a bundled PromptGuard2.mlpackage →
-# .mlmodelc here (CoreML refuses to load a raw .mlpackage at runtime).
-# The model weights are no longer bundled — the detection engine that
-# used them is dormant (no live caller since extreme mode's removal;
-# see ARCHITECTURE.md) — so there's nothing to compile. MLClassifier /
-# PIIClassifier already degrade gracefully when the resource is absent.
+# Compile PromptGuard2.mlpackage → PromptGuard2.mlmodelc so CoreML can
+# load it at runtime. SPM's .copy("Resources") ships the raw .mlpackage;
+# Xcode auto-compiles but swift-build does not, and CoreML refuses to
+# load a raw .mlpackage ("Compile the model with Xcode or
+# MLModel.compileModel(at:)"). Doing it here (once at build) avoids the
+# ~1-2s runtime compile on first launch — and the .mlpackage was
+# silently unusable for every build from v0.2.6 through v0.2.9.
+#
+# The model is produced by ensure-model.sh (run from release.sh) before
+# `swift build`; when it's absent (a normal dev build without HF access)
+# this no-ops and MLClassifier degrades to regex-only, which is fine.
+ML_DIR="$CONTENTS/Resources/Bouclier_Bouclier.bundle/Resources"
+if [ -d "$ML_DIR/PromptGuard2.mlpackage" ]; then
+  if command -v xcrun &>/dev/null && xcrun --find coremlcompiler &>/dev/null; then
+    echo "Compiling PromptGuard2.mlpackage → .mlmodelc ..."
+    xcrun coremlcompiler compile "$ML_DIR/PromptGuard2.mlpackage" "$ML_DIR/"
+    # Drop the raw source to save ~60MB of duplicated weights in the DMG
+    rm -rf "$ML_DIR/PromptGuard2.mlpackage"
+    echo "  ✓ Compiled and dropped raw .mlpackage"
+  else
+    echo "  ⚠ xcrun coremlcompiler unavailable — shipping raw .mlpackage; app will compile at first launch"
+  fi
+fi
 
 # App icon
 if [ -f "$PROJECT_DIR/icon/Bouclier.icns" ]; then

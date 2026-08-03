@@ -237,6 +237,27 @@ enum InjectionInspectionPass {
                         if type == "tool_result" {
                             appendText(block["content"], origin: .untrusted,
                                        locator: "\(base).tool_result", into: &spans)
+                        } else if type == "document" || type == "search_result" {
+                            // Attached/retrieved content is untrusted no
+                            // matter who attached it — a malicious PDF or a
+                            // poisoned search result is exactly the indirect
+                            // injection surface. Text may live in `content`,
+                            // `source.data`, `source.content`, or `title`.
+                            let label = type ?? "document"
+                            appendText(block["content"], origin: .untrusted,
+                                       locator: "\(base).\(label)", into: &spans)
+                            if let source = block["source"] as? [String: Any] {
+                                if let data = source["data"] as? String {
+                                    append(data, origin: .untrusted,
+                                           locator: "\(base).\(label).source", into: &spans)
+                                }
+                                appendText(source["content"], origin: .untrusted,
+                                           locator: "\(base).\(label).source", into: &spans)
+                            }
+                            if let title = block["title"] as? String {
+                                append(title, origin: .untrusted,
+                                       locator: "\(base).\(label).title", into: &spans)
+                            }
                         } else if type == "text", let t = block["text"] as? String {
                             append(t, origin: origin, locator: "\(base).text", into: &spans)
                         }
@@ -302,6 +323,51 @@ enum InjectionInspectionPass {
         guard !text.isEmpty else { return }
         let clipped = text.count > maxSpanScanChars ? String(text.prefix(maxSpanScanChars)) : text
         spans.append(Span(text: clipped, origin: origin, locator: locator))
+
+        // Retrieved content embedded inside PRINCIPAL text — Anthropic's
+        // own RAG guidance wraps documents in `<document>` tags, and agent
+        // frameworks paste search results into a user turn the same way.
+        // That content did not come from the operator, so an injection
+        // hidden in it must still be caught even though the message role is
+        // the user's. Surface each wrapped region as an untrusted sub-span.
+        // (The whole message stays principal — scanned, never blocked — so
+        // the operator's own words around the quote are never held against
+        // them.) Only fires on the explicit RAG wrapper tags, so ordinary
+        // prose is unaffected.
+        if origin == .principal {
+            for region in untrustedWrapperRegions(in: clipped) {
+                append(region, origin: .untrusted, locator: "\(locator)<doc>", into: &spans)
+            }
+        }
+    }
+
+    /// Explicit document/RAG boundary tags. Deliberately narrow — the
+    /// canonical `<document>` convention and search-result wrappers — so a
+    /// developer casually mentioning, say, `<context>` in chat isn't
+    /// reclassified as untrusted.
+    private static let documentWrapperRegexes: [NSRegularExpression] = {
+        ["document", "documents", "search_result", "search_results"].compactMap {
+            try? NSRegularExpression(
+                pattern: "<\($0)(?:\\s[^>]*)?>([\\s\\S]*?)</\($0)>",
+                options: [.caseInsensitive]
+            )
+        }
+    }()
+
+    /// Inner text of every `<document>…</document>` / `<search_result>…`
+    /// region in `text`.
+    private static func untrustedWrapperRegions(in text: String) -> [String] {
+        guard text.contains("<") else { return [] }
+        let ns = text as NSString
+        let full = NSRange(location: 0, length: ns.length)
+        var regions: [String] = []
+        for re in documentWrapperRegexes {
+            for m in re.matches(in: text, range: full) where m.numberOfRanges > 1 {
+                let inner = ns.substring(with: m.range(at: 1))
+                if !inner.isEmpty { regions.append(inner) }
+            }
+        }
+        return regions
     }
 
     // MARK: - Inspection

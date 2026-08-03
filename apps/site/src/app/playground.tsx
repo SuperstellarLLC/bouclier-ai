@@ -82,11 +82,11 @@ const CATEGORY_LABELS: Record<Category, string> = {
 const MAX_INPUT_CHARS = 10_000;
 
 // Mirrors InjectionFilter.severityWeights / computeRegexSignal on the
-// Swift side so the verdict shown here matches what the gateway would
-// actually do. The browser has no CoreML tier and no entropy signal, so
-// `fused` is the regex term alone — which is also the shipped
-// configuration, since the Prompt Guard 2 weights were unbundled in
-// v0.7.0.
+// Swift side so the verdict shown here approximates what the gateway
+// does. This in-browser demo is regex-only: browsers can't run the
+// CoreML model, so it shows the regex tier alone. The shipped Mac app
+// also fuses in the on-device ML classifier (Prompt Guard 2) and
+// dampeners, so it catches more than this demo does.
 const SEVERITY_WEIGHTS: Record<Severity, number> = {
   low: 0.15,
   medium: 0.35,

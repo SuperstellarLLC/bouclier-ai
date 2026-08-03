@@ -158,19 +158,30 @@ is a false positive by construction. It is also what drove this project's
 retreat from text rewriting in v0.6.0. `injectionStrict` (MDM, off by
 default) opts a managed fleet into blocking principal text too.
 
-**A cheap independent gate runs first**, mirroring `SecretRedactionPass`:
-a raw substring search for the four untrusted-shape markers. No marker,
-no JSON parse, no scoring — so ordinary chat traffic is provably
-untouched and a bug in the scoring path cannot corrupt it.
+A span is `.untrusted` when it is a `tool_result` / `role:"tool"` /
+`function_call_output`, a `document` / `search_result` block, or text
+inside a `<document>` RAG wrapper embedded in an otherwise-principal
+turn — retrieved content the operator did not author. Everything else in
+a user/system turn is `.principal`.
 
-Thresholds: an untrusted span blocks on any `critical`-severity match, or
-a fused score ≥ 0.60. With the ML weights unbundled the fused score tops
-out around 0.60, so in the shipped configuration `critical` severity is
-the operative trigger; the fused threshold becomes load-bearing again if
-a classifier is supplied. Fail-open throughout — if
-`InjectionFilter.active.current()` is nil because the engine hasn't
-loaded, requests forward unmodified, per the v0.5.2 rule that Bouclier
-being unavailable must never break the user's agent.
+**A cheap independent gate runs first**, mirroring `SecretRedactionPass`:
+a raw substring search for the untrusted-shape markers. No marker, no JSON
+parse, no scoring — so ordinary chat traffic is provably untouched and a
+bug in the scoring path cannot corrupt it.
+
+Thresholds: an untrusted span blocks on a **dampened** fused score ≥ 0.60.
+The fused score is `regex 0.50 + ML 0.40 + entropy 0.10` with a
+strong-signal short-circuit at 0.85, and false-positive dampeners
+(OWASP/tutorial/quoted/fenced-code context) multiply the regex weight
+down — so a genuine critical match short-circuits to a block while the
+same phrase inside benign context is flagged-and-forwarded. As of v0.9.1
+the on-device ML tier (Prompt Guard 2) is bundled and contributes to the
+score, so an untrusted span can also block on model confidence alone
+(≥ 0.85), catching novel/multilingual attacks the regex set misses.
+Fail-open throughout — if `InjectionFilter.active.current()` is nil
+because the engine hasn't loaded, requests forward unmodified, per the
+v0.5.2 rule that Bouclier being unavailable must never break the user's
+agent.
 
 ## Scope: what we modify and what we don't
 
