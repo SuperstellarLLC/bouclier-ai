@@ -26,7 +26,13 @@ final class InjectionFilter: @unchecked Sendable {
     static let active = ActiveInjectionFilterRegistry()
 
     private let patterns: [FilterPattern]
+    private let dampeners: [CompiledDampener]
     private let classifier: MLClassifier?
+
+    /// Proximity window (UTF-16 units) within which a dampener hit reduces a
+    /// pattern match's severity weight. Mirrors `DAMPENER_PROXIMITY` in
+    /// `packages/patterns/src/dampeners.ts`.
+    private static let dampenerProximity = 200
 
     /// Severity weights mirror the TS scorer (`packages/patterns/src/types.ts`).
     /// Kept in sync so the regex signal carries the same calibration on
@@ -64,15 +70,31 @@ final class InjectionFilter: @unchecked Sendable {
     /// can be attached later via `PatternManager` once it finishes
     /// loading on a background task.
     init(classifier: MLClassifier? = nil) {
-        self.patterns = Self.loadAndVerifyPatterns()
+        let set = Self.loadBundledSet()
+        self.patterns = set.patterns
+        self.dampeners = set.dampeners
         self.classifier = classifier
     }
 
     /// Initialize with externally-provided patterns and an optional ML
     /// classifier. Used by PatternManager for hot-reload and for
-    /// installing the classifier after async load.
+    /// installing the classifier after async load. Dampeners are loaded
+    /// from the bundle (they are not part of the hot-reloadable user
+    /// pattern override).
     init(patterns: [FilterPattern], classifier: MLClassifier? = nil) {
         self.patterns = patterns
+        self.dampeners = Self.loadBundledSet().dampeners
+        self.classifier = classifier
+    }
+
+    /// Initialize with explicit patterns AND dampeners. Used by the test
+    /// suite so it can exercise the exact shipped dampening behaviour
+    /// against a patterns.json it reads directly (the test host's
+    /// `Bundle.main` is the runner, not the app, so bundle loading yields
+    /// the fallback set).
+    init(patterns: [FilterPattern], dampeners: [CompiledDampener], classifier: MLClassifier? = nil) {
+        self.patterns = patterns
+        self.dampeners = dampeners
         self.classifier = classifier
     }
 
@@ -117,7 +139,13 @@ final class InjectionFilter: @unchecked Sendable {
 
         allMatches.sort { $0.range.location < $1.range.location }
         let deduped = deduplicateOverlaps(allMatches)
-        let regexSignal = Self.computeRegexSignal(deduped)
+        // Dampeners are found on the ORIGINAL content; a match near a
+        // benign-context marker (OWASP/CVE, "tutorial", fenced code, a
+        // quoted advisory) gets its severity weight multiplied down, so
+        // legitimate tool output that merely *discusses* an attack doesn't
+        // trip the filter. Mirrors the TS scorer the benchmark measures.
+        let dampenerRanges = findDampenerRanges(in: content)
+        let regexSignal = Self.computeRegexSignal(deduped, dampenerRanges: dampenerRanges)
 
         // ─── Signal 2: ML classifier (optional, on-device, ~10ms) ───
         // Skip on very short inputs — not enough surface for the model
@@ -191,16 +219,55 @@ final class InjectionFilter: @unchecked Sendable {
     }
 
     /// Severity-weighted regex signal in [0, 1]. Mirrors the TS scorer's
-    /// `severityScore` factor: sum of severity weights, capped at 1.
-    /// Single critical match → 1.0; single low match → 0.15.
+    /// `severityScore` factor: sum of severity weights, capped at 1, with
+    /// per-match dampening applied. Single (undampened) critical → 1.0;
+    /// a critical inside an OWASP/tutorial/quoted context → far lower.
     private static func computeRegexSignal(
-        _ matches: [(range: NSRange, name: String, category: String, severity: String)]
+        _ matches: [(range: NSRange, name: String, category: String, severity: String)],
+        dampenerRanges: [DampenerRange]
     ) -> Double {
         var sum = 0.0
         for m in matches {
-            sum += severityWeights[m.severity] ?? 0.15
+            let weight = severityWeights[m.severity] ?? 0.15
+            sum += weight * dampeningMultiplier(for: m.range, ranges: dampenerRanges)
         }
         return min(1.0, sum)
+    }
+
+    /// Lowest (most aggressive) dampener multiplier among all dampener
+    /// ranges within `dampenerProximity` of the match. 1.0 = no dampening.
+    /// Mirrors `computeDampening` in `packages/patterns/src/scorer.ts`.
+    private static func dampeningMultiplier(for range: NSRange, ranges: [DampenerRange]) -> Double {
+        guard !ranges.isEmpty else { return 1.0 }
+        var multiplier = 1.0
+        let matchStart = range.location
+        let matchEnd = range.location + range.length
+        for r in ranges {
+            let gap = max(0, max(r.start - matchEnd, matchStart - r.end))
+            if gap <= dampenerProximity, r.dampen < multiplier {
+                multiplier = r.dampen
+            }
+        }
+        return multiplier
+    }
+
+    /// All dampener hit ranges in `content` (UTF-16 offsets, matching the
+    /// pattern-match offsets). Mirrors `findDampenerRanges` in scorer.ts.
+    private func findDampenerRanges(in content: String) -> [DampenerRange] {
+        guard !dampeners.isEmpty else { return [] }
+        let ns = content as NSString
+        let full = NSRange(location: 0, length: ns.length)
+        var ranges: [DampenerRange] = []
+        for d in dampeners {
+            for m in d.regex.matches(in: content, range: full) {
+                ranges.append(DampenerRange(
+                    start: m.range.location,
+                    end: m.range.location + m.range.length,
+                    dampen: d.dampen
+                ))
+            }
+        }
+        return ranges
     }
 
     private static func normalize(_ content: String) -> String {
@@ -238,12 +305,25 @@ final class InjectionFilter: @unchecked Sendable {
         return result
     }
 
-    private static func loadAndVerifyPatterns() -> [FilterPattern] {
+    /// Compile a `[DampenerJSON]` into runnable dampeners, dropping any
+    /// whose regex doesn't compile under ICU (fail-safe: a broken dampener
+    /// just means less FP suppression, never a crash). Exposed for tests.
+    static func compileDampeners(_ defs: [DampenerJSON]) -> [CompiledDampener] {
+        defs.compactMap { d in
+            var options: NSRegularExpression.Options = []
+            if d.flags.contains("i") { options.insert(.caseInsensitive) }
+            if d.flags.contains("s") { options.insert(.dotMatchesLineSeparators) }
+            guard let re = try? NSRegularExpression(pattern: d.regex, options: options) else { return nil }
+            return CompiledDampener(regex: re, dampen: d.dampen)
+        }
+    }
+
+    private static func loadBundledSet() -> (patterns: [FilterPattern], dampeners: [CompiledDampener]) {
         guard let url = Bundle.main.url(forResource: "patterns", withExtension: "json"),
               let data = try? Data(contentsOf: url)
         else {
             print("[bouclier.ai] patterns.json not found, using fallback patterns")
-            return fallbackPatterns()
+            return (fallbackPatterns(), [])
         }
 
         let hash = SHA256.hash(data: data)
@@ -252,12 +332,13 @@ final class InjectionFilter: @unchecked Sendable {
 
         guard let patternSet = try? JSONDecoder().decode(PatternSetJSON.self, from: data) else {
             print("[bouclier.ai] Failed to decode patterns.json, using fallback patterns")
-            return fallbackPatterns()
+            return (fallbackPatterns(), [])
         }
 
         let compiled = patternSet.patterns.compactMap { FilterPattern(from: $0) }
-        print("[bouclier.ai] Compiled \(compiled.count)/\(patternSet.patterns.count) patterns")
-        return compiled
+        let dampeners = compileDampeners(patternSet.dampeners ?? [])
+        print("[bouclier.ai] Compiled \(compiled.count)/\(patternSet.patterns.count) patterns, \(dampeners.count) dampeners")
+        return (compiled, dampeners)
     }
 
     private static func fallbackPatterns() -> [FilterPattern] {
@@ -444,6 +525,32 @@ struct PatternSetJSON: Codable, Sendable {
     let version: String
     let updatedAt: String
     let patterns: [PatternJSON]
+    /// Optional so an older patterns.json (or a user override without a
+    /// dampeners array) still decodes — absent ⇒ no FP suppression.
+    let dampeners: [DampenerJSON]?
+}
+
+/// A false-positive dampener as shipped in patterns.json. Mirrors the
+/// `Dampener` interface in `packages/patterns/src/types.ts`.
+struct DampenerJSON: Codable, Sendable {
+    let id: String
+    let label: String
+    let regex: String
+    let flags: String
+    let dampen: Double
+}
+
+/// A compiled dampener ready to scan content.
+struct CompiledDampener: Sendable {
+    let regex: NSRegularExpression
+    let dampen: Double
+}
+
+/// One dampener hit's span (UTF-16 offsets) and its multiplier.
+struct DampenerRange: Sendable {
+    let start: Int
+    let end: Int
+    let dampen: Double
 }
 
 struct PatternJSON: Codable, Sendable {

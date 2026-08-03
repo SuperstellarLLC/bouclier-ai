@@ -11,6 +11,7 @@ const distDir = join(__dirname, "..", "dist");
 
 // Dynamic import of the compiled JS
 const { patterns: rawPatterns } = await import(join(distDir, "patterns.js"));
+const { dampeners } = await import(join(distDir, "dampeners.js"));
 
 // The Swift engine compiles these with NSRegularExpression (ICU), which
 // is not JS RegExp. Where a pattern carries an `icuRegex` override, that
@@ -28,6 +29,11 @@ const patternSet = {
   version: JSON.parse(readFileSync(join(__dirname, "..", "package.json"), "utf-8")).version,
   updatedAt: new Date().toISOString(),
   patterns,
+  // Ship the dampeners too so the Swift gateway applies the SAME
+  // false-positive suppression the TS benchmark measures. Without these
+  // the Swift path blocks on any raw critical match (measured ~4.2% FP on
+  // the benign corpus) instead of the dampened ~2.9%.
+  dampeners,
 };
 
 // Trailing newline so the copy that lands in the app's Resources is
@@ -36,6 +42,6 @@ const patternSet = {
 const outPath = join(distDir, "patterns.json");
 writeFileSync(outPath, JSON.stringify(patternSet, null, 2) + "\n");
 console.log(
-  `Exported ${patterns.length} patterns to ${outPath}` +
+  `Exported ${patterns.length} patterns + ${dampeners.length} dampeners to ${outPath}` +
     (overridden ? ` (${overridden} with an ICU regex override)` : ""),
 );

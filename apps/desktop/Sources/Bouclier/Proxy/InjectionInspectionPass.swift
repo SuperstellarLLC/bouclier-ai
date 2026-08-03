@@ -127,17 +127,18 @@ enum InjectionInspectionPass {
     /// separate whole-span entropy signal.
     static let maxSpanScanChars = 64 * 1024
 
-    /// Fused score at which an *untrusted* span is refused. Deliberately
-    /// above `InjectionFilter`'s own 0.50 block bar: one medium-severity
-    /// regex hit inside a tool result should register, not kill the
-    /// request. A single critical pattern (severity 1.0 × 0.50 = 0.50)
-    /// plus any second signal clears this; so does a critical + ML.
+    /// Fused score at which an *untrusted* span is refused.
+    ///
+    /// The score is dampened: a match inside a benign context (an OWASP/CVE
+    /// reference, a "how to detect…" tutorial, a fenced code block, a
+    /// quoted advisory) has its severity weight multiplied down, so the
+    /// legitimate tool output an agent reads all day doesn't trip the
+    /// filter. An *undampened* critical pattern drives the regex signal to
+    /// 1.0 and short-circuits the fused score to 1.0 (well past 0.60), so
+    /// real injections still block; a dampened one falls below the bar and
+    /// is flagged-and-forwarded instead. This mirrors the TS scorer the
+    /// benchmark measures (block at 0.60) — see scorer.ts.
     static let untrustedBlockThreshold: Double = 0.60
-
-    /// Any detection at or above this on an untrusted span blocks
-    /// regardless of the fused arithmetic — a `critical` regex hit in
-    /// tool output is not a judgement call.
-    static let untrustedCriticalSeverity = "critical"
 
     // MARK: - Cheap trigger gate
 
@@ -343,8 +344,12 @@ enum InjectionInspectionPass {
 
             switch span.origin {
             case .untrusted:
-                let critical = result.severities.contains(untrustedCriticalSeverity)
-                if critical || result.fusedScore >= untrustedBlockThreshold {
+                // Score-based, so dampeners apply. (Do NOT also block on a
+                // raw `critical` severity match — that would bypass
+                // dampening and re-introduce the false positives on benign
+                // security/tutorial/quoted content that dampening exists to
+                // suppress; an undampened critical already reaches 1.0.)
+                if result.fusedScore >= untrustedBlockThreshold {
                     block = true
                 }
             case .principal:
