@@ -133,18 +133,22 @@ UPLOAD_PATHNAME="${DOWNLOAD_PATH:+${DOWNLOAD_PATH}/}Bouclier-ai-v${VERSION}-macO
 
 echo "▸ Step 5/5: Uploading DMG to Vercel Blob..."
 echo "  Target pathname: $UPLOAD_PATHNAME"
+# `--access public` is required by Vercel CLI >= ~48 (older releases
+# defaulted to public); without it `vercel blob put` exits with
+# "Missing required --access flag" and the upload is skipped silently.
 if ! command -v vercel &>/dev/null; then
   echo "  ⚠ vercel CLI not found — upload manually:"
-  echo "    vercel blob put $DMG --pathname $UPLOAD_PATHNAME --allow-overwrite"
+  echo "    vercel blob put $DMG --pathname $UPLOAD_PATHNAME --access public --allow-overwrite"
   echo ""
 elif vercel blob put "$DMG" \
        --pathname "$UPLOAD_PATHNAME" \
+       --access public \
        --allow-overwrite; then
   echo "  ✓ Uploaded"
 else
   echo ""
   echo "  ⚠ Upload failed. Run manually from any blob-linked folder:"
-  echo "    vercel blob put $DMG --pathname $UPLOAD_PATHNAME --allow-overwrite"
+  echo "    vercel blob put $DMG --pathname $UPLOAD_PATHNAME --access public --allow-overwrite"
 fi
 echo ""
 
