@@ -140,7 +140,8 @@ export function Playground() {
             them, so they have no business giving orders. The identical sentence{" "}
             <strong>typed by you</strong> is logged and forwarded, because you are the one the agent
             works for. The regex tier that ships in the Mac app runs right here in your browser;
-            nothing leaves your machine.
+            nothing leaves your machine. The app also fuses in an on-device ML classifier and
+            false-positive dampeners the browser can&apos;t run, so it catches more than this demo.
           </p>
         </div>
 

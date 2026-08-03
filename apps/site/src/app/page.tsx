@@ -142,7 +142,8 @@ export default function Home() {
 
             <p className="text-text-secondary mt-5 text-sm">
               <span className="text-text font-semibold">Local-only.</span> 161 detection patterns
-              run on your Mac. No cloud scanning, no telemetry, no accounts.
+              and an on-device ML classifier run on your Mac. No cloud scanning, no telemetry, no
+              accounts.
             </p>
           </div>
         </div>
@@ -178,9 +179,14 @@ export default function Home() {
                 <code className="rounded bg-white px-1 py-0.5 text-xs">role: &quot;tool&quot;</code>{" "}
                 messages,{" "}
                 <code className="rounded bg-white px-1 py-0.5 text-xs">function_call_output</code>{" "}
-                items. Content your agent fetched on its own. Nobody in the session typed it, so an
-                instruction in there is an attack by definition — the request is refused with a 403
-                naming the pattern and the JSON path.
+                items, and retrieved content —{" "}
+                <code className="rounded bg-white px-1 py-0.5 text-xs">document</code> /{" "}
+                <code className="rounded bg-white px-1 py-0.5 text-xs">search_result</code> blocks
+                and anything wrapped in the{" "}
+                <code className="rounded bg-white px-1 py-0.5 text-xs">&lt;document&gt;</code> RAG
+                convention, even inside a user turn. Content your agent fetched on its own. Nobody
+                in the session typed it, so an instruction in there is an attack by definition — the
+                request is refused with a 403 naming the pattern and the JSON path.
               </p>
             </div>
             <div className="border-border rounded-2xl border-2 bg-white p-6">
