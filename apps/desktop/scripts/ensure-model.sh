@@ -43,20 +43,52 @@ echo "  Building CoreML model at $MLPACKAGE"
 echo "  (first run ~5 min + ~350MB download; subsequent runs are instant)"
 
 # ── Venv ────────────────────────────────────────
-if [ ! -d "$VENV" ]; then
-  echo "  Creating Python venv at .venv-ml/..."
-  python3 -m venv "$VENV"
+# Pick a CoreML-compatible base interpreter. coremltools and torch wheels
+# lag new Python releases, so whatever `python3` happens to be (e.g. a
+# brand-new 3.14 with no wheels) is the wrong default — prefer 3.12/3.11.
+BASEPY=""
+for cand in python3.12 python3.11 python3.13 python3.10 python3; do
+  if command -v "$cand" >/dev/null 2>&1; then BASEPY="$cand"; break; fi
+done
+if [ -z "$BASEPY" ]; then
+  echo "ERROR: no python3 interpreter found on PATH." >&2
+  exit 1
 fi
 
-# shellcheck source=/dev/null
-source "$VENV/bin/activate"
+PY="$VENV/bin/python3"
+
+# (Re)create the venv if it's missing, broken (no working pip — a stale
+# .venv-ml can lack pip entirely, which failed with "pip: command not
+# found"), or built on a Python too new for the ML wheels (3.13+).
+needs_venv=false
+if [ ! -x "$PY" ] || ! "$PY" -m pip --version >/dev/null 2>&1; then
+  needs_venv=true
+elif [ "$("$PY" -c 'import sys; print(1 if sys.version_info[:2] <= (3,12) else 0)' 2>/dev/null || echo 0)" != "1" ]; then
+  echo "  Existing .venv-ml uses a Python too new for CoreML wheels — rebuilding."
+  needs_venv=true
+fi
+
+if [ "$needs_venv" = true ]; then
+  echo "  Creating Python venv at .venv-ml/ ($("$BASEPY" --version 2>&1))..."
+  rm -rf "$VENV"
+  "$BASEPY" -m venv "$VENV"
+  # Some base pythons produce a venv without pip; ensurepip backfills it.
+  "$PY" -m ensurepip --upgrade >/dev/null 2>&1 || true
+fi
+
+if ! "$PY" -m pip --version >/dev/null 2>&1; then
+  echo "ERROR: could not get a working pip inside $VENV." >&2
+  echo "       Your base python ($BASEPY) may lack ensurepip. Try: $BASEPY -m ensurepip" >&2
+  exit 1
+fi
 
 # ── Deps ────────────────────────────────────────
-# Check once per import chain — avoids reinstalling on every rebuild.
-if ! python3 -c "import torch, transformers, coremltools, huggingface_hub" 2>/dev/null; then
+# Call pip via the venv's python (`-m pip`) rather than a bare `pip`, so
+# this never depends on `pip` being on PATH or on `activate` having run.
+if ! "$PY" -c "import torch, transformers, coremltools, huggingface_hub" 2>/dev/null; then
   echo "  Installing Python dependencies..."
-  pip install --quiet --upgrade pip
-  pip install --quiet \
+  "$PY" -m pip install --quiet --upgrade pip
+  "$PY" -m pip install --quiet \
     "torch<2.8" \
     transformers \
     coremltools \
@@ -68,15 +100,18 @@ fi
 # ── HuggingFace auth ────────────────────────────
 # PromptGuard 2 is a gated model. We can't interactively log the user in
 # from inside a release pipeline, so fail fast with actionable guidance.
-if ! huggingface-cli whoami >/dev/null 2>&1; then
-  cat >&2 << 'EOF'
+# Check auth via the library (token is shared across CLIs via
+# ~/.cache/huggingface/token or the HF_TOKEN env var).
+if ! "$PY" -c "from huggingface_hub import whoami; whoami()" >/dev/null 2>&1; then
+  cat >&2 << EOF
 
 ERROR: Not authenticated with HuggingFace.
        Meta Prompt Guard 2 is a gated model — you need access first.
 
   1. Request access:   https://huggingface.co/meta-llama/Llama-Prompt-Guard-2-86M
   2. Generate a token: https://huggingface.co/settings/tokens   (type: Read)
-  3. Log in:           huggingface-cli login
+  3. Log in:           "$VENV/bin/huggingface-cli" login
+       (or: export HF_TOKEN=hf_your_token_here)
 
 Then rerun this script.
 EOF
@@ -84,7 +119,7 @@ EOF
 fi
 
 # ── Convert ─────────────────────────────────────
-python3 "$SCRIPT_DIR/convert-promptguard.py"
+"$PY" "$SCRIPT_DIR/convert-promptguard.py"
 
 # ── Verify ──────────────────────────────────────
 if [ ! -f "$MLPACKAGE/Manifest.json" ]; then
