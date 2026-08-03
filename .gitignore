@@ -63,16 +63,18 @@ Package.resolved
 
 # ML conversion venv + HuggingFace cache
 apps/desktop/.venv-ml/
-**/PromptGuardTokenizer/.cache/
-**/PiiranhaTokenizer/.cache/
 
-# CoreML model weights — reproducible via apps/desktop/scripts/convert-*.py,
-# too large for GitHub (>100 MB per file). Regenerated or bundled at
-# release time. The accompanying tokenizer folder and label JSON are
-# small enough to commit, and DO ship in the bundle so the classifier
-# can find them at runtime.
+# CoreML model + tokenizer — both produced by apps/desktop/scripts/
+# ensure-model.sh (convert-*.py) at release time from Meta's gated
+# HuggingFace checkpoint. The .mlpackage is too large for GitHub (>100 MB
+# per file); the tokenizer is regenerated alongside it, so neither is
+# committed. Both land in Sources/.../Resources before `swift build` and
+# ship inside the app bundle; absent them, the classifier degrades to
+# regex-only. Regenerate with `./scripts/ensure-model.sh`.
 **/PromptGuard2.mlpackage/
 **/Piiranha.mlpackage/
+**/PromptGuardTokenizer/
+**/PiiranhaTokenizer/
 
 # turbo
 .turbo/

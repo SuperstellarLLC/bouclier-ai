@@ -6,42 +6,31 @@
     <description>Updates for Bouclier.ai — prompt injection firewall for macOS</description>
     <language>en</language>
     <item>
-      <title>Version 0.9.0</title>
-      <pubDate>Mon, 03 Aug 2026 09:37:37 +0200</pubDate>
-      <sparkle:version>0.9.0</sparkle:version>
-      <sparkle:shortVersionString>0.9.0</sparkle:shortVersionString>
+      <title>Version 0.9.1</title>
+      <pubDate>Mon, 03 Aug 2026 15:31:36 +0200</pubDate>
+      <sparkle:version>0.9.1</sparkle:version>
+      <sparkle:shortVersionString>0.9.1</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
       <description><![CDATA[
-<h2>Bouclier.ai v0.9.0</h2>
+<h2>Bouclier.ai v0.9.1</h2>
 <h4>Added</h4>
 <ul>
-<li><strong>Bouclier is a prompt-injection firewall again.</strong> The detection engine is live for the first time since v0.7.0 — and for the first time ever without a certificate. It now runs inside the loopback gateway, which already sees every request body in plaintext before re-issuing it upstream. No root CA, no System Extension, no system-wide network filter: the machinery that used to be a prerequisite for detection turns out never to have been one.</li>
-<li><strong>It refuses attacks in tool output, and leaves your own prompts alone.</strong> Bouclier splits each request by where the text came from. Content your agent fetched by itself — <code>tool_result</code> blocks, <code>role: "tool"</code> messages, <code>function_call_output</code> items — is untrusted: an instruction in there came from a web page, a README, or an MCP server, and the request is refused. Your own prompt and system prompt are scanned for the activity log and then <strong>forwarded byte-for-byte, whatever they say</strong>. You can paste an OWASP advisory or test a jailbreak against your own model without Bouclier getting in the way.</li>
-<li><strong>Refusals explain themselves.</strong> A blocked request returns a <code>403</code> with a provider-shaped JSON error naming the pattern that matched and the exact JSON path it came from (<code>messages[2].content[0].tool_result</code>), so your SDK raises a readable error instead of dying on a closed socket. Details at <https://www.bouclier.ai/blocked>, which is back.</li>
-<li><strong>Live playground on the homepage, rebuilt around the provenance split.</strong> Paste anything, flip the origin toggle, and watch the same sentence get refused as tool output and forwarded as your own prompt. The regex tier runs in your browser; nothing is uploaded.</li>
-<li><strong>Strict mode for managed fleets.</strong> <code>injectionStrict</code> (MDM only, off by default) also blocks detections in the operator's own prompt, for organisations that want it and accept the false positives.</li>
+<li><strong>On-device ML detection is back (Meta Prompt Guard 2).</strong> The 86M classifier is bundled again and fused with the regex tier, so novel, paraphrased, and multilingual injections the pattern set misses get caught — all on-device (CoreML, no network; your traffic never leaves the machine to be classified). The tradeoff is download size (~300 MB vs ~6 MB), which is the price of local-only inference. It's a small classifier, not a frontier judge — it raises recall but is still evadable under adaptive/encoding attacks. The weights are gated (Meta HuggingFace) and produced at release time by <code>scripts/ensure-model.sh</code>, not committed to the repo.</li>
+<li><strong>Retrieved content is treated as untrusted, even inside a user turn.</strong> Previously only <code>tool_result</code> / <code>role:"tool"</code> / <code>function_call_output</code> were untrusted, so a poisoned document or search result pasted into a user message slipped through as "your own text." Now Anthropic <code>document</code> and <code>search_result</code> blocks — and anything wrapped in the <code><document></code> RAG convention embedded in principal text — are inspected as untrusted. Your own words around a quoted document are still principal and never blocked.</li>
 </ul>
 <h4>Fixed</h4>
 <ul>
-<li><strong>The shipped pattern file was three months stale.</strong> <code>patterns.json</code> in the app's resources still held the 35 patterns generated on 2026-04-04, while the source package had grown to 161 across 21 categories. Release builds resynced it, but every developer build ran on the old set. It is now regenerated and checked in, and a test fails the build if it drifts again.</li>
-<li><strong>One detector never worked on macOS at all.</strong> <code>encode-004</code>, the ASCII-smuggling detector for invisible Unicode Tags characters (U+E0020–U+E007E), was written with JavaScript's <code>\u{…}</code> escape. <code>NSRegularExpression</code> is ICU, which rejects that syntax outright, and <code>FilterPattern(from:)</code> drops any pattern that fails to compile _silently_ — so the detector simply did not exist in the Swift engine. Patterns can now carry an ICU-specific form, and a test asserts all 161 compile.</li>
+<li><strong>Far fewer false positives on tool output.</strong> The gateway used to refuse a request whenever tool output matched _any_ critical pattern, with no regard for context — so an agent reading an OWASP advisory, a security tutorial, a fenced code block, or a page that merely _quotes_ "ignore all previous instructions" could get a hard 403, and because the whole conversation is resent each turn, one benign-but-matching tool result could wedge the session on every retry. The false-positive dampeners that the pattern benchmark already measures (academic/tutorial/quoted/fenced-code/OWASP-reference context) are now applied on the desktop path too: a match inside benign context has its weight reduced and is <strong>flagged-and-forwarded</strong> instead of blocked. A genuine injection with no such context still blocks. This brings the desktop false-positive rate on the benign corpus from ~4.2% toward the benchmark's ~2.9%.</li>
 </ul>
 <h4>Changed</h4>
 <ul>
-<li><strong>Nothing rewrites your prompt. Ever.</strong> The old engine replaced matched spans with a redaction notice — and, when only the ML or entropy signal fired, replaced the _entire_ prompt body with a one-line notice and forwarded it anyway. That behaviour is not coming back with the engine: a request is now either forwarded unmodified or refused outright. This keeps the v0.6.0 promise (text bodies reach the provider untouched) rather than quietly reversing it.</li>
-<li><strong>Flagged is not blocked in the activity log either.</strong> Detections that don't meet the refusal bar are recorded with their score and pattern names but without the red shield, closing the same honesty gap v0.6.1 fixed for the ML/entropy path.</li>
-<li>Homepage leads with injection defence; the secret keeper is now presented as what it is — the other half of containing a hijacked agent, still opt-in under Settings → Secrets.</li>
-</ul>
-<h4>Known limits</h4>
-<ul>
-<li><strong>The on-device ML tier is still not bundled.</strong> Prompt Guard 2's weights were removed in v0.7.0 to get the download from ~600 MB to ~6 MB, and they stay out. Detection is the 161-pattern regex tier plus an entropy heuristic. The fused scorer and the CoreML loader are intact, so supplying a model locally lights the ML tier back up.</li>
-<li><strong>This is defence in depth, not a solution.</strong> Prompt injection is unsolved, and a pattern engine is evadable by anyone who is trying. The defences that actually hold are structural — constraining what a hijacked agent can reach. Bouclier raises the cost of the easy attacks and shows you when one arrives. Treat it like a WAF, not like a proof.</li>
+<li>The untrusted-content block decision is now purely score-based (dampeners apply) rather than "any critical match blocks." An undampened critical pattern still drives the score to a hard block; a dampened one is logged and forwarded.</li>
 </ul>
 ]]></description>
       <enclosure
-        url="https://0tdi95zyjwsefpzx.public.blob.vercel-storage.com/download/Bouclier-ai-v0.9.0-macOS.dmg"
-        sparkle:edSignature="S0xo/KGO78NDz9W7HTmIC1aY6GWKjWSYFdRTpRuWt0/QfysUeG1rh6zSuJDpP8hr7DDOG/PQSCl6eHcTnNb1DA=="
-        length="9220282"
+        url="https://0tdi95zyjwsefpzx.public.blob.vercel-storage.com/download/Bouclier-ai-v0.9.1-macOS.dmg"
+        sparkle:edSignature="DR0ScboX+gCX1WmlHK1IDUtq9m3v1os8tELcYG5cAlKpKO3pgzFmxtMSGrCrlgOW1Fq6GgDBf1uYu0MfLqukBA=="
+        length="272989500"
         type="application/octet-stream"
       />
     </item>
