@@ -1,0 +1,29 @@
+# The Vercel "site" project builds apps/site (which imports
+# packages/patterns). Everything else in the monorepo is dead weight for
+# that build — and .venv / node_modules / .build alone are ~1 GB, which
+# blows past Vercel's upload limits. Keep the deploy archive lean.
+#
+# NOTE: archive uploads (--archive=tgz) do NOT honor .gitignore, so the
+# heavy build/vendor dirs must be listed here explicitly.
+
+.git
+node_modules
+**/node_modules
+.turbo
+**/.turbo
+.next
+**/.next
+
+# Python ML-conversion venvs (torch/coreml) — hundreds of MB, desktop-only.
+.venv
+**/.venv
+.venv-ml
+**/.venv-ml
+
+# The Swift desktop app and its build/release artifacts — not part of the site.
+apps/desktop
+BouclierAppIcons
+*.dmg
+
+# Generated pattern dist is rebuilt by the Vercel build command.
+packages/patterns/dist

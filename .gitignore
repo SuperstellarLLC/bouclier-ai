@@ -79,3 +79,9 @@ apps/desktop/.venv-ml/
 
 # package build artifacts
 packages/*/dist/
+
+# Local env files (Vercel OIDC token, pulled env vars) — never commit.
+# Scoped so the tracked .env.example template is unaffected.
+.env.local
+.env*.local
+.vercel
