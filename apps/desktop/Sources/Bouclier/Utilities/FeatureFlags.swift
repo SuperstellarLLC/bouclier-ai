@@ -35,6 +35,20 @@ enum FeatureFlags {
         resolve(key: "injectionDetection", default: true)
     }
 
+    /// Whether a detected injection in **untrusted** content is actually
+    /// refused (403), versus only scanned and logged. Default: **off** —
+    /// monitor mode. Blocking a detection means 403-ing the agent, and an
+    /// untrusted span that trips a critical pattern is very often benign
+    /// (source, diffs, email templates, LLM-prompt strings all quote
+    /// "system prompt" / "ignore previous instructions"). A pattern engine
+    /// can't tell a quoted payload from a live one, so block-by-default
+    /// breaks normal agent work. Prevention is a deliberate opt-in; the
+    /// default observes and records without ever breaking traffic. Enable
+    /// via MDM or `defaults write ai.bouclier.app injectionBlockEnabled -bool true`.
+    static var injectionBlock: Bool {
+        resolve(key: "injectionBlock", default: false)
+    }
+
     /// Whether a detection on the operator's **own** prompt also blocks.
     /// Default: **off**. The user is the principal — they are allowed to
     /// paste an OWASP advisory or say "ignore previous instructions" to
