@@ -50,11 +50,11 @@ export default function TermsPage() {
             <strong>not</strong> sold, distributed, or offered for production use, and is{" "}
             <strong>not</strong> intended for regulated workloads, safety-critical systems,
             healthcare, financial services, payment processing, identity verification, fraud
-            prevention, or any environment in which a secret-scrubbing failure could cause harm,
-            financial loss, regulatory non-compliance, or other material damage. Secret scrubbing is
-            best-effort; false negatives and false positives will occur. You may not deploy the
-            Software as a security control on which any other person or system relies. Use at your
-            own risk and at your own cost.
+            prevention, or any environment in which a detection failure could cause harm, financial
+            loss, regulatory non-compliance, or other material damage. Detection is best-effort;
+            false negatives and false positives will occur. You may not deploy the Software as a
+            security control on which any other person or system relies. Use at your own risk and at
+            your own cost.
           </p>
         </div>
 
@@ -105,20 +105,23 @@ export default function TermsPage() {
             NON-INFRINGEMENT, OR ANY WARRANTY ARISING OUT OF COURSE OF DEALING OR USAGE OF TRADE.
           </p>
           <p className="mt-3">
-            Without limiting the foregoing, we make no warranty that the Software will correctly
-            scrub or restore any specific secret value, preserve any specific behaviour across
-            sessions or releases, be free of errors, operate without interruption, be secure against
-            any specific threat, interoperate with any third-party tool or service, or meet any
+            Without limiting the foregoing, we make no warranty that the Software will detect or
+            block any specific prompt injection, preserve any specific behaviour across sessions or
+            releases, be free of errors, operate without interruption, be secure against any
+            specific threat, interoperate with any third-party tool or service, or meet any
             regulatory or compliance requirement.
           </p>
         </Section>
 
-        <Section title="4. Secret scrubbing is best-effort">
+        <Section title="4. Detection is best-effort">
           <p>
-            The Software identifies a managed secret&apos;s real value by exact match against the
-            value you stored in Keychain and replaces it with a placeholder before the request
-            reaches the model provider, restoring it in the response. This is deterministic, not
-            probabilistic, but it is not exhaustive. Specifically and without limitation:
+            The Software inspects requests for prompt-injection patterns in <em>untrusted</em>{" "}
+            content — tool results and other model-visible text your agent fetched rather than text
+            you typed. This detection is probabilistic, pattern-based, and best-effort: it has the
+            false-positive and false-negative characteristics typical of such systems, and a
+            determined attacker can evade it. It is defence-in-depth, not a guarantee, and must not
+            be relied upon as the sole control protecting you from prompt injection or data
+            exfiltration. Specifically and without limitation:
           </p>
           <ul className="mt-3 list-disc space-y-2 pl-5">
             <li>
@@ -130,31 +133,27 @@ export default function TermsPage() {
               outside the Software&apos;s reach and unaffected by it.
             </li>
             <li>
-              <strong>Exact-match only.</strong> Scrub and restore require the stored value to
-              appear byte-for-byte. A transformed, re-encoded, partially-typed, or otherwise altered
-              copy of a secret value will not be recognised and will pass through unchanged.
+              <strong>Evadable.</strong> The detector matches known attack families and the cheap
+              obfuscations around them. A payload deliberately shaped to slip past it can and will
+              succeed. A clean pass is not evidence of safety.
             </li>
             <li>
-              <strong>Body size cap.</strong> Requests above a configured size threshold are not
-              scanned for secret material and are forwarded unchanged, so that large payloads (e.g.
-              file uploads) are not slowed or blocked.
+              <strong>Monitor by default.</strong> Out of the box the Software inspects and logs but
+              does not block; it forwards every request. Blocking (refusing a flagged request) is
+              opt-in, per install or via MDM. A monitor-mode install detects but does not stop
+              anything.
             </li>
             <li>
-              <strong>The agent retains restored values.</strong> Scrubbing blinds the model
-              provider only. A restored secret value does reach the requesting agent/tool and may
-              persist in its local transcript or logs — see Section 6.
+              <strong>Body size cap.</strong> Requests above a configured size threshold are
+              forwarded without inspection, so that large payloads (e.g. file uploads) are not
+              slowed or blocked.
             </li>
           </ul>
           <p className="mt-3 text-sm">
-            The Software also inspects requests for prompt-injection patterns in <em>untrusted</em>{" "}
-            content — tool results and other model-visible text your agent fetched rather than text
-            you typed — and may refuse such a request. This detection is probabilistic,
-            pattern-based, and best-effort: it has the false-positive and false-negative
-            characteristics typical of such systems, and a determined attacker can evade it. It is
-            defence-in-depth, not a guarantee, and must not be relied upon as the sole control
-            protecting you from prompt injection or data exfiltration. Detected content is refused,
-            never rewritten; your own prompts are forwarded unchanged. The attachment-PII detection
-            engine described in earlier versions of these Terms is not on any live request path.
+            The Software never modifies a request: a flagged request is refused locally with a 403,
+            never rewritten, and your own prompts are always forwarded unchanged. The attachment-PII
+            detection engine described in earlier versions of these Terms is not on any live request
+            path.
           </p>
         </Section>
 
@@ -179,21 +178,18 @@ export default function TermsPage() {
               time.
             </li>
             <li>
-              You are solely responsible for reviewing any rewrites performed by the Software —
-              today limited to the secret-scrub substitution described in Section 4 — before relying
-              on the result.
-            </li>
-            <li>
               You are solely responsible for evaluating whether the Software is appropriate for your
               environment, your data, and your obligations. You must not deploy the Software in any
-              environment in which a scrubbing failure could cause harm to you, to your employer, to
-              your customers, or to any third party.
+              environment in which a detection failure — a missed injection, or a false positive
+              that refuses legitimate work — could cause harm to you, to your employer, to your
+              customers, or to any third party.
             </li>
             <li>
               You are solely responsible for the configuration of every Software setting, including
-              MDM-managed values and which processes are routed through the gateway.
-              Misconfiguration, or simply not routing a given tool through the gateway, may cause a
-              managed secret to reach a model provider unscrubbed.
+              MDM-managed values, whether blocking is enabled, and which processes are routed
+              through the gateway. Misconfiguration, running in monitor mode, or simply not routing
+              a given tool through the gateway, may cause an injection to reach your agent
+              uninspected or unblocked.
             </li>
             <li>
               You must comply with the terms of service of every AI provider you send traffic to.
@@ -240,10 +236,9 @@ export default function TermsPage() {
 
         <Section title="9. Local-only processing; no data collection">
           <p>
-            The Software is designed to process managed-secret scrub/restore locally on your device.
-            We do not operate servers that receive prompt content, attachment content, secret
-            values, audit logs, or user telemetry. The only outbound network calls initiated by the
-            Software are described in the{" "}
+            The Software is designed to process detection locally on your device. We do not operate
+            servers that receive prompt content, attachment content, audit logs, or user telemetry.
+            The only outbound network calls initiated by the Software are described in the{" "}
             <Link href="/privacy" className="text-bouclier hover:underline">
               Privacy Policy
             </Link>
@@ -258,10 +253,10 @@ export default function TermsPage() {
           <p>
             The Software re-issues requests you route through its gateway to third-party AI
             providers. Text prompt bodies and HTTP request headers are forwarded byte-for-byte; the
-            only content the Software ever modifies on an outbound request is a managed
-            secret&apos;s real value, which is replaced with a placeholder as described in Section
-            4. We have no control over those providers, their terms, their data handling, their
-            availability, or their pricing. Your use of those providers is governed by your
+            Software never modifies an outbound request — it forwards it unchanged or, when
+            injection is detected and blocking is enabled, refuses it locally as described in
+            Section 4. We have no control over those providers, their terms, their data handling,
+            their availability, or their pricing. Your use of those providers is governed by your
             agreement with each of them. Content delivered to each provider is governed by that
             provider&apos;s own terms.
           </p>

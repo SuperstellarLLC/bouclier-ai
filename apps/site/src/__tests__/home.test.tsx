@@ -10,17 +10,18 @@ describe("Home page", () => {
     expect(screen.getByText(/to give your agent orders/i)).toBeInTheDocument();
   });
 
-  it("leads with prompt-injection defence, not the secret keeper", () => {
+  it("leads with prompt-injection defence, split by provenance", () => {
     render(<Home />);
     expect(screen.getByText(/it knows which bytes you wrote/i)).toBeInTheDocument();
-    expect(screen.getByText(/untrusted — refused/i)).toBeInTheDocument();
+    expect(screen.getByText(/untrusted — flagged, or refused/i)).toBeInTheDocument();
     expect(screen.getByText(/yours — never blocked/i)).toBeInTheDocument();
   });
 
-  it("still documents the secret keeper and the agent surface", () => {
+  it("documents the agent surface and no longer mentions the secret keeper", () => {
     render(<Home />);
-    expect(screen.getByText(/you keep the secret/i)).toBeInTheDocument();
     expect(screen.getByText(/drive it from claude code/i)).toBeInTheDocument();
+    expect(screen.queryByText(/secret keeper/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/you keep the secret/i)).not.toBeInTheDocument();
   });
 
   it("renders the live playground", () => {

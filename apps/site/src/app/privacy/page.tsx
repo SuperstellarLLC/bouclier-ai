@@ -55,13 +55,12 @@ export default function PrivacyPage() {
         {/* Summary box */}
         <div className="border-accent-green/30 mt-6 rounded-xl border-2 bg-emerald-50 p-6">
           <p className="font-medium text-emerald-900">
-            Bouclier.ai runs entirely on your device. The gateway inspects requests locally — for
-            prompt-injection patterns in tool output, and for a managed secret&apos;s real value —
-            and never stores, transmits, or logs your prompts or responses anywhere. The app
-            collects no personal data, has no analytics, no crash reporting, and no user accounts.
-            The only information that ever reaches a bouclier.ai server is a single anonymous
-            timestamp when you click the Download button on this marketing site — full scope
-            described below.
+            Bouclier.ai runs entirely on your device. The gateway inspects each request locally for
+            prompt-injection patterns in untrusted tool output, and never stores, transmits, or logs
+            your prompts or responses anywhere. The app collects no personal data, has no analytics,
+            no crash reporting, and no user accounts. The only information that ever reaches a
+            bouclier.ai server is a single anonymous timestamp when you click the Download button on
+            this marketing site — full scope described below.
           </p>
         </div>
 
@@ -71,10 +70,9 @@ export default function PrivacyPage() {
           directly; the gateway re-issues each request to the real provider over TLS and streams the
           response back. There is no system-wide traffic interception, no certificate authority, and
           no decryption of traffic the gateway wasn&apos;t explicitly pointed at. Text prompt bodies
-          and request headers are forwarded byte-for-byte; the only content the Software ever
-          modifies is a managed secret&apos;s real value, which is scrubbed to a placeholder on the
-          way out (see &quot;What reaches the model&quot; on the homepage) and restored in the
-          response.
+          and request headers are forwarded byte-for-byte; the Software never modifies a request. It
+          either forwards it unchanged or, when injection is detected in untrusted content and
+          blocking is enabled, refuses it locally with a 403.
         </Section>
 
         <Section title="Providers reached">
@@ -92,8 +90,8 @@ export default function PrivacyPage() {
           <ol className="list-decimal space-y-3 pl-5">
             <li>
               <strong>AI API forwarding</strong> — forwarding your requests to their intended
-              destination. A managed secret&apos;s real value is scrubbed to a placeholder before
-              the request leaves the gateway and restored in the response; nothing else is modified.
+              destination, byte-for-byte. Nothing is modified; a request is either forwarded
+              unchanged or refused locally.
             </li>
             <li>
               <strong>Update check</strong> — checking for software updates via appcast.xml hosted
@@ -102,7 +100,7 @@ export default function PrivacyPage() {
             </li>
             <li>
               <strong>SIEM webhook (enterprise only)</strong> — if and only if configured by an
-              organization&apos;s IT administrator via MDM, secret-keeper event metadata (timestamp,
+              organization&apos;s IT administrator via MDM, detection event metadata (timestamp,
               host, event kind) is sent to that organization-controlled endpoint. Never enabled by
               default. Cannot be configured by the user.
             </li>
@@ -146,16 +144,8 @@ export default function PrivacyPage() {
             <li className="flex gap-2">
               <span className="bg-text-secondary mt-2 h-1 w-1 shrink-0 rounded-full" />
               <span>
-                <strong>Daily stats</strong> — date, requests scanned, secrets scrubbed/blocked.
+                <strong>Daily stats</strong> — date, requests inspected, injections blocked.
                 Retained 365 days.
-              </span>
-            </li>
-            <li className="flex gap-2">
-              <span className="bg-text-secondary mt-2 h-1 w-1 shrink-0 rounded-full" />
-              <span>
-                <strong>Managed secret values</strong> — macOS Keychain (encrypted at rest),
-                kSecAttrAccessibleWhenUnlockedThisDeviceOnly. Never written to disk in plaintext,
-                never logged.
               </span>
             </li>
             <li className="flex gap-2">
@@ -178,27 +168,23 @@ export default function PrivacyPage() {
           organization&apos;s IT administrator, not to Bouclier.ai or any third party.
         </Section>
 
-        <Section title="Secret scrub / restore method">
+        <Section title="Injection inspection method">
           <p>
-            A managed secret&apos;s real value is detected by exact match against the value you
-            stored in Keychain (not a heuristic or classifier) and replaced with an opaque
-            placeholder before the request reaches the model provider. The matching response is
-            scanned for the placeholder and restored to the real value so your local tools keep
-            working. Requests and responses containing no managed secret value are forwarded
-            byte-for-byte, untouched.
+            The Software inspects request bodies on-device for prompt-injection patterns in
+            untrusted content (tool results and other model-visible text the agent fetched itself).
+            Inspection reads the request in memory for the duration of that request; it never stores
+            or transmits it. When injection is detected and blocking is enabled, the request is
+            refused locally with a 403 — it never leaves your machine. Otherwise the request is
+            forwarded byte-for-byte.
           </p>
           <p className="mt-3">
-            Text prompt bodies and HTTP request headers are otherwise forwarded byte-for-byte; the
-            Software does not modify outbound prompts or headers beyond the secret-scrub
-            substitution described above. This is pinned by an end-to-end test in the public
-            repository.
+            Text prompt bodies and HTTP request headers are forwarded byte-for-byte; the Software
+            does not modify outbound prompts or headers at all. A request is delivered unchanged or
+            refused, never rewritten. This is pinned by an end-to-end test in the public repository.
           </p>
           <p className="mt-3 text-sm">
-            The Software also inspects request bodies on-device for prompt-injection patterns in
-            untrusted content (tool results and other model-visible text the agent fetched itself).
-            This inspection reads the request but never stores or transmits it; a flagged request is
-            refused locally with a 403, never rewritten. The attachment-PII detection engine
-            described in earlier versions of this policy is not on any live request path.
+            The attachment-PII detection engine described in earlier versions of this policy is not
+            on any live request path.
           </p>
         </Section>
 

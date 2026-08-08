@@ -3,7 +3,7 @@ import { readFileSync } from "fs";
 import { join } from "path";
 
 export const runtime = "nodejs";
-export const alt = "Bouclier.ai — Your AI agent uses your secrets, never sees them";
+export const alt = "Bouclier.ai — A prompt-injection firewall for your AI agent";
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
 
@@ -47,7 +47,7 @@ export default function OGImage() {
           marginTop: 12,
         }}
       >
-        Your AI agent uses your secrets. It never sees them.
+        A web page should not be able to give your agent orders.
       </div>
 
       <div
@@ -58,7 +58,7 @@ export default function OGImage() {
         }}
       >
         {[
-          { value: "Keychain", label: "Secret storage" },
+          { value: "161", label: "Detection patterns" },
           { value: "0", label: "Certificates installed" },
           { value: "MCP", label: "Native agent support" },
         ].map((m) => (

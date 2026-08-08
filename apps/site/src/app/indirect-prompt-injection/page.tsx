@@ -6,9 +6,9 @@ import { APP_URL } from "@/lib/constants";
 
 // SEO/GEO answer page targeting "indirect prompt injection" and "can a website
 // hijack an AI agent". Answer-first, FAQ + Article JSON-LD so AI answer engines
-// and search both get a citable page. Native to Bouclier (a secret keeper that
-// contains the blast radius of a hijacked agent); one contextual reference to
-// a tool that measures agent task completion on real sites.
+// and search both get a citable page. Native to Bouclier (a prompt-injection
+// firewall that inspects untrusted tool output before it reaches the model);
+// one contextual reference to a tool that measures agent task completion.
 
 const CANONICAL = `${APP_URL}/indirect-prompt-injection`;
 const TITLE = "Indirect prompt injection: how a web page can hijack your AI agent";
@@ -196,13 +196,15 @@ export default function IndirectPromptInjectionPage() {
               </li>
             </ul>
             <p>
-              That last layer is what <strong className="text-text">Bouclier</strong> was built for.
-              It sits between your agent&apos;s AI SDK calls and the provider on your Mac. Managed
-              API keys and secrets are scrubbed from outbound requests before they reach the model
-              and restored in the response, so your local tools still work — but the model, and
-              anything that hijacks it via indirect injection, never sees the credential. Even if a
-              payload picked up from a page or a PDF succeeds at manipulating the agent,
-              there&apos;s nothing to exfiltrate.
+              The first layer is what <strong className="text-text">Bouclier</strong> was built for.
+              It sits between your agent&apos;s AI SDK calls and the provider on your Mac, and
+              inspects every request for injection hidden in <em>untrusted</em> content — tool
+              results, fetched pages, retrieved documents — before it reaches the model. When it
+              spots an instruction in text nobody in your session typed, it flags it (and, with
+              blocking on, refuses the request outright). It runs entirely on-device: 161 detection
+              patterns plus an on-device ML classifier, no traffic leaving your machine. It is
+              defence in depth on the untrusted leg, not a complete solution — pair it with the
+              structural controls above.
             </p>
           </div>
         </section>

@@ -5,17 +5,17 @@ import { APP_NAME, APP_URL } from "@/lib/constants";
 import "./globals.css";
 
 const DESCRIPTION =
-  "Let your AI coding agent use your secrets without ever seeing them. Local-only macOS app — keeps API keys out of the model. No certificate required. Experimental beta — not for production.";
+  "A prompt-injection firewall for your AI coding agent. Local-only macOS app — inspects every tool result for instructions trying to reprogram your agent, on-device. No certificate required. Experimental beta — not for production.";
 
 export const metadata: Metadata = {
   title: {
-    default: `${APP_NAME} (Beta) — Your AI agent uses your secrets, never sees them`,
+    default: `${APP_NAME} (Beta) — A prompt-injection firewall for your AI agent`,
     template: `%s | ${APP_NAME} (Beta)`,
   },
   description: DESCRIPTION,
   metadataBase: new URL(APP_URL),
   openGraph: {
-    title: `${APP_NAME} (Beta) — Your AI agent uses your secrets, never sees them`,
+    title: `${APP_NAME} (Beta) — A prompt-injection firewall for your AI agent`,
     description: DESCRIPTION,
     siteName: APP_NAME,
     locale: "en_US",

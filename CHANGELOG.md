@@ -8,6 +8,20 @@ The `[VERSION]` section for each release is extracted verbatim by
 `apps/desktop/scripts/publish-update.sh` and injected into the Sparkle
 appcast. Write for end users, not for internal engineering notes.
 
+## [0.9.2] — 2026-08-08
+
+### Changed
+
+- **Monitor by default; blocking is opt-in.** The gateway used to refuse a flagged request outright, which meant a false positive on tool output could wedge a normal agent session (the whole conversation is resent each turn, so one benign-but-matching result kept failing on every retry). Bouclier now **detects and logs by default and forwards the request** — it can't break normal work. Turn on enforcement to get refusals: `defaults write ai.bouclier.app injectionBlockEnabled -bool true`, or push it fleet-wide by MDM. Your own prompts are never blocked in either mode.
+
+### Removed
+
+- **The secret keeper is gone.** The feature that stored managed credentials in your Keychain, scrubbed their real values out of outbound requests, and restored them in the response has been removed entirely — along with its agent secret-request flow, the `bouclier secrets` / `bouclier env` / `bouclier protection` CLI commands, and the secrets MCP server. It was off by default, under-tested, and marginal in practice (API keys live in request headers, not prompt bodies). Bouclier is now a focused prompt-injection firewall. The gateway is a byte-faithful transparent relay: it forwards a request unmodified or refuses it, and never rewrites. The `bouclier` CLI is read-only (`status`, `install`); the injection MCP server is unchanged. If you relied on the secret keeper, keep your credentials wherever your tools already read them.
+
+### Security
+
+- The security policy and threat model now describe the live attack surface accurately: the injection firewall is the primary control (they previously described it as dormant), and the secret-scrub invariants are gone. Public contact is `apps@superstellar.io`, and the `/blocked` page and `SECURITY.md` were trimmed to avoid over-exposing detection internals.
+
 ## [0.9.1] — 2026-08-03
 
 ### Added
