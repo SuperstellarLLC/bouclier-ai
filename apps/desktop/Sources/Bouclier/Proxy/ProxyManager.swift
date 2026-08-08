@@ -1,4 +1,4 @@
-import BouclierSecretsCore
+import BouclierCore
 import Foundation
 import NIOCore
 import ServiceManagement
@@ -18,11 +18,6 @@ final class ProxyManager: ObservableObject {
     @Published var errorMessage: String?
     @Published var stats = ProxyStats()
     @Published var logs: [LogEntry] = []
-
-    /// False once the secret-keeper runtime self-test has failed and the
-    /// circuit breaker has tripped. Surfaced in Settings → Secrets so the
-    /// user sees the feature was auto-disabled for safety. Starts true.
-    @Published var secretKeeperHealthy = true
 
     var port: Int {
         let p = UserDefaults.standard.object(forKey: "proxyPort") as? Int ?? 8484
@@ -45,11 +40,6 @@ final class ProxyManager: ObservableObject {
     var mlTierActive: Bool { InjectionFilter.active.current()?.hasMLClassifier ?? false }
 
     private var gatewayServer: GatewayServer?
-    /// Watches for just-in-time secret requests from the MCP server and
-    /// presents the approval dialog. Independent of the proxy: runs for the
-    /// whole app lifetime so an agent can request a secret even with
-    /// protection off. Started once in `initializeStorage`.
-    private var secretRequestResponder: SecretRequestResponder?
     private var statusPublisher: StatusPublisher?
     private var proxyChannel: Channel?
     /// Cleanup-only remnants of extreme mode (CA + System Extension),
@@ -102,32 +92,10 @@ final class ProxyManager: ObservableObject {
         // before anything else touches `ca`/`extensionManager` state.
         migrateAwayFromExtremeModeIfNeeded()
 
-        // Verify the secret keeper's safety invariants hold in THIS binary
-        // before any traffic flows. If a logic regression ever escaped CI,
-        // the breaker trips here and the feature is disabled — the proxy
-        // forwards everything untouched rather than risk corrupting a live
-        // LLM connection. Runs every launch, even when the feature is off.
-        runSecretKeeperSelfTest()
-
-        // Purge any session-only secrets left by a prior run (the user
-        // unchecked "keep after this session"), then start the responder
-        // that handles agent secret requests + advertises app liveness.
-        SessionSecrets.purge()
-        secretRequestResponder = SecretRequestResponder()
-        secretRequestResponder?.start()
-
-        // Publish the read-only status snapshot for the MCP server / CLI, and
-        // wire the one agent-proposable state change (enable protection) to
-        // the approval dialog. The agent proposes; the human approves here;
-        // the app — never the agent — performs the enable.
+        // Publish the read-only status snapshot for the CLI so an agent can
+        // check whether protection is on before it runs.
         statusPublisher = StatusPublisher(snapshot: { [weak self] in self?.statusSnapshot() ?? Self.emptyStatus() })
         statusPublisher?.start()
-        ProtectionApprovalCoordinator.shared.onEnable = { [weak self] mode in
-            guard let self else { return (false, "Bouclier is not available.") }
-            self.enableStandard()
-            self.statusPublisher?.refresh()
-            return (true, "Protection enabled in \(mode) mode. Open a new terminal so your tools pick it up.")
-        }
 
         // If the user has already gone through onboarding, turn protection
         // on at launch — the menu-bar shield otherwise shows the disarmed
@@ -223,11 +191,9 @@ final class ProxyManager: ObservableObject {
     }
 
     /// Build the read-only snapshot the StatusPublisher writes. Counts only —
-    /// never a secret value.
+    /// never request content.
     func statusSnapshot() -> BouclierStatus {
-        let rules = SecretStore.shared.rules()
-        let active = SecretEnvManifest.load()
-        return BouclierStatus(
+        BouclierStatus(
             writtenAt: Date().timeIntervalSince1970,
             pid: getpid(),
             appVersion: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—",
@@ -235,26 +201,15 @@ final class ProxyManager: ObservableObject {
             mode: ProxyMode.current.rawValue,
             caInstalled: caInstalled,
             protectionEnabled: UserDefaults.standard.bool(forKey: Self.protectionEnabledKey),
-            secretKeeper: .init(enabled: FeatureFlags.secretInjection,
-                                healthy: secretKeeperHealthy,
-                                circuitBreakerTripped: SecretKeeperMonitor.isTripped),
-            secrets: .init(total: rules.count,
-                           agentAccessible: rules.filter { $0.agentAccess }.count,
-                           active: active.count),
             activity: .init(requestsScanned: stats.requestsScanned,
-                            injectionsBlocked: stats.injectionsBlocked,
-                            secretsScrubbed: stats.secretsScrubbed,
-                            secretsInjected: stats.secretsInjected,
-                            secretsBlocked: stats.secretsBlocked))
+                            injectionsBlocked: stats.injectionsBlocked))
     }
 
     static func emptyStatus() -> BouclierStatus {
         BouclierStatus(
             writtenAt: Date().timeIntervalSince1970, pid: getpid(), appVersion: "—",
             running: false, mode: ProxyMode.current.rawValue, caInstalled: false, protectionEnabled: false,
-            secretKeeper: .init(enabled: false, healthy: true, circuitBreakerTripped: false),
-            secrets: .init(total: 0, agentAccessible: 0, active: 0),
-            activity: .init(requestsScanned: 0, injectionsBlocked: 0, secretsScrubbed: 0, secretsInjected: 0, secretsBlocked: 0))
+            activity: .init(requestsScanned: 0, injectionsBlocked: 0))
     }
 
     func start() {
@@ -386,8 +341,7 @@ final class ProxyManager: ObservableObject {
         signal(SIGTERM) { _ in
             _ = SystemProxy.disableAll()
             ShellEnvInjector.unsetLaunchctl()
-            try? FileManager.default.removeItem(at: SecretEnvPaths.responderPidFile)
-            try? FileManager.default.removeItem(at: SecretEnvPaths.statusFile)
+            try? FileManager.default.removeItem(at: BouclierPaths.statusFile)
             exit(0)
         }
 
@@ -395,9 +349,8 @@ final class ProxyManager: ObservableObject {
         atexit {
             _ = SystemProxy.disableAll()
             ShellEnvInjector.unsetLaunchctl()
-            // Drop the liveness pid + status files so readers fail fast.
-            try? FileManager.default.removeItem(at: SecretEnvPaths.responderPidFile)
-            try? FileManager.default.removeItem(at: SecretEnvPaths.statusFile)
+            // Drop the status snapshot so readers fail fast.
+            try? FileManager.default.removeItem(at: BouclierPaths.statusFile)
         }
     }
 
@@ -409,14 +362,6 @@ final class ProxyManager: ObservableObject {
     /// `ProxyManagerLifecycleTests` can exercise it without standing
     /// up a full proxy + upstream.
     func handleRequestLog(_ requestLog: RequestLog) {
-        // Secret-keeper events are a side-channel for an already-counted
-        // request — route them separately so they don't double-count
-        // `requestsScanned` or run the injection/PII accounting below.
-        if let secret = requestLog.secret {
-            handleSecretEvent(secret)
-            return
-        }
-
         stats.requestsScanned += 1
 
         if requestLog.detected {
@@ -531,105 +476,6 @@ final class ProxyManager: ObservableObject {
         }
     }
 
-    /// Drive the activity feed, counters, notification, SIEM audit, and
-    /// on-disk stats for one secret-keeper event. Mirrors the injection
-    /// path so secrets get first-class treatment in every surface.
-    private func handleSecretEvent(_ event: SecretEvent) {
-        switch event.kind {
-        case .injected(let names):
-            stats.secretsInjected += names.count
-            let list = names.joined(separator: ", ")
-            log("Injected secret\(names.count > 1 ? "s" : "") (\(list)) → \(event.host)", blocked: false)
-            AuditLogger.shared.logEvent("secret-injected", detail: "\(list) → \(event.host)")
-            storage?.recordScan(
-                source: "secret-injection",
-                targetHost: event.host,
-                detected: false,
-                matchCount: 0,
-                patternIds: names,
-                severity: nil,
-                requestSize: 0,
-                mlScore: nil,
-                entropyAnomaly: 0,
-                fusedScore: 0,
-                mlAvailable: false
-            )
-            Task { await Metrics.shared.recordSecretInjected(count: names.count) }
-
-        case .scrubbed(let names):
-            stats.secretsScrubbed += names.count
-            let list = names.joined(separator: ", ")
-            log("Scrubbed secret\(names.count > 1 ? "s" : "") (\(list)) before model → \(event.host)", blocked: false)
-            AuditLogger.shared.logEvent("secret-scrubbed", detail: "\(list) → \(event.host)")
-            storage?.recordScan(
-                source: "secret-scrub",
-                targetHost: event.host,
-                detected: false,
-                matchCount: 0,
-                patternIds: names,
-                severity: nil,
-                requestSize: 0,
-                mlScore: nil,
-                entropyAnomaly: 0,
-                fusedScore: 0,
-                mlAvailable: false
-            )
-
-        case .blocked(let reason):
-            stats.secretsBlocked += 1
-            log("Blocked secret exfil → \(event.host): \(reason.auditDescription)", blocked: true)
-            sendSecretBlockNotification(host: event.host, reason: reason.auditDescription)
-            AuditLogger.shared.logEvent("secret-blocked", detail: "\(reason.auditDescription) → \(event.host)")
-            storage?.recordScan(
-                source: "secret-injection",
-                targetHost: event.host,
-                detected: true,
-                matchCount: 1,
-                patternIds: [reason.ruleName],
-                severity: "high",
-                requestSize: 0,
-                mlScore: nil,
-                entropyAnomaly: 0,
-                fusedScore: 0,
-                mlAvailable: false
-            )
-            Task { await Metrics.shared.recordSecretBlocked() }
-        }
-    }
-
-    /// Run the secret-keeper invariant self-test and, on any failure,
-    /// trip the circuit breaker (disable the feature process-wide) and
-    /// alert. Idempotent and cheap.
-    private func runSecretKeeperSelfTest() {
-        let report = SecretKeeperMonitor.runSelfTest()
-        guard report.passed else {
-            let detail = report.failures.joined(separator: "; ")
-            SecretKeeperMonitor.trip(reason: detail)
-            secretKeeperHealthy = false
-            log("Secret keeper self-test FAILED — feature disabled for safety: \(detail)", blocked: true)
-            AuditLogger.shared.logEvent("secret-keeper-selftest-failed", detail: detail)
-            let content = UNMutableNotificationContent()
-            content.title = "Secret Keeper Disabled"
-            content.body = "A safety self-test failed; secret injection is off and all traffic is forwarded untouched."
-            UNUserNotificationCenter.current().add(
-                UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
-            )
-            return
-        }
-        secretKeeperHealthy = true
-    }
-
-    private func sendSecretBlockNotification(host: String, reason: String) {
-        guard UserDefaults.standard.object(forKey: "showNotifications") as? Bool ?? true else { return }
-        let content = UNMutableNotificationContent()
-        content.title = "Secret Exfiltration Blocked"
-        content.body = "\(reason) → \(host)"
-        let quiet = UserDefaults.standard.object(forKey: "quietMode") as? Bool ?? true
-        content.sound = quiet ? nil : .default
-        let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
-        UNUserNotificationCenter.current().add(request)
-    }
-
     private func log(_ message: String, blocked: Bool) {
         let entry = LogEntry(message: message, blocked: blocked)
         logs.insert(entry, at: 0)
@@ -674,23 +520,11 @@ struct ProxyStats {
     /// Cumulative count of attachments (images, PDFs, audio) that
     /// were inspected and stripped of PII before forwarding.
     var mediaBlocked: Int = 0
-    /// Cumulative count of managed secrets injected at egress (the agent
-    /// only ever held the placeholder).
-    var secretsInjected: Int = 0
-    /// Cumulative count of requests blocked by a secret tripwire
-    /// (exfil to a disallowed host, or plaintext secret present).
-    var secretsBlocked: Int = 0
-    /// Cumulative count of managed secrets scrubbed (real value → placeholder)
-    /// out of requests to model providers in standard mode.
-    var secretsScrubbed: Int = 0
     mutating func reset() {
         requestsScanned = 0
         injectionsBlocked = 0
         piiRedacted = 0
         mediaBlocked = 0
-        secretsInjected = 0
-        secretsBlocked = 0
-        secretsScrubbed = 0
     }
 }
 

@@ -1,4 +1,4 @@
-import BouclierSecretsCore
+import BouclierCore
 import Foundation
 
 // Thin adapter: parse argv, run the shared core, print, exit with the

@@ -54,8 +54,6 @@ mkdir -p "$CONTENTS/Resources"
 # Binaries
 cp "$BUILD_DIR/Bouclier" "$CONTENTS/MacOS/"
 cp "$BUILD_DIR/bouclier-ai-mcp-wrapper" "$CONTENTS/MacOS/"
-cp "$BUILD_DIR/bouclier-ai-env" "$CONTENTS/MacOS/"
-cp "$BUILD_DIR/bouclier-ai-secrets-mcp" "$CONTENTS/MacOS/"
 cp "$BUILD_DIR/bouclier-cli" "$CONTENTS/MacOS/"
 
 # Resources (patterns.json bundle)
@@ -196,20 +194,11 @@ if [ "$SIGN" = true ]; then
 
   # 2. Helper executables
   echo "Signing helper binaries..."
+  # The injection MCP server wraps the gateway; the `bouclier` CLI (built
+  # as bouclier-cli — see Package.swift) reads status. Neither touches the
+  # Keychain, so they need no special entitlement — least privilege.
   $CODESIGN "$IDENTITY" "$CONTENTS/MacOS/bouclier-ai-mcp-wrapper"
-  # The `bouclier` CLI (built as bouclier-cli — see Package.swift) reads
-  # status + drives the approval IPC, but never touches the Keychain (no
-  # secret-value path), so it needs no special entitlement — least privilege.
   $CODESIGN "$IDENTITY" "$CONTENTS/MacOS/bouclier-cli"
-  # env + secrets-mcp share the app's Keychain access group so the agent
-  # can use stored secrets without a per-access prompt (see
-  # BouclierHelpers.entitlements).
-  $CODESIGN "$IDENTITY" \
-    --entitlements "$PROJECT_DIR/BouclierHelpers.entitlements" \
-    "$CONTENTS/MacOS/bouclier-ai-env"
-  $CODESIGN "$IDENTITY" \
-    --entitlements "$PROJECT_DIR/BouclierHelpers.entitlements" \
-    "$CONTENTS/MacOS/bouclier-ai-secrets-mcp"
 
   # 3. Main app (outermost — must be last)
   echo "Signing main app..."

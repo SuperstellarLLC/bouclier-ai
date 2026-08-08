@@ -22,21 +22,12 @@ enum SystemProxy {
         "openrouter.ai",
     ]
 
-    /// All intercepted domains (built-in + MDM-configured + secret-rule
-    /// hosts). Reported by the diagnostics export and used for the
-    /// secret-keeper's host bookkeeping.
+    /// All intercepted domains (built-in + MDM-configured). Reported by the
+    /// diagnostics export.
     static var interceptedDomains: Set<String> {
         var domains = builtinDomains
         for domain in ManagedConfig.additionalDomains {
             domains.insert(domain.lowercased())
-        }
-        // Secret-keeper: hosts bound to a managed secret are reported
-        // alongside the built-in set. Gated on the flag so the default
-        // posture is unchanged.
-        if FeatureFlags.secretInjection {
-            for host in SecretStore.shared.allHosts() {
-                domains.insert(host)
-            }
         }
         return domains
     }

@@ -2,8 +2,8 @@ import SwiftUI
 
 /// The menu-bar panel. Designed to answer one question in under a second —
 /// "is my AI traffic protected?" — with a calm hero + master switch, then
-/// surface the headline feature (Secret Keeper) and a glanceable activity
-/// line. Configuration and diagnostics live in Settings, not here.
+/// surface the firewall status and a glanceable activity line.
+/// Configuration and diagnostics live in Settings, not here.
 struct MenuBarView: View {
     @ObservedObject var proxyManager: ProxyManager
     @ObservedObject var updater: AutoUpdater
@@ -18,7 +18,7 @@ struct MenuBarView: View {
             }
 
             sectionDivider
-            secretKeeperSection
+            firewallSection
 
             if proxyManager.isRunning {
                 sectionDivider
@@ -108,8 +108,8 @@ struct MenuBarView: View {
     private var heroSubtitle: String {
         if proxyManager.errorMessage != nil { return "Protection couldn't start — see below." }
         return proxyManager.isRunning
-            ? "Your AI traffic is protected. Agents use your secrets without ever seeing them."
-            : "Turn on to protect your AI traffic and secrets."
+            ? "Your AI traffic is inspected for prompt injection in untrusted tool output."
+            : "Turn on to inspect your AI traffic for prompt injection."
     }
 
     private func errorBanner(_ error: String) -> some View {
@@ -124,26 +124,20 @@ struct MenuBarView: View {
         .accessibilityElement(children: .combine)
     }
 
-    // MARK: - Secret Keeper (the headline feature)
+    // MARK: - Firewall
 
-    private var secretKeeperSection: some View {
+    private var firewallSection: some View {
         Button(action: { openSettingsWindow() }) {
             HStack(spacing: 12) {
-                Image(systemName: "key.fill")
+                Image(systemName: "shield.lefthalf.filled")
                     .foregroundStyle(.secondary)
                     .frame(width: 30)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Secret Keeper").font(.subheadline.weight(.semibold))
-                    Text(secretKeeperSubtitle).font(.caption).foregroundStyle(.secondary)
+                    Text("Injection firewall").font(.subheadline.weight(.semibold))
+                    Text(firewallSubtitle).font(.caption).foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer(minLength: 8)
-                if agentSecretCount > 0 {
-                    Text("\(agentSecretCount)")
-                        .font(.caption.weight(.semibold).monospacedDigit())
-                        .padding(.horizontal, 7).padding(.vertical, 2)
-                        .background(Color.secondary.opacity(0.15), in: Capsule())
-                }
                 Image(systemName: "chevron.right").font(.caption2).foregroundStyle(.tertiary)
             }
             .contentShape(Rectangle())
@@ -151,14 +145,12 @@ struct MenuBarView: View {
         .buttonStyle(.plain)
     }
 
-    private var secretKeeperSubtitle: String {
-        agentSecretCount > 0
-            ? "\(agentSecretCount) secret\(agentSecretCount == 1 ? "" : "s") ready for your agent to use"
-            : "Add a secret so your agent can use it without seeing it"
-    }
-
-    private var agentSecretCount: Int {
-        SecretStore.shared.rules().filter { $0.agentAccess }.count
+    private var firewallSubtitle: String {
+        let n = proxyManager.patternCount
+        guard n > 0 else { return "Loading detection patterns…" }
+        let mode = FeatureFlags.injectionBlock ? "enforcing" : "monitoring"
+        let ml = proxyManager.mlTierActive ? " + ML" : ""
+        return "\(n) patterns\(ml) · \(mode)"
     }
 
     // MARK: - Activity
@@ -207,7 +199,7 @@ struct MenuBarView: View {
 
     private var activitySummary: String {
         let n = proxyManager.stats.requestsScanned
-        let blocked = proxyManager.stats.secretsBlocked
+        let blocked = proxyManager.stats.injectionsBlocked
         let base = "\(n) request\(n == 1 ? "" : "s") inspected"
         return blocked > 0 ? "\(base) · \(blocked) blocked" : "\(base) · all clear"
     }

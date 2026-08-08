@@ -2,7 +2,7 @@
 
 Thanks for your interest in improving Bouclier.ai. The project is small
 and fast-moving; contributions of any size are welcome — bug reports,
-documentation fixes, and core gateway/secret-keeper work.
+documentation fixes, and core gateway/detection work.
 
 By participating you agree to the [Code of Conduct](CODE_OF_CONDUCT.md)
 and that your contributions are licensed under
@@ -23,10 +23,10 @@ apps/
 └── site/          Next.js marketing & docs site
 
 packages/
-└── patterns/      Injection + PII pattern library (dormant — see
-                    ARCHITECTURE.md; not currently invoked on live traffic)
+└── patterns/      Injection + PII pattern library (the injection tier is
+                    live via the gateway; see ARCHITECTURE.md)
 
-docs/              Threat model, secret-keeper design notes
+docs/              Threat model
 ```
 
 ## Development setup

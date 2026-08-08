@@ -18,7 +18,7 @@ enum CLIInstaller {
     }
 
     static var cliBinaryPath: String { binaryPath(named: "bouclier-cli") }
-    static var mcpBinaryPath: String { binaryPath(named: "bouclier-ai-secrets-mcp") }
+    static var mcpBinaryPath: String { binaryPath(named: "bouclier-ai-mcp-wrapper") }
 
     /// What the symlink currently resolves to, or nil if it doesn't exist
     /// (or isn't a symlink at all).

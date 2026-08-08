@@ -94,7 +94,7 @@ struct OnboardingView: View {
                     .accessibilityHidden(true)
                 Text("Enable Protection")
                     .font(.title2.bold())
-                Text("Bouclier routes your AI tools (Claude Code, Cursor, …) through a local gateway — no certificate to install. It refuses prompt injections hidden in tool output, and can keep your secrets out of the model.")
+                Text("Bouclier routes your AI tools (Claude Code, Cursor, …) through a local gateway — no certificate to install. It inspects every request for prompt injection hidden in untrusted tool output, on-device.")
                     .multilineTextAlignment(.center)
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: 380)

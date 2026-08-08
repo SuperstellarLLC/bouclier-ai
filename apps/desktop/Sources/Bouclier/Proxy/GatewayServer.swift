@@ -30,20 +30,13 @@ import NIOTLS
 ///                          GatewayRelayHandler ──► back to agent (raw bytes)
 /// ```
 ///
-/// Phase 1 is a **byte-faithful transparent relay** — no secret
-/// scrub/restore yet. Header fidelity is the whole game: `anthropic-beta`,
-/// `anthropic-version`, the model id, and auth are forwarded verbatim
-/// (Claude Code's own 1M-context / prompt-cache accounting rides on them),
-/// and the upstream leg is pinned to HTTP/1.1 so header name casing/order
-/// survive (HTTP/2 lowercases names).
+/// The gateway is a **byte-faithful transparent relay**: it forwards a
+/// request unmodified or refuses it outright — it never rewrites. Header
+/// fidelity is the whole game: `anthropic-beta`, `anthropic-version`, the
+/// model id, and auth are forwarded verbatim (Claude Code's own 1M-context /
+/// prompt-cache accounting rides on them), and the upstream leg is pinned to
+/// HTTP/1.1 so header name casing/order survive (HTTP/2 lowercases names).
 final class GatewayServer: Sendable {
-    /// Above this body size the secret scrub/restore is skipped and the
-    /// body forwarded untouched. Placeholders and key-shaped secrets live
-    /// in small tool-call/chat JSON; large bodies are vision images / file
-    /// uploads, which must not be slowed. Mirrors
-    /// `HTTPInspectionHandler.maxSecretScanBytes`.
-    static let maxSecretScanBytes = 1 * 1024 * 1024
-
     private let group: EventLoopGroup
     private let port: Int
     private let overrides: UpstreamOverrides
@@ -128,8 +121,7 @@ struct UpstreamOverrides: Sendable, Equatable {
     /// Parse a target override into a validated (host, port). Only http/https
     /// with a sane RFC-1123 host and unprivileged port are accepted; a
     /// loopback or cloud-metadata target is rejected so the override can't
-    /// be turned into an SSRF or self-loop primitive (same posture as the
-    /// secret-keeper host validation).
+    /// be turned into an SSRF or self-loop primitive.
     static func parseTarget(_ raw: String?) -> (String, Int)? {
         guard let url = ManagedConfigValidator.validatedProxyURL(raw),
               let host = url.host,
@@ -229,22 +221,9 @@ private final class GatewayHandler: ChannelInboundHandler, RemovableChannelHandl
     /// to a *different* host on the same connection is a misuse we refuse
     /// rather than silently cross credentials between providers.
     private var upstreamHost: String?
-    /// Buffered request write, replayed once the upstream connects. A
-    /// closure so it can be either a raw byte write (clean traffic, the
-    /// byte-faithful keep-alive path) or an HTTP-parts write (restore path,
-    /// where the encoder re-frames after the body length changes).
+    /// Buffered request write, replayed once the upstream connects — a raw
+    /// byte write for the byte-faithful keep-alive relay.
     private var pendingWrite: ((Channel) -> Void)?
-    /// True for this connection when secrets are configured: the upstream
-    /// is a full HTTP client (encoder + decoder) and the response is
-    /// restored placeholder→value. False keeps the raw byte-faithful relay.
-    private var restoreActive = false
-    /// Secret rules pinned at the FIRST request on this connection. The
-    /// response restore pipeline is fixed once (at first connect), so the
-    /// request scrub must use the same rule set for every request on the
-    /// connection — otherwise a mid-connection config change could scrub a
-    /// request whose response won't be restored (placeholder leaks to the
-    /// agent) or vice-versa. New connections pick up config changes.
-    private var connectionRules: [SecretRule]?
 
     init(
         overrides: UpstreamOverrides,
@@ -303,16 +282,10 @@ private final class GatewayHandler: ChannelInboundHandler, RemovableChannelHandl
         let allocator = context.channel.allocator
 
         var headers = head.headers
-        var requestURI = head.uri
+        let requestURI = head.uri
         var mutableBody = bodyBuffer
-        var scrubbedNames: [String] = []
 
         // ─── Prompt-injection inspection (primary protection) ───
-        // Runs BEFORE the secret scrub for two reasons: a refused request
-        // must never have had its secrets substituted (nothing leaves the
-        // box, so there is nothing to scrub), and scoring the untouched
-        // body means placeholders can't perturb detection.
-        //
         // Cheap `hasTrigger` gate first — a request with no tool output in
         // it is forwarded byte-for-byte, exactly as before. Fail-open if
         // the engine hasn't loaded: Bouclier being unready must not break
@@ -365,61 +338,6 @@ private final class GatewayHandler: ChannelInboundHandler, RemovableChannelHandl
             return
         }
 
-        // Secrets configured ⇒ standard-mode sandwich is live for this
-        // connection: scrub the request and restore the response. Pin the
-        // rule set on the FIRST request so scrub and the (per-connection)
-        // restore pipeline always agree. If the live secret-config state
-        // changes mid keep-alive connection, the fixed response pipeline no
-        // longer matches — refuse with a retryable 503 so the client
-        // reopens a fresh connection that picks up the new config (else a
-        // stale connection could skip scrubbing a now-managed secret).
-        let secretsOn = FeatureFlags.secretInjection && !SecretKeeperMonitor.isTripped
-        let liveRules = secretsOn ? SecretStore.shared.rules() : []
-        if let pinned = connectionRules {
-            if liveRules.isEmpty != pinned.isEmpty {
-                respondLocally(context: context, status: "503 Service Unavailable")
-                return
-            }
-        } else {
-            connectionRules = liveRules
-        }
-        let rules = connectionRules ?? []
-        restoreActive = !rules.isEmpty
-
-        // Standard-mode secret SCRUB: replace managed real secret values
-        // with their placeholders BEFORE the request reaches the model
-        // provider, so the secret never leaves the machine for the vendor.
-        // The matching restore (`GatewayRestoreHandler`) reverses it in the
-        // response so the agent's local tool calls still see the real value.
-        // Same integrity gate (`hasTrigger`) as injection, so clean LLM
-        // traffic is provably untouched.
-        if restoreActive {
-            // The response is restored on a plaintext byte stream, so ask
-            // the upstream not to compress it (SSE is already plaintext;
-            // this covers non-streaming JSON). Only when secrets exist.
-            headers.remove(name: "Accept-Encoding")
-
-            let scannable = mutableBody.readableBytes <= GatewayServer.maxSecretScanBytes
-            let scanBody = scannable ? Data(mutableBody.readableBytesView) : Data()
-            let inHeaders = headers.map { SecretInjectionPass.Header($0.name, $0.value) }
-            let resolve: (String) -> String? = { SecretStore.shared.resolve($0) }
-            if SecretRedactionPass.hasTrigger(uri: requestURI, headers: inHeaders, body: scanBody, rules: rules, resolve: resolve) {
-                let outcome = SecretRedactionPass.apply(uri: requestURI, headers: inHeaders, body: scanBody, rules: rules, resolve: resolve)
-                if outcome.changed {
-                    requestURI = outcome.uri
-                    var rebuilt = HTTPHeaders()
-                    for h in outcome.headers { rebuilt.add(name: h.name, value: h.value) }
-                    headers = rebuilt
-                    if scannable {
-                        var nb = allocator.buffer(capacity: outcome.body.count)
-                        nb.writeBytes(outcome.body)
-                        mutableBody = nb
-                    }
-                    scrubbedNames = outcome.scrubbed
-                }
-            }
-        }
-
         // Rewrite Host to the upstream (the client sent "127.0.0.1:<port>")
         // and strip hop-by-hop headers that must not cross a proxy. Drop
         // Content-Length too: the raw path re-derives it, the parts path
@@ -441,22 +359,9 @@ private final class GatewayHandler: ChannelInboundHandler, RemovableChannelHandl
         }
 
         let bodySize = mutableBody.readableBytes
+        // Raw path: byte-faithful hand-serialized request (keep-alive).
         let writeRequest: (Channel) -> Void
-        if restoreActive {
-            // Parts path: a proper HTTP client (encoder) re-frames the
-            // request, computing Content-Length from the post-scrub body.
-            var outHead = HTTPRequestHead(version: .http1_1, method: head.method, uri: requestURI)
-            outHead.headers = headers
-            let body = mutableBody
-            writeRequest = { ch in
-                ch.write(NIOAny(HTTPClientRequestPart.head(outHead)), promise: nil)
-                if body.readableBytes > 0 {
-                    ch.write(NIOAny(HTTPClientRequestPart.body(.byteBuffer(body))), promise: nil)
-                }
-                ch.writeAndFlush(NIOAny(HTTPClientRequestPart.end(nil)), promise: nil)
-            }
-        } else {
-            // Raw path: byte-faithful hand-serialized request (keep-alive).
+        do {
             var outHeaders = headers
             outHeaders.replaceOrAdd(name: "Content-Length", value: "\(bodySize)")
             var raw = allocator.buffer(capacity: 1024 + bodySize)
@@ -486,9 +391,6 @@ private final class GatewayHandler: ChannelInboundHandler, RemovableChannelHandl
             mlAvailable: injection.mlAvailable,
             multimodal: nil
         ))
-        if !scrubbedNames.isEmpty {
-            onRequest(RequestLog(secretEvent: SecretEvent(host: host, kind: .scrubbed(names: scrubbedNames))))
-        }
 
         sendUpstream(context: context, write: writeRequest, host: host, port: port)
 
@@ -528,33 +430,13 @@ private final class GatewayHandler: ChannelInboundHandler, RemovableChannelHandl
             }
             let sslContext = try NIOSSLContext(configuration: tlsConfig)
 
-            // Response path was decided in forwardUpstream (`restoreActive`).
-            // Restore path: a full HTTP client (encoder + decoder) so NIO
-            // handles request/response framing (incl. de-chunking) — we
-            // restore the decoded body and re-emit with connection-close.
-            // Clean path: byte-faithful raw relay, keep-alive preserved.
-            let useRestore = restoreActive
-            let restore: SecretRestore = {
-                guard useRestore else { return SecretRestore(map: []) }
-                // Same pinned rule set the scrub used (see connectionRules).
-                let map = (self.connectionRules ?? []).compactMap { r -> (placeholder: String, value: String)? in
-                    guard let v = SecretStore.shared.resolve(r.name), SecretInjectionPass.isTripwireEligible(v) else { return nil }
-                    return (r.placeholder, v)
-                }
-                return SecretRestore(map: map)
-            }()
-
+            // Byte-faithful raw relay, keep-alive preserved. The gateway
+            // never rewrites the response — it forwards a request unmodified
+            // or refuses it outright.
             let bootstrap = ClientBootstrap(group: eventLoop)
                 .channelInitializer { channel in
                     do {
                         let sslHandler = try NIOSSLClientHandler(context: sslContext, serverHostname: host)
-                        if useRestore {
-                            return channel.pipeline.addHandler(sslHandler).flatMap {
-                                channel.pipeline.addHTTPClientHandlers()
-                            }.flatMap {
-                                channel.pipeline.addHandler(GatewayRestoreHandler(clientChannel: clientChannel, restore: restore))
-                            }
-                        }
                         return channel.pipeline.addHandlers([
                             sslHandler,
                             GatewayRelayHandler(clientChannel: clientChannel),
@@ -705,86 +587,6 @@ private final class GatewayRelayHandler: ChannelInboundHandler, @unchecked Senda
 
     func channelInactive(context: ChannelHandlerContext) {
         clientChannel.close(promise: nil)
-        context.fireChannelInactive()
-    }
-
-    func errorCaught(context: ChannelHandlerContext, error: Error) {
-        clientChannel.close(promise: nil)
-        context.close(promise: nil)
-    }
-}
-
-// MARK: - Upstream Relay with secret restore (standard-mode sandwich)
-
-/// Response path when secrets are configured: parse the upstream response,
-/// restore placeholders→real values in the body (straddle-safe), and
-/// re-emit to the agent with **connection-close framing**. Restore changes
-/// the body length, so we drop Content-Length/Transfer-Encoding and let
-/// the connection close delimit the body — valid HTTP/1.1, supported by
-/// every client, and it avoids re-chunking / Content-Length recompute. The
-/// trade-off is no client-side keep-alive for secret-protected
-/// connections; acceptable since restore only runs when secrets exist.
-private final class GatewayRestoreHandler: ChannelInboundHandler, @unchecked Sendable {
-    typealias InboundIn = HTTPClientResponsePart
-
-    private let clientChannel: Channel
-    private var restore: SecretRestore
-    private var finished = false
-
-    init(clientChannel: Channel, restore: SecretRestore) {
-        self.clientChannel = clientChannel
-        self.restore = restore
-    }
-
-    func channelRead(context: ChannelHandlerContext, data: NIOAny) {
-        switch unwrapInboundIn(data) {
-        case .head(let head):
-            writeResponseHead(head)
-        case .body(let buf):
-            let emit = restore.ingest(Array(buf.readableBytesView))
-            if !emit.isEmpty { writeBytes(emit) }
-        case .end:
-            flushAndClose()
-        }
-    }
-
-    private func writeResponseHead(_ head: HTTPResponseHead) {
-        var s = "HTTP/1.1 \(head.status.code) \(head.status.reasonPhrase)\r\n"
-        for (name, value) in head.headers {
-            let lower = name.lowercased()
-            // Drop framing headers (restore changes the length) and any
-            // stale Connection header; forward everything else verbatim.
-            if lower == "content-length" || lower == "transfer-encoding" || lower == "connection" { continue }
-            s += "\(name): \(value)\r\n"
-        }
-        s += "Connection: close\r\n\r\n"
-        writeString(s)
-    }
-
-    private func flushAndClose() {
-        guard !finished else { return }
-        finished = true
-        let tail = restore.finish()
-        if !tail.isEmpty { writeBytes(tail) }
-        clientChannel.close(promise: nil)
-    }
-
-    private func writeBytes(_ bytes: [UInt8]) {
-        var buf = clientChannel.allocator.buffer(capacity: bytes.count)
-        buf.writeBytes(bytes)
-        clientChannel.writeAndFlush(buf, promise: nil)
-    }
-
-    private func writeString(_ s: String) {
-        var buf = clientChannel.allocator.buffer(capacity: s.utf8.count)
-        buf.writeString(s)
-        clientChannel.writeAndFlush(buf, promise: nil)
-    }
-
-    func channelInactive(context: ChannelHandlerContext) {
-        // Upstream closed without a clean .end (or after it): flush any
-        // retained tail so the last bytes aren't dropped.
-        flushAndClose()
         context.fireChannelInactive()
     }
 

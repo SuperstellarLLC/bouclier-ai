@@ -5,14 +5,10 @@ import SwiftUI
 /// `CFBundleShortVersionString` against a UserDefaults watermark; on
 /// mismatch the sheet appears once and the watermark advances.
 ///
-/// This release removed "extreme mode" (the CA-based TLS-intercepting
-/// proxy + System Extension) entirely, which also took the
-/// prompt-injection/attachment-PII detection engine with it — that
-/// engine had no caller outside extreme mode's proxy path. This sheet
-/// is what tells a returning user those features are gone and the
-/// secret keeper (the part that was actually load-bearing) is
-/// unaffected. See `ProxyManager.migrateAwayFromExtremeModeIfNeeded`
-/// for the automatic CA/extension cleanup this same launch performs.
+/// This release makes the prompt-injection firewall the whole product:
+/// the "secret keeper" (managed-credential scrub/restore) has been
+/// removed, and the firewall now defaults to monitor mode so it can't
+/// break normal agent work on a false positive.
 struct ReleaseNotesModal: View {
     let version: String
     let onOpenSettings: () -> Void
@@ -25,7 +21,7 @@ struct ReleaseNotesModal: View {
                     .foregroundStyle(.purple)
                     .font(.title2)
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Simpler, lighter, no certificate.")
+                    Text("One job, done well: the injection firewall.")
                         .font(.title3.bold())
                     Text("New in Bouclier.ai v\(version)")
                         .font(.caption)
@@ -35,20 +31,20 @@ struct ReleaseNotesModal: View {
 
             VStack(alignment: .leading, spacing: 10) {
                 bullet(
-                    icon: "checkmark.shield",
-                    text: "Extreme mode is gone. The CA-based \"full interception\" mode — installing a trusted certificate and a System Extension — has been removed. If you had it on, this launch automatically uninstalled the CA and deactivated the extension. The certificate-free gateway is now the only mode."
+                    icon: "shield.lefthalf.filled",
+                    text: "Bouclier is now a focused prompt-injection firewall. Every request is inspected on-device for injection hidden in untrusted tool output, and forwarded byte-for-byte or refused — never rewritten."
                 )
                 bullet(
-                    icon: "shield.slash",
-                    text: "Prompt-injection and attachment-PII scanning are no longer active. That engine only ever ran through extreme mode's interception path, so it left with it."
+                    icon: "eye",
+                    text: "Monitor by default. Out of the box the gateway inspects and logs but forwards everything, so a false positive can't break your agent. Turn on blocking when you want refusals (per install or via MDM)."
                 )
                 bullet(
-                    icon: "key.fill",
-                    text: "The secret keeper is unaffected and remains Bouclier's primary protection: managed credentials are still scrubbed before reaching the model and restored in the response."
+                    icon: "key.slash",
+                    text: "The secret keeper has been removed. Its scrub/restore path and the agent secret-request flow are gone; the gateway no longer touches credentials. Keep your keys where your tools already read them."
                 )
                 bullet(
-                    icon: "shippingbox",
-                    text: "The app is dramatically smaller — it no longer bundles the on-device ML models that scanning used, since nothing calls them anymore."
+                    icon: "cpu",
+                    text: "The on-device ML tier (Meta Prompt Guard 2) runs alongside the 161 detection patterns — fully local, nothing leaves your machine to be classified."
                 )
             }
 
@@ -58,7 +54,7 @@ struct ReleaseNotesModal: View {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .foregroundStyle(.orange)
                     .font(.caption)
-                Text("Prototype software. Secret handling is best-effort — false positives and false negatives will occur. Not for production or regulated workloads.")
+                Text("Prototype software. Detection is best-effort — false positives and false negatives will occur. Not for production or regulated workloads.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

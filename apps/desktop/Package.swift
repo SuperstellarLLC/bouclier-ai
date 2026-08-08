@@ -9,8 +9,6 @@ let package = Package(
     products: [
         .executable(name: "Bouclier", targets: ["Bouclier"]),
         .executable(name: "bouclier-ai-mcp-wrapper", targets: ["MCPWrapper"]),
-        .executable(name: "bouclier-ai-env", targets: ["EnvHelper"]),
-        .executable(name: "bouclier-ai-secrets-mcp", targets: ["SecretsMCP"]),
         // Named "bouclier-cli", not "bouclier": on case-insensitive
         // filesystems (default macOS/APFS) a product named "bouclier"
         // collides with the "Bouclier" app product above — cp/codesign
@@ -37,7 +35,7 @@ let package = Package(
         .executableTarget(
             name: "Bouclier",
             dependencies: [
-                "BouclierSecretsCore",
+                "BouclierCore",
                 .product(name: "GRDB", package: "GRDB.swift"),
                 .product(name: "NIO", package: "swift-nio"),
                 .product(name: "NIOCore", package: "swift-nio"),
@@ -65,32 +63,16 @@ let package = Package(
             ]
         ),
         .target(
-            name: "BouclierSecretsCore",
+            name: "BouclierCore",
             dependencies: [],
-            path: "Sources/BouclierSecretsCore",
-            swiftSettings: [
-                .swiftLanguageMode(.v6),
-            ]
-        ),
-        .executableTarget(
-            name: "EnvHelper",
-            dependencies: ["BouclierSecretsCore"],
-            path: "Sources/EnvHelper",
-            swiftSettings: [
-                .swiftLanguageMode(.v6),
-            ]
-        ),
-        .executableTarget(
-            name: "SecretsMCP",
-            dependencies: ["BouclierSecretsCore"],
-            path: "Sources/SecretsMCP",
+            path: "Sources/BouclierCore",
             swiftSettings: [
                 .swiftLanguageMode(.v6),
             ]
         ),
         .executableTarget(
             name: "BouclierCLI",
-            dependencies: ["BouclierSecretsCore"],
+            dependencies: ["BouclierCore"],
             path: "Sources/BouclierCLI",
             swiftSettings: [
                 .swiftLanguageMode(.v6),
@@ -100,7 +82,7 @@ let package = Package(
             name: "BouclierTests",
             dependencies: [
                 "Bouclier",
-                "BouclierSecretsCore",
+                "BouclierCore",
                 .product(name: "NIO", package: "swift-nio"),
                 .product(name: "NIOCore", package: "swift-nio"),
                 .product(name: "NIOPosix", package: "swift-nio"),

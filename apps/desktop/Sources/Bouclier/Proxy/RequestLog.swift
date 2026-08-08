@@ -65,24 +65,6 @@ enum CorporateProxy {
 
 // MARK: - Request Log
 
-/// A secret-keeper outcome for one request: either the real value was
-/// injected for the bound host, or the request was blocked by a tripwire.
-/// Surfaced through `RequestLog.secret` so the existing
-/// `ProxyManager.handleRequestLog` pipeline drives the activity feed,
-/// notifications, SIEM audit log, and on-disk stats uniformly.
-struct SecretEvent: Sendable, Equatable {
-    enum Kind: Sendable, Equatable {
-        case injected(names: [String])
-        case blocked(reason: SecretInjectionPass.BlockReason)
-        /// Standard-mode scrub: a managed real secret value was replaced
-        /// with its placeholder on the request to the model provider, so
-        /// the model never sees the secret. Restored in the response.
-        case scrubbed(names: [String])
-    }
-    let host: String
-    let kind: Kind
-}
-
 struct RequestLog: Sendable {
     let timestamp: Date
     let targetHost: String
@@ -101,10 +83,6 @@ struct RequestLog: Sendable {
     /// run for this request (feature off, etc.); empty findings when
     /// it ran and the attachments were clean.
     let multimodal: MultimodalPIIInspector.Report?
-    /// Secret-keeper event. Non-nil only on the dedicated secret-event
-    /// emissions, which carry no scan telemetry — `handleRequestLog`
-    /// routes these separately so they don't double-count requests.
-    let secret: SecretEvent?
 
     init(
         timestamp: Date,
@@ -117,8 +95,7 @@ struct RequestLog: Sendable {
         entropyAnomaly: Double,
         fusedScore: Double,
         mlAvailable: Bool,
-        multimodal: MultimodalPIIInspector.Report? = nil,
-        secret: SecretEvent? = nil
+        multimodal: MultimodalPIIInspector.Report? = nil
     ) {
         self.timestamp = timestamp
         self.targetHost = targetHost
@@ -131,25 +108,5 @@ struct RequestLog: Sendable {
         self.fusedScore = fusedScore
         self.mlAvailable = mlAvailable
         self.multimodal = multimodal
-        self.secret = secret
-    }
-
-    /// Dedicated initializer for a secret-keeper event. All scan fields
-    /// are zeroed — this log is a side-channel, not a scanned request.
-    init(secretEvent: SecretEvent, timestamp: Date = Date()) {
-        self.init(
-            timestamp: timestamp,
-            targetHost: secretEvent.host,
-            detected: false,
-            matchCount: 0,
-            patternNames: [],
-            bodySize: 0,
-            mlScore: nil,
-            entropyAnomaly: 0,
-            fusedScore: 0,
-            mlAvailable: false,
-            multimodal: nil,
-            secret: secretEvent
-        )
     }
 }
