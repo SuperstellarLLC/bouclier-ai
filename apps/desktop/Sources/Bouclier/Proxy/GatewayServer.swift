@@ -337,7 +337,15 @@ private final class GatewayHandler: ChannelInboundHandler, RemovableChannelHandl
             }
         }
 
-        if injection.decision == .block {
+        // Enforcement is OPT-IN (monitor mode by default): a would-block
+        // detection is logged but forwarded unless `injectionBlock` is on.
+        // Untrusted spans that trip a critical pattern are very often benign
+        // — source, diffs, email templates, LLM-prompt strings all contain
+        // "system prompt" / "ignore previous instructions" — and a pattern
+        // engine can't tell a quoted payload from a live one. Hard-blocking
+        // by default breaks normal agent work; prevention is a deliberate
+        // opt-in.
+        if injection.decision == .block, FeatureFlags.injectionBlock {
             onRequest(RequestLog(
                 timestamp: Date(),
                 targetHost: host,
