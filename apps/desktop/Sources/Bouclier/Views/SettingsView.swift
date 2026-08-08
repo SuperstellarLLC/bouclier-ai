@@ -1,4 +1,4 @@
-import BouclierSecretsCore
+import BouclierCore
 import SwiftUI
 
 struct SettingsView: View {
@@ -7,15 +7,11 @@ struct SettingsView: View {
 
     var body: some View {
         // Tab order follows user task frequency: a first-time user wants
-        // to know "is it on" (Protection), then manage what it protects
-        // (Secrets). Operational knobs (General, Logs) and About come
-        // after.
+        // to know "is it on" (Protection). Operational knobs (General,
+        // Logs) and About come after.
         TabView {
             ProtectionSettingsView(proxyManager: proxyManager)
                 .tabItem { Label("Protection", systemImage: "shield.checkered") }
-
-            SecretsSettingsView(proxyManager: proxyManager)
-                .tabItem { Label("Secrets", systemImage: "key.fill") }
 
             GeneralSettingsView(proxyManager: proxyManager)
                 .tabItem { Label("General", systemImage: "gear") }
@@ -38,267 +34,6 @@ struct SettingsView: View {
 // utilities (RedactionReport, StorageManager.piiRedactionCounts) are
 // left in place, dormant, alongside the rest of the detection engine.
 
-// MARK: - Secrets (secret keeper)
-
-/// Settings panel for the secret keeper. The agent/LLM only ever holds
-/// an opaque placeholder; Bouclier swaps in the real value (from the
-/// Keychain) at egress, bound to the rule's allowlisted host, and blocks
-/// exfil/plaintext tripwires. See `docs/secret-injection.md`.
-struct SecretsSettingsView: View {
-    @ObservedObject var proxyManager: ProxyManager
-
-    /// Drives `FeatureFlags.secretInjection` via UserDefaults (the flag's
-    /// resolution order reads `<key>Enabled`).
-    @AppStorage("secretInjectionEnabled") private var secretInjectionEnabled: Bool = false
-
-    @State private var rules: [SecretRule] = []
-    @State private var newName: String = ""
-    @State private var newValue: String = ""
-    @State private var newHosts: String = ""
-    @State private var newEnvVar: String = ""
-    @State private var newAgentAccess: Bool = true
-    @AppStorage(SecretGenerator.commandKey) private var genCommand: String = SecretGenerator.defaultCommand
-    @State private var addError: String?
-
-    var body: some View {
-        Form {
-            if !proxyManager.secretKeeperHealthy {
-                Section {
-                    HStack(alignment: .top, spacing: 8) {
-                        Image(systemName: "exclamationmark.octagon.fill")
-                            .foregroundStyle(.red)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Secret keeper disabled by a safety self-test")
-                                .font(.callout.weight(.semibold))
-                            Text("A startup integrity check failed, so secret injection is off and all traffic is forwarded untouched. This protects your LLM connections. To retry, quit and relaunch Bouclier; if it persists, please report it — it shouldn't happen.")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                }
-            }
-
-            Section {
-                // The secret keeper only does anything while protection is
-                // actually running. Without this, a user could flip the
-                // toggle on, add secrets, and believe they're protected while
-                // the gateway is off — the worst failure mode for a security
-                // product. Surface it inline with a one-click fix.
-                if !proxyManager.isRunning {
-                    HStack(alignment: .top, spacing: 8) {
-                        Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("Protection is off — secrets aren't protected yet")
-                                .font(.callout.weight(.semibold))
-                            Text("Managed secrets are only scrubbed while the gateway is running.")
-                                .font(.caption).foregroundStyle(.secondary)
-                            Button("Turn on Protection") { proxyManager.enableStandard() }
-                                .buttonStyle(.borderedProminent)
-                                .controlSize(.small)
-                        }
-                    }
-                }
-                Toggle("Protect managed secrets from the model", isOn: $secretInjectionEnabled)
-                    .disabled(!proxyManager.secretKeeperHealthy || !proxyManager.isRunning)
-                HStack(spacing: 16) {
-                    Label("\(proxyManager.stats.secretsScrubbed) scrubbed", systemImage: "eraser.fill")
-                        .foregroundStyle(.secondary)
-                    Label("\(proxyManager.stats.secretsBlocked) blocked", systemImage: "hand.raised.fill")
-                        .foregroundStyle(proxyManager.stats.secretsBlocked > 0 ? .red : .secondary)
-                }
-                .font(.caption)
-                .monospacedDigit()
-            } header: {
-                Text("Secret keeper (beta)")
-            } footer: {
-                Text("Keeps your real credentials out of the model. A managed secret is scrubbed to a placeholder before the request reaches the model provider and restored in the response, so your local tools still work while the vendor never sees it. Secrets live in your macOS Keychain and never leave this Mac.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            Section {
-                if rules.isEmpty {
-                    Text("No managed secrets yet. Add one below.")
-                        .foregroundStyle(.secondary)
-                        .font(.callout)
-                } else {
-                    ForEach(rules, id: \.name) { rule in
-                        SecretRow(rule: rule, onCopy: { copyPlaceholder(rule) }, onDelete: { delete(rule) }, onToggleAccess: { toggleAccess(rule) })
-                    }
-                }
-            } header: {
-                Text("Managed secrets")
-            } footer: {
-                Text("A secret's `$ENV_VAR` appears in shells you open after adding it — open a new terminal to pick it up. Use the placeholder verbatim in your agent's config or tool call. Your LLM providers are never blocked for authenticating normally.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            Section {
-                TextField("Name (lowercase, e.g. stripe)", text: $newName)
-                    .textFieldStyle(.roundedBorder)
-                HStack(spacing: 6) {
-                    SecureField("Secret value", text: $newValue)
-                        .textFieldStyle(.roundedBorder)
-                    Button("Generate") {
-                        if let v = SecretGenerator.generate() { newValue = v }
-                    }
-                    .help("Generate a random value (\(genCommand))")
-                }
-                TextField("Generator command", text: $genCommand)
-                    .textFieldStyle(.roundedBorder)
-                    .font(.system(.caption, design: .monospaced))
-                TextField("Allowed hosts — optional (e.g. api.stripe.com). Blank = scrub-only.", text: $newHosts)
-                    .textFieldStyle(.roundedBorder)
-                TextField("Env var name — optional (default \(newName.isEmpty ? "NAME" : newName.trimmedLowercasedName.uppercased())), e.g. STRIPE_KEY", text: $newEnvVar)
-                    .textFieldStyle(.roundedBorder)
-                Toggle("Let an AI agent use this via MCP (value never shown to the model)", isOn: $newAgentAccess)
-                if let addError {
-                    Text(addError)
-                        .font(.caption)
-                        .foregroundStyle(.red)
-                }
-                Button("Add secret") { add() }
-                    .disabled(newName.isEmpty || newValue.isEmpty)
-                if !newName.isEmpty {
-                    Text("Placeholder: \(SecretRule.placeholder(for: newName.trimmedLowercasedName))")
-                        .font(.system(.caption, design: .monospaced))
-                        .foregroundStyle(.secondary)
-                        .textSelection(.enabled)
-                }
-            } header: {
-                Text("Add a secret")
-            } footer: {
-                Text("The value is written to the Keychain and never shown again. Name must be lowercase letters, digits, or underscores.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .formStyle(.grouped)
-        .padding()
-        .onAppear { reload() }
-    }
-
-    private func reload() {
-        rules = SecretStore.shared.rules().sorted { $0.name < $1.name }
-    }
-
-    private func add() {
-        let name = newName.trimmedLowercasedName
-        guard SecretRule.isValidName(name) else {
-            addError = "Name must be lowercase letters, digits, or underscores."
-            return
-        }
-        guard SecretRule.isValidValue(newValue) else {
-            addError = "Secret value is empty, too long, or contains line breaks."
-            return
-        }
-        let rawHosts = newHosts
-            .split(separator: ",")
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty }
-        // Hosts are OPTIONAL. With no host the secret is "scrub-only":
-        // scrubbed out of model-provider requests and restored in the
-        // response, never injected into a third party. Host binding is
-        // reserved for a possible future destination-bound injection
-        // path — it validates and stores today but nothing currently
-        // acts on it. Surface rejected hosts rather than silently
-        // dropping them.
-        let invalid = rawHosts.filter { SecretRule.validatedHost($0) == nil }
-        guard invalid.isEmpty else {
-            addError = "Can't bind to: \(invalid.joined(separator: ", ")). Use a public domain (no localhost, raw IPs, or metadata endpoints)."
-            return
-        }
-        let envVar = newEnvVar.trimmingCharacters(in: .whitespaces)
-        if !envVar.isEmpty, !SecretRule.isValidEnvVar(envVar) {
-            addError = "Env var name must start with a letter or _ and contain only letters, digits, and _."
-            return
-        }
-        guard SecretStore.shared.addSecret(name: name, value: newValue, allowedHosts: rawHosts, agentAccess: newAgentAccess, envVar: envVar.isEmpty ? nil : envVar) else {
-            addError = "Couldn't save the secret. Check the name, value, hosts, and env var name."
-            return
-        }
-        addError = nil
-        newName = ""; newValue = ""; newHosts = ""; newEnvVar = ""; newAgentAccess = true
-        reload()
-    }
-
-    private func delete(_ rule: SecretRule) {
-        SecretStore.shared.removeSecret(name: rule.name)
-        reload()
-    }
-
-    private func toggleAccess(_ rule: SecretRule) {
-        SecretStore.shared.setAgentAccess(name: rule.name, !rule.agentAccess)
-        reload()
-    }
-
-    private func copyPlaceholder(_ rule: SecretRule) {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(rule.placeholder, forType: .string)
-    }
-}
-
-private struct SecretRow: View {
-    let rule: SecretRule
-    let onCopy: () -> Void
-    let onDelete: () -> Void
-
-    let onToggleAccess: () -> Void
-
-    var body: some View {
-        HStack(alignment: .top, spacing: 8) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(rule.name)
-                    .font(.callout.weight(.medium))
-                Text(rule.placeholder)
-                    .font(.system(.caption, design: .monospaced))
-                    .foregroundStyle(.secondary)
-                    .textSelection(.enabled)
-                HStack(spacing: 6) {
-                    Text(rule.isScrubOnly ? "scrub-only" : rule.allowedHosts.joined(separator: ", "))
-                    Text("·")
-                    Text("$\(rule.environmentVariable)")
-                    Text("·")
-                    Text(rule.agentAccess ? "agent-usable" : "locked")
-                        .foregroundStyle(rule.agentAccess ? Color.secondary : Color.orange)
-                }
-                .font(.caption2)
-                .foregroundStyle(.tertiary)
-            }
-            Spacer()
-            Button {
-                onToggleAccess()
-            } label: {
-                Image(systemName: rule.agentAccess ? "person.fill" : "lock.fill")
-            }
-            .buttonStyle(.borderless)
-            .help(rule.agentAccess ? "Agent (MCP) access on — click to lock" : "Locked — click to allow agent (MCP) access")
-            Button {
-                onCopy()
-            } label: {
-                Image(systemName: "doc.on.doc")
-            }
-            .buttonStyle(.borderless)
-            .help("Copy placeholder")
-            Button(role: .destructive) {
-                onDelete()
-            } label: {
-                Image(systemName: "trash")
-            }
-            .buttonStyle(.borderless)
-            .help("Delete secret")
-        }
-        .padding(.vertical, 2)
-    }
-}
-
-private extension String {
-    /// Normalised secret-rule name: trimmed + lowercased.
-    var trimmedLowercasedName: String {
-        trimmingCharacters(in: .whitespaces).lowercased()
-    }
-}
 
 struct GeneralSettingsView: View {
     @ObservedObject var proxyManager: ProxyManager
@@ -369,7 +104,7 @@ struct GeneralSettingsView: View {
             } header: {
                 Text("Agent command-line access")
             } footer: {
-                Text("Puts `bouclier` on PATH (macOS will ask you to approve it — same as any app installing a helper tool) so Bash-driven agents can call `bouclier status` / `bouclier secrets …` directly. Paste the MCP command into a terminal once so Claude Code can request and use secrets without ever seeing their values.")
+                Text("Puts `bouclier` on PATH (macOS will ask you to approve it — same as any app installing a helper tool) so Bash-driven agents can call `bouclier status` directly. Paste the MCP command into a terminal once to register the Bouclier MCP server with Claude Code.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -390,7 +125,7 @@ struct GeneralSettingsView: View {
                     Button("Reset", role: .destructive) { proxyManager.stats.reset() }
                     Button("Cancel", role: .cancel) {}
                 } message: {
-                    Text("Clears the menu-bar counters (requests inspected / secrets scrubbed / secrets blocked). The audit log and on-disk stats are untouched.")
+                    Text("Clears the menu-bar counters (requests inspected / injections blocked). The audit log and on-disk stats are untouched.")
                 }
             } header: {
                 Text("Diagnostics")
@@ -446,13 +181,12 @@ struct GeneralSettingsView: View {
 struct ProtectionSettingsView: View {
     @ObservedObject var proxyManager: ProxyManager
     @State private var showUninstallConfirm = false
-    @AppStorage("secretInjectionEnabled") private var secretInjectionEnabled: Bool = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("How Protection Works")
                 .font(.headline)
-            Text("Routes your agents through a local gateway via ANTHROPIC_BASE_URL — no certificate to install. Protects the LLM channel: your managed secrets are scrubbed before the model sees them and restored in the response.")
+            Text("Routes your agents through a local gateway via ANTHROPIC_BASE_URL — no certificate to install. Every request is inspected on-device for prompt-injection in untrusted tool output; a request is forwarded byte-for-byte or refused, never rewritten.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
 
@@ -466,8 +200,8 @@ struct ProtectionSettingsView: View {
                           detail: proxyManager.isRunning ? "Listening on port \(proxyManager.port)" : "Stopped")
                 StatusRow(label: "Certificate", active: true,
                           detail: "Not needed")
-                StatusRow(label: "Secret keeper", active: secretInjectionEnabled,
-                          detail: secretInjectionEnabled ? "On" : "Off")
+                StatusRow(label: "Patterns", active: proxyManager.patternCount > 0,
+                          detail: "\(proxyManager.patternCount) loaded")
             }
             .font(.callout)
 
@@ -620,7 +354,7 @@ struct AboutView: View {
                     .foregroundStyle(.orange)
             }
 
-            Text("Keep your API keys and secrets out of the model.")
+            Text("Catches prompt injection in untrusted tool output.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -643,7 +377,7 @@ struct AboutView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Experimental software")
                         .font(.caption.weight(.semibold))
-                    Text("Not intended for production or regulated workloads. Secret scrubbing is best-effort.")
+                    Text("Not intended for production or regulated workloads. Detection is best-effort.")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                 }
@@ -669,7 +403,7 @@ struct AboutView: View {
 
             Divider().frame(width: 200)
 
-            Text("Secrets never leave your machine.")
+            Text("Your traffic never leaves your machine to be inspected.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)

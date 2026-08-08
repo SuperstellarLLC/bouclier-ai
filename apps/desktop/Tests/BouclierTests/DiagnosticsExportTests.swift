@@ -14,8 +14,6 @@ struct DiagnosticsExportTests {
             bytesScanned: 12345,
             sseFramesScanned: 100,
             sseStreamsBlocked: 1,
-            secretsInjected: 5,
-            secretsBlocked: 2,
             hitsByCategory: ["role-hijack": 2, "credential-leak": 1],
             hitsBySeverity: ["critical": 2, "high": 1],
             blocksByHost: ["api.openai.com": 3],

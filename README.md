@@ -29,9 +29,9 @@
 >
 > Treat it the way you treat a WAF: **defence in depth, never your only
 > control.** Injection detection is best-effort and evadable by a determined
-> attacker; secret scrubbing is best-effort; false positives and false
-> negatives will occur. A clean pass is not evidence of safety. APIs and
-> behaviour may change without notice between releases.
+> attacker; false positives and false negatives will occur. A clean pass is
+> not evidence of safety. APIs and behaviour may change without notice
+> between releases.
 >
 > If a failure could cause harm, financial loss, or regulatory consequence
 > in your environment, do not rely on Bouclier as the control that prevents
@@ -67,15 +67,14 @@ streams the response back.
   a tutorial, a quoted payload, or a fenced code block is dampened and
   forwarded, not blocked — so an agent reading about attacks all day
   doesn't trip the filter.
+- **Monitor by default, enforce when you opt in.** Out of the box the
+  gateway inspects and logs but forwards everything — so it can't break
+  normal agent work on a false positive. Turn on blocking (per install or
+  via MDM) when you want refusals.
 - **Nothing is ever rewritten.** A request is forwarded unmodified or
   refused outright. Earlier versions spliced a redaction notice into
   flagged prompts; that broke prompt caching and tripped provider abuse
   detection, and it is gone for good.
-- **Secret keeper (opt-in).** Managed secrets are stored in your macOS
-  Keychain behind an opaque placeholder, scrubbed on the way out and
-  restored in the response — so if an injection does get through, the
-  credentials it wants were never in the model's context. Off by default;
-  enable under Settings → Secrets.
 - **No certificate to install.** The gateway is a plaintext-loopback →
   TLS-upstream relay, not a TLS-terminating proxy — there's no root CA, no
   system-trust change, and nothing else on your Mac is affected. Detection
@@ -103,9 +102,9 @@ is gated (Meta HuggingFace) and produced at release time by
 ## Quickstart
 
 Download the signed DMG from <https://www.bouclier.ai>, drag the app to
-`/Applications`, and click "Enable Protection". Add a managed secret from
-the menu bar, open a new terminal to pick up the env vars, and your agent's
-requests route through the gateway automatically.
+`/Applications`, and click "Enable Protection". Open a new terminal to pick
+up the env vars, and your agent's requests route through the gateway
+automatically.
 
 ```bash
 # Verify it's running:
@@ -136,18 +135,13 @@ A full developer setup is in [CONTRIBUTING.md](CONTRIBUTING.md).
                                   │ │  untrusted → block │ │
                                   │ │  principal → log   │ │
                                   │ └────────────────────┘ │
-                                  │ ┌────────────────────┐ │
-                                  │ │ Secret scrub /     │ │
-                                  │ │ restore (opt-in)   │ │
-                                  │ └────────────────────┘ │
                                   └────────────────────────┘
 ```
 
-The injection pass runs **before** the secret scrub: a refused request
-never had secrets substituted into it, and scoring sees the untouched
-body. Both passes sit behind a cheap trigger gate, so a request with no
-tool output and no managed secret in it is forwarded byte-for-byte
-without either pass running.
+The injection pass sits behind a cheap trigger gate, so a request with no
+untrusted tool output in it is forwarded byte-for-byte without the pass
+running. The gateway never rewrites a request — it forwards it unmodified
+or refuses it.
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for the request-handling pipeline,
 session model, and persistence layer.
@@ -179,7 +173,7 @@ change in [CHANGELOG.md](CHANGELOG.md).
 
 ## Contributing
 
-Bug reports and core gateway/secret-keeper work are welcome. Start with
+Bug reports and core gateway/detection work are welcome. Start with
 [CONTRIBUTING.md](CONTRIBUTING.md) for the dev setup.
 
 For security issues, follow [SECURITY.md](.github/SECURITY.md) — do not

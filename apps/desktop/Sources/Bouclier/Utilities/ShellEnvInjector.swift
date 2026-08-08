@@ -138,8 +138,8 @@ enum ShellEnvInjector {
         let envSh = configDir().appendingPathComponent("env.sh")
         let envFish = configDir().appendingPathComponent("env.fish")
         _ = ensureConfigDir()
-        writeAtomically(content: posixEnvFileContent(exports: exports, secretsHelperPath: envHelperExecutablePath()), to: envSh)
-        writeAtomically(content: fishEnvFileContent(exports: exports, secretsHelperPath: envHelperExecutablePath()), to: envFish)
+        writeAtomically(content: posixEnvFileContent(exports: exports), to: envSh)
+        writeAtomically(content: fishEnvFileContent(exports: exports), to: envFish)
 
         let posixSource = "[ -f \"\(envSh.path)\" ] && . \"\(envSh.path)\""
         let fishSource = "if test -f \"\(envFish.path)\"; source \"\(envFish.path)\"; end"
@@ -165,21 +165,7 @@ enum ShellEnvInjector {
         return 8484
     }
 
-    /// Absolute path to the bundled `bouclier-ai-env` helper, or nil if it
-    /// can't be located. Used to materialize agent-activated secrets into
-    /// each new shell.
-    static func envHelperExecutablePath() -> String? {
-        let fm = FileManager.default
-        if let exe = Bundle.main.executableURL {
-            let sibling = exe.deletingLastPathComponent().appendingPathComponent("bouclier-ai-env")
-            if fm.isExecutableFile(atPath: sibling.path) { return sibling.path }
-        }
-        let macos = Bundle.main.bundleURL.appendingPathComponent("Contents/MacOS/bouclier-ai-env")
-        if fm.isExecutableFile(atPath: macos.path) { return macos.path }
-        return nil
-    }
-
-    static func posixEnvFileContent(exports: Exports, secretsHelperPath: String? = nil) -> String {
+    static func posixEnvFileContent(exports: Exports) -> String {
         let port = proxyPort(from: exports.pairs.first(where: { $0.1.contains("127.0.0.1:") })?.1 ?? "")
         let keys = exports.pairs.map(\.0).joined(separator: " ")
         var lines = [
@@ -224,18 +210,10 @@ enum ShellEnvInjector {
             "    esac",
             "fi",
         ])
-        // Materialize any agent-activated secrets (Bouclier MCP set_env)
-        // into this shell by reading them from the Keychain at shell-init.
-        // No-op when nothing is active. Independent of the proxy — the
-        // agent's commands need the secret whether or not protection is on.
-        if let helper = secretsHelperPath {
-            lines.append("# Bouclier MCP secrets — agent-activated env vars (values from Keychain).")
-            lines.append("if [ -x \"\(helper)\" ]; then eval \"$(\"\(helper)\" --secrets 2>/dev/null)\"; fi")
-        }
         return lines.joined(separator: "\n") + "\n"
     }
 
-    static func fishEnvFileContent(exports: Exports, secretsHelperPath: String? = nil) -> String {
+    static func fishEnvFileContent(exports: Exports) -> String {
         let port = proxyPort(from: exports.pairs.first(where: { $0.1.contains("127.0.0.1:") })?.1 ?? "")
         let keys = exports.pairs.map(\.0).joined(separator: " ")
         var lines = [
@@ -261,12 +239,6 @@ enum ShellEnvInjector {
             "    __bouclier_sync",
             "end",
         ])
-        // Materialize agent-activated secrets (Bouclier MCP) into this fish
-        // shell, in fish syntax. No-op when nothing is active.
-        if let helper = secretsHelperPath {
-            lines.append("# Bouclier MCP secrets — agent-activated env vars (values from Keychain).")
-            lines.append("if test -x \"\(helper)\"; \"\(helper)\" --secrets --fish 2>/dev/null | source; end")
-        }
         return lines.joined(separator: "\n") + "\n"
     }
 

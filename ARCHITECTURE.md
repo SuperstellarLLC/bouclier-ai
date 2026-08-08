@@ -6,7 +6,7 @@ complements [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md), which
 covers what we are defending against.
 
 The intended audience is contributors who want to make a meaningful
-change to the gateway, the secret keeper, or the persistence layer.
+change to the gateway, the injection engine, or the persistence layer.
 
 ## Process layout
 
@@ -70,10 +70,6 @@ Still dormant, with no caller on the live path:
   was withdrawn in v0.6.0 for cause (it tripped provider abuse
   detection); the attachment path went with extreme mode in v0.7.0. The
   code still compiles and its unit tests exercise it directly.
-- `SecretInjectionPass` — destination-bound secret injection into a
-  third-party host, which only ever ran through `TLSProxy`. `SecretRule`
-  still validates and stores host bindings, but nothing currently acts on
-  them; only scrub→restore (below) is live.
 - `HTTPRequestInspector.inspect(...)` and `SSEStreamInspector` — the
   extreme-mode inspection entry points. Note that both, and
   `InjectionFilter.scan`'s own `sanitized` output, implement the old
@@ -114,10 +110,6 @@ inbound HTTP (loopback) ─► GatewayServer.GatewayHandler
                                │    ⇒ 403, request never leaves the box
                                │  - principal ⇒ logged, forwarded as-is
                                ▼
-                           Secret scrub (if secrets configured)
-                               │  - SecretRedactionPass.apply: managed
-                               │    real values → placeholders
-                               ▼
                            forwardUpstream
                                │  - Re-issued over TLS to the real
                                │    provider. Headers (Authorization,
@@ -129,14 +121,9 @@ outbound HTTPS ◄───────────────┘
 
 Inbound response handling:
 
-- When secrets are configured, `GatewayRestoreHandler` restores
-  placeholder→real value in the response body (straddle-safe across
-  chunk boundaries) so the agent's local tool calls see the real value.
-  This changes the response framing to connection-close (Content-Length
-  can't be known in advance), so keep-alive is only available on
-  connections with no secrets configured.
-- With no secrets configured, the response is relayed verbatim — no body
-  rewriting, no buffering. Zero-copy for the common case.
+- The response is relayed verbatim — no body rewriting, no buffering.
+  Zero-copy: `GatewayRelayHandler` streams upstream bytes straight back to
+  the client, keep-alive preserved. The gateway never modifies a response.
 
 ## Injection inspection
 
@@ -164,10 +151,10 @@ inside a `<document>` RAG wrapper embedded in an otherwise-principal
 turn — retrieved content the operator did not author. Everything else in
 a user/system turn is `.principal`.
 
-**A cheap independent gate runs first**, mirroring `SecretRedactionPass`:
-a raw substring search for the untrusted-shape markers. No marker, no JSON
-parse, no scoring — so ordinary chat traffic is provably untouched and a
-bug in the scoring path cannot corrupt it.
+**A cheap independent gate runs first**: a raw substring search for the
+untrusted-shape markers. No marker, no JSON parse, no scoring — so ordinary
+chat traffic is provably untouched and a bug in the scoring path cannot
+corrupt it.
 
 Thresholds: an untrusted span blocks on a **dampened** fused score ≥ 0.60.
 The fused score is `regex 0.50 + ML 0.40 + entropy 0.10` with a
@@ -185,20 +172,19 @@ agent.
 
 ## Scope: what we modify and what we don't
 
-Bouclier touches outbound traffic in exactly one way: **secret scrub**.
-When a managed secret's real value appears in a request bound for the
-model provider, it's replaced with its placeholder before the request
-leaves the gateway; the matching response is restored so local tooling
-still works. Everything else is forwarded byte-for-byte, including the
-header set (`Authorization`, `x-api-key`, custom trace IDs, `User-Agent`,
-…). **Bouclier does not modify prompt bodies beyond secret placeholders.**
+**Bouclier never modifies outbound traffic.** A request is forwarded
+byte-for-byte — including the full header set (`Authorization`, `x-api-key`,
+custom trace IDs, `User-Agent`, …) — or refused outright with a 403. There
+is no rewrite path.
 
-The injection pass is not an exception to this: it is a _binary_ control.
-A request is forwarded unmodified or refused with a 403 — the pass never
-edits a body, and deliberately ignores `FilterResult.sanitized`, which
-still carries the withdrawn v0.2-era rewrite. Both invariants are pinned
-by the E2E gateway tests, including one that sends a matching payload as
-the operator's own prompt and asserts byte-identical delivery upstream.
+The injection pass enforces this: it is a _binary_ control. It never edits
+a body, and deliberately ignores `FilterResult.sanitized`, which still
+carries the withdrawn v0.2-era rewrite. Enforcement is opt-in — the gateway
+defaults to monitor mode (inspect, log, forward), and blocking is enabled
+via `FeatureFlags.injectionBlock`. Both invariants are pinned by the E2E
+gateway tests: one sends a matching payload as the operator's own prompt
+and asserts byte-identical delivery upstream, another sends poisoned tool
+output in monitor mode and asserts it still reaches the upstream.
 
 ## Persistence
 
@@ -216,7 +202,7 @@ and use GRDB's `DatabaseMigrator` — no destructive migrations.
 
 The gateway itself is `swift-nio` on a `MultiThreadedEventLoopGroup`.
 Per-channel handlers stay on the event loop for the hot synchronous
-work (routing, header rewriting, secret scrub). GRDB writes hop into
+work (routing, injection inspection). GRDB writes hop into
 Swift Concurrency with `Task { … } in eventLoop.execute { … }`.
 
 We compile with **Swift 6 strict-concurrency**. Types crossing isolation
@@ -248,8 +234,7 @@ update path is documented at length in `scripts/release.sh` and
 ## Pointers
 
 - Gateway + request handling: `apps/desktop/Sources/Bouclier/Proxy/GatewayServer.swift`
-- Secret scrub/restore: `SecretRedactionPass.swift`, `SecretRestore.swift`, `SecretRule.swift`, `SecretStore.swift`
 - Injection inspection (live): `InjectionInspectionPass.swift`, `InjectionFilter.swift`, `EntropyAnalyzer.swift`, `MLClassifier.swift`, `Patterns/PatternManager.swift`
 - Pattern source of truth: `packages/patterns/src/` → `apps/desktop/scripts/sync-patterns.sh` → `Sources/Bouclier/Resources/patterns.json`
-- Dormant (not in the live request path): `HTTPRequestInspector.inspect`, `SSEStreamInspector.swift`, `PIIScanner.swift`, `MultimodalPIIInspector.swift` and neighbours, `SecretInjectionPass.swift`
+- Dormant (not in the live request path): `HTTPRequestInspector.inspect`, `SSEStreamInspector.swift`, `PIIScanner.swift`, `MultimodalPIIInspector.swift` and neighbours
 - Persistence: `apps/desktop/Sources/Bouclier/Utilities/StorageManager.swift`
