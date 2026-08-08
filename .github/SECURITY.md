@@ -26,7 +26,7 @@ Use one of the following private channels, in order of preference:
 
 1. GitHub Security Advisories — open a private report at
    <https://github.com/SuperstellarLLC/bouclier-ai/security/advisories/new>.
-2. Email `security@bouclier.ai` with the details below.
+2. Email `apps@superstellar.io` with the details below.
 
 Please include:
 
@@ -36,7 +36,7 @@ Please include:
 - macOS version and CPU architecture (Apple Silicon / Intel).
 
 Encrypt sensitive details with our PGP key if you prefer — fingerprint
-and public key are available on request from `security@bouclier.ai`.
+and public key are available on request from `apps@superstellar.io`.
 
 ## Response targets
 
