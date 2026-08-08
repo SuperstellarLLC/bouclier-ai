@@ -334,8 +334,7 @@ export default function TermsPage() {
         </Section>
 
         <Section title="16. Contact">
-          <p>Legal: legal@bouclier.ai</p>
-          <p>Support: support@bouclier.ai</p>
+          <p>Contact: apps@superstellar.io</p>
           <p className="mt-3 text-sm">
             If anything in these Terms is unclear, contact us before you install or use the
             Software. We will not interpret your continued use as acceptance of any clause you have

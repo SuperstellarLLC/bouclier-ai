@@ -265,8 +265,7 @@ export default function PrivacyPage() {
         </Section>
 
         <Section title="Contact">
-          <p>Privacy: privacy@bouclier.ai</p>
-          <p>Support: support@bouclier.ai</p>
+          <p>Contact: apps@superstellar.io</p>
           <p className="mt-3 text-sm">
             Postal address for written privacy requests will be provided on request.
           </p>
