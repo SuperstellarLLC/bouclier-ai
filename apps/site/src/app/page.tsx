@@ -40,10 +40,10 @@ export default function Home() {
               How it works
             </a>
             <a
-              href="#secrets"
+              href="#agents"
               className="text-text-secondary hover:text-text text-sm transition-colors"
             >
-              Secret keeper
+              For agents
             </a>
             <Link
               href="/privacy"
@@ -97,9 +97,9 @@ export default function Home() {
             <p className="text-text-secondary mx-auto mt-6 max-w-2xl text-lg leading-relaxed">
               Bouclier.ai is a prompt-injection firewall that runs on your Mac, between your coding
               agent and the model provider. It reads every tool result on its way into the model — a
-              fetched page, a README, an MCP response — and refuses the request when something in
-              there is trying to reprogram your agent. Your own prompts are never touched. No
-              certificate to install.
+              fetched page, a README, an MCP response — and flags anything trying to reprogram your
+              agent. It monitors by default; flip on blocking and it refuses those requests
+              outright. Your own prompts are never touched. No certificate to install.
             </p>
 
             <div className="mx-auto mt-5 max-w-2xl rounded-xl border-2 border-amber-300 bg-amber-50 p-4 text-left">
@@ -172,7 +172,9 @@ export default function Home() {
             <div className="rounded-2xl border-2 border-red-200 bg-red-50/40 p-6">
               <div className="flex items-center gap-2">
                 <span className="h-2 w-2 rounded-full bg-red-500" />
-                <h3 className="text-base font-semibold text-red-900">Untrusted — refused</h3>
+                <h3 className="text-base font-semibold text-red-900">
+                  Untrusted — flagged, or refused
+                </h3>
               </div>
               <p className="text-text-secondary mt-3 text-sm leading-relaxed">
                 <code className="rounded bg-white px-1 py-0.5 text-xs">tool_result</code> blocks,{" "}
@@ -185,7 +187,8 @@ export default function Home() {
                 and anything wrapped in the{" "}
                 <code className="rounded bg-white px-1 py-0.5 text-xs">&lt;document&gt;</code> RAG
                 convention, even inside a user turn. Content your agent fetched on its own. Nobody
-                in the session typed it, so an instruction in there is an attack by definition — the
+                in the session typed it, so an instruction in there is an attack by definition. By
+                default it&apos;s logged and forwarded (monitor mode); turn on blocking and the
                 request is refused with a 403 naming the pattern and the JSON path.
               </p>
             </div>
@@ -245,66 +248,6 @@ export default function Home() {
         </div>
       </section>
 
-      {/* ── Secret keeper (now secondary) ─────────── */}
-      <section id="secrets" className="border-border bg-surface border-t py-24">
-        <div className="mx-auto max-w-5xl px-6">
-          <div className="reveal">
-            <SectionLabel>Also included — secret keeper</SectionLabel>
-            <h2 className="mt-3 text-3xl font-bold tracking-tight">
-              Your agent uses the key. You keep the secret.
-            </h2>
-            <p className="text-text-secondary mt-4 max-w-2xl text-sm">
-              The other half of containing a hijacked agent: if an injection does get through, the
-              credentials it tries to exfiltrate were never in the model&apos;s context to begin
-              with. Opt-in, under Settings → Secrets.
-            </p>
-            <p className="text-text-secondary mt-4 max-w-2xl">
-              When your agent needs a credential, Bouclier asks <em>you</em> — in a local dialog,
-              not in the chat. You paste it (or let Bouclier generate one). It&apos;s stored in your
-              Keychain and injected into the shells your agent spawns, so a command like{" "}
-              <code className="text-text rounded bg-zinc-100 px-1.5 py-0.5 text-xs font-medium">
-                curl -H &quot;Authorization: Bearer $STRIPE_KEY&quot;
-              </code>{" "}
-              just works — while the value never enters the model&apos;s context, the MCP channel,
-              or any log.
-            </p>
-          </div>
-
-          <div className="reveal-stagger reveal-stagger-3 mt-12 grid gap-6 md:grid-cols-3">
-            <FlowCard
-              step="01"
-              title="Ask"
-              description="The agent requests a secret by name. Bouclier opens a dialog where YOU paste or generate the value. The agent only ever learns the variable name — never the value."
-            />
-            <FlowCard
-              step="02"
-              title="Keep"
-              description="The value lands in your macOS Keychain, scoped to Bouclier. On the way out, a managed secret is scrubbed to a placeholder so the model provider never sees it either, then restored in the response."
-            />
-            <FlowCard
-              step="03"
-              title="Use"
-              description="It's injected into new shells as $ENV_VAR. Your agent uses it in real commands; the conversation and the model context stay clean."
-            />
-          </div>
-
-          <div className="reveal border-border mt-12 rounded-2xl border bg-white p-6">
-            <h3 className="text-lg font-semibold">Provision a whole project in one approval.</h3>
-            <p className="text-text-secondary mt-2 text-sm leading-relaxed">
-              Point your agent at a new repo&apos;s environment needs and approve them together —
-              Bouclier shows one dialog, batches as many secrets as it takes, and tells the agent
-              exactly which ones landed and which are still pending. Nothing is silently dropped.
-              Pair it with the Vercel CLI (
-              <code className="rounded bg-zinc-100 px-1 py-0.5 text-xs">
-                echo &quot;$VAR&quot; | vercel env add
-              </code>
-              ) to set dozens of deployment variables without the agent — or the chat — ever seeing
-              one.
-            </p>
-          </div>
-        </div>
-      </section>
-
       {/* ── Built for agents (MCP + CLI) ──────────── */}
       <section id="agents" className="border-border border-t bg-white py-24">
         <div className="mx-auto max-w-5xl px-6">
@@ -316,10 +259,10 @@ export default function Home() {
             <p className="text-text-secondary mt-4 max-w-2xl">
               Bouclier ships an MCP server and a{" "}
               <code className="rounded bg-zinc-100 px-1 py-0.5 text-xs">bouclier</code> CLI that
-              share one core. An agent can orient itself, list and request secrets, and ask you to
-              turn protection on. What it <em>can&apos;t</em> do is the point: it can never read a
-              value, disable protection, or widen a secret&apos;s policy. The agent proposes; you
-              approve; Bouclier enforces.
+              share one core. An agent can orient itself — is protection on, how much has it
+              inspected — before it acts. What it <em>can&apos;t</em> do is the point: the CLI is
+              read-only. There is no agent path to disable protection. The tool can&apos;t switch
+              off the thing guarding it.
             </p>
           </div>
 
@@ -332,19 +275,12 @@ export default function Home() {
                 <span className="text-text-secondary">{"# orient before acting\n"}</span>
                 {"bouclier status\n"}
                 <span className="text-text-secondary">
-                  {"→ protection ON (standard mode) · 3 secrets usable\n\n"}
+                  {"→ protection ON (standard mode) · 128 inspected, 0 blocked\n\n"}
                 </span>
+                <span className="text-text-secondary">{"# there is no disable command\n"}</span>
+                {"bouclier --help\n"}
                 <span className="text-text-secondary">
-                  {"# ask the human for what's missing\n"}
-                </span>
-                {'bouclier secrets request STRIPE_KEY DATABASE_URL --reason "deploy"\n'}
-                <span className="text-text-secondary">
-                  {"→ a dialog opens; you paste; the agent gets names, never values\n\n"}
-                </span>
-                <span className="text-text-secondary">{"# this is refused, by design\n"}</span>
-                {"bouclier protection disable\n"}
-                <span className="text-red-600">
-                  {"→ not available to agents — do it in the app (exit 7)"}
+                  {"→ status · install · --version  (read-only, by design)"}
                 </span>
               </code>
             </pre>
@@ -353,18 +289,18 @@ export default function Home() {
           <div className="reveal-stagger reveal-stagger-3 mt-8 grid gap-6 md:grid-cols-3">
             <FlowCard
               step="🟢"
-              title="Read & use, freely"
-              description="status, list secrets, request and activate them — no value is ever returned. The agent works on its own."
+              title="Read, freely"
+              description="bouclier status returns protection state, mode, and activity counts as JSON. An agent can check it's protected before it runs — no approval needed to read."
             />
             <FlowCard
-              step="🟡"
-              title="Propose, you approve"
-              description="Turning protection on is a one-tap approval in Bouclier's own dialog. The agent suggests; the human decides."
+              step="🔌"
+              title="One MCP server"
+              description="Register the injection MCP with Claude Code once (bouclier install prints the command). Same read-only core as the CLI."
             />
             <FlowCard
               step="🔴"
               title="Never the agent"
-              description="Read a value, disable protection, uninstall — none of these have an agent path. The tool can't switch off the thing guarding it."
+              description="Disable protection or uninstall — neither has an agent path, only a human one in the app. The tool can't weaken its own guard."
             />
           </div>
         </div>
@@ -379,11 +315,10 @@ export default function Home() {
               What reaches the model — and what doesn&apos;t.
             </h2>
             <p className="text-text-secondary mt-4 max-w-2xl">
-              By default Bouclier points your AI tools at a local gateway by setting a base URL — no
-              root certificate, nothing installed in your trust store, no system-wide interception.
-              Your prompts reach the provider byte-for-byte, with one deliberate exception: the
-              managed secrets you asked Bouclier to keep out. Auth headers are forwarded untouched
-              so your tools authenticate normally.
+              Bouclier points your AI tools at a local gateway by setting a base URL — no root
+              certificate, nothing installed in your trust store, no system-wide interception. The
+              gateway never rewrites a request: it forwards it byte-for-byte, or refuses it
+              outright. There is no in-between.
             </p>
           </div>
 
@@ -391,7 +326,7 @@ export default function Home() {
             <FlowCard
               step="01"
               title="Prompts"
-              description="Forwarded byte-for-byte — except a managed secret, which is swapped for a placeholder on the way out and restored in the response so the provider never sees it. No blind rewriter touching your other fields."
+              description="Forwarded byte-for-byte. Bouclier has no rewrite path at all — a request is delivered unmodified or refused. No blind redactor touching your fields, nothing spliced into your prompt."
             />
             <FlowCard
               step="02"
@@ -407,7 +342,8 @@ export default function Home() {
 
           <div className="reveal border-border mt-12 rounded-2xl border bg-white p-6">
             <p className="text-text-secondary text-sm">
-              Standard mode installs nothing. The byte-identical guarantee is pinned by an
+              Bouclier installs nothing in your trust store. The byte-identical guarantee — a
+              request is forwarded unchanged or refused, never rewritten — is pinned by an
               end-to-end test in CI on every release.
             </p>
           </div>
@@ -427,19 +363,19 @@ export default function Home() {
           <div className="reveal-stagger reveal-stagger-2 mt-12 grid gap-6 md:grid-cols-2">
             <FeatureCard
               title="MDM managed"
-              description="Deploy and configure via Jamf, Kandji, or Mosyle. Control the gateway port, additional AI domains for the secret keeper's host bookkeeping, and feature flags across your fleet."
+              description="Deploy and configure via Jamf, Kandji, or Mosyle. Control the gateway port, additional AI domains, and feature flags — including enforcement mode — across your fleet."
+            />
+            <FeatureCard
+              title="Fleet-wide enforcement"
+              description="Ship monitor mode to learn your baseline, then flip blocking on by policy when you're ready. A single MDM flag turns the whole fleet from detect-and-log to refuse."
             />
             <FeatureCard
               title="Audit trail"
-              description="Every secret-keeper event is logged locally and can be forwarded to your SIEM. Export a privacy-scrubbed diagnostics bundle for incident response."
+              description="Every inspected request and every refusal is logged locally and can be forwarded to your SIEM. Export a privacy-scrubbed diagnostics bundle for incident response."
             />
             <FeatureCard
               title="Tamper-resistant"
-              description="An agent can use Bouclier but never weaken it — disabling protection or reading a secret has no agent path, only a human one. The tool can't switch off its own guard."
-            />
-            <FeatureCard
-              title="Straddle-safe restore"
-              description="Secret placeholders are restored across streaming response chunks byte-for-byte, so your local tool calls still work even when the model streams the value back mid-token."
+              description="An agent can use Bouclier but never weaken it — disabling protection has no agent path, only a human one in the app. The tool can't switch off its own guard."
             />
           </div>
         </div>
@@ -455,9 +391,9 @@ export default function Home() {
 
           <div className="reveal mt-12 grid gap-y-5">
             {[
-              "Secrets live in your macOS Keychain, scoped to Bouclier, and never reach the model, the MCP channel, or any log.",
+              "Detection runs entirely on your Mac — 161 patterns and the on-device ML classifier. Your traffic never leaves the machine to be inspected.",
               "No cloud LLM, no analytics, no telemetry in the app.",
-              "Scan logs never contain your prompts, responses, secrets, or API keys — only metadata.",
+              "Scan logs never contain your prompts, responses, or API keys — only metadata.",
               "Bouclier installs no certificate — the gateway is a plaintext-loopback relay, not a TLS-terminating proxy.",
             ].map((text) => (
               <div key={text} className="flex gap-3">
@@ -483,11 +419,11 @@ export default function Home() {
       <section className="border-border bg-bouclier-dark border-t py-24">
         <div className="reveal-scale mx-auto max-w-5xl px-6 text-center">
           <h2 className="text-3xl font-bold tracking-tight text-white">
-            Give your agent the keys. Keep the secrets.
+            Put a firewall between your agent and the web.
           </h2>
           <p className="mx-auto mt-4 max-w-lg text-white/70">
-            Download the DMG, drag to Applications, click Enable. Your agent can start using secrets
-            it never sees from that moment.
+            Download the DMG, drag to Applications, click Enable. Every tool result your agent reads
+            is inspected for injection from that moment — on your Mac, nothing installed.
           </p>
           <a
             href={DOWNLOAD_URL}
@@ -529,8 +465,8 @@ export default function Home() {
             </div>
           </div>
           <p className="text-text-secondary mt-4 text-xs">
-            Experimental, pre-1.0 software. Secret handling is best-effort; false positives and
-            false negatives will occur. Not intended for production or regulated workloads — see{" "}
+            Experimental, pre-1.0 software. Detection is best-effort; false positives and false
+            negatives will occur. Not intended for production or regulated workloads — see{" "}
             <Link href="/terms" className="hover:text-text underline">
               Terms
             </Link>
