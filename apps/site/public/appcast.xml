@@ -6,31 +6,30 @@
     <description>Updates for Bouclier.ai — prompt injection firewall for macOS</description>
     <language>en</language>
     <item>
-      <title>Version 0.9.1</title>
-      <pubDate>Mon, 03 Aug 2026 15:31:36 +0200</pubDate>
-      <sparkle:version>0.9.1</sparkle:version>
-      <sparkle:shortVersionString>0.9.1</sparkle:shortVersionString>
+      <title>Version 0.9.2</title>
+      <pubDate>Sun, 09 Aug 2026 07:50:13 +0200</pubDate>
+      <sparkle:version>0.9.2</sparkle:version>
+      <sparkle:shortVersionString>0.9.2</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
       <description><![CDATA[
-<h2>Bouclier.ai v0.9.1</h2>
-<h4>Added</h4>
-<ul>
-<li><strong>On-device ML detection is back (Meta Prompt Guard 2).</strong> The 86M classifier is bundled again and fused with the regex tier, so novel, paraphrased, and multilingual injections the pattern set misses get caught — all on-device (CoreML, no network; your traffic never leaves the machine to be classified). The tradeoff is download size (~300 MB vs ~6 MB), which is the price of local-only inference. It's a small classifier, not a frontier judge — it raises recall but is still evadable under adaptive/encoding attacks. The weights are gated (Meta HuggingFace) and produced at release time by <code>scripts/ensure-model.sh</code>, not committed to the repo.</li>
-<li><strong>Retrieved content is treated as untrusted, even inside a user turn.</strong> Previously only <code>tool_result</code> / <code>role:"tool"</code> / <code>function_call_output</code> were untrusted, so a poisoned document or search result pasted into a user message slipped through as "your own text." Now Anthropic <code>document</code> and <code>search_result</code> blocks — and anything wrapped in the <code><document></code> RAG convention embedded in principal text — are inspected as untrusted. Your own words around a quoted document are still principal and never blocked.</li>
-</ul>
-<h4>Fixed</h4>
-<ul>
-<li><strong>Far fewer false positives on tool output.</strong> The gateway used to refuse a request whenever tool output matched _any_ critical pattern, with no regard for context — so an agent reading an OWASP advisory, a security tutorial, a fenced code block, or a page that merely _quotes_ "ignore all previous instructions" could get a hard 403, and because the whole conversation is resent each turn, one benign-but-matching tool result could wedge the session on every retry. The false-positive dampeners that the pattern benchmark already measures (academic/tutorial/quoted/fenced-code/OWASP-reference context) are now applied on the desktop path too: a match inside benign context has its weight reduced and is <strong>flagged-and-forwarded</strong> instead of blocked. A genuine injection with no such context still blocks. This brings the desktop false-positive rate on the benign corpus from ~4.2% toward the benchmark's ~2.9%.</li>
-</ul>
+<h2>Bouclier.ai v0.9.2</h2>
 <h4>Changed</h4>
 <ul>
-<li>The untrusted-content block decision is now purely score-based (dampeners apply) rather than "any critical match blocks." An undampened critical pattern still drives the score to a hard block; a dampened one is logged and forwarded.</li>
+<li><strong>Monitor by default; blocking is opt-in.</strong> The gateway used to refuse a flagged request outright, which meant a false positive on tool output could wedge a normal agent session (the whole conversation is resent each turn, so one benign-but-matching result kept failing on every retry). Bouclier now <strong>detects and logs by default and forwards the request</strong> — it can't break normal work. Turn on enforcement to get refusals: <code>defaults write ai.bouclier.app injectionBlockEnabled -bool true</code>, or push it fleet-wide by MDM. Your own prompts are never blocked in either mode.</li>
+</ul>
+<h4>Removed</h4>
+<ul>
+<li><strong>The secret keeper is gone.</strong> The feature that stored managed credentials in your Keychain, scrubbed their real values out of outbound requests, and restored them in the response has been removed entirely — along with its agent secret-request flow, the <code>bouclier secrets</code> / <code>bouclier env</code> / <code>bouclier protection</code> CLI commands, and the secrets MCP server. It was off by default, under-tested, and marginal in practice (API keys live in request headers, not prompt bodies). Bouclier is now a focused prompt-injection firewall. The gateway is a byte-faithful transparent relay: it forwards a request unmodified or refuses it, and never rewrites. The <code>bouclier</code> CLI is read-only (<code>status</code>, <code>install</code>); the injection MCP server is unchanged. If you relied on the secret keeper, keep your credentials wherever your tools already read them.</li>
+</ul>
+<h4>Security</h4>
+<ul>
+<li>The security policy and threat model now describe the live attack surface accurately: the injection firewall is the primary control (they previously described it as dormant), and the secret-scrub invariants are gone. Public contact is <code>apps@superstellar.io</code>, and the <code>/blocked</code> page and <code>SECURITY.md</code> were trimmed to avoid over-exposing detection internals.</li>
 </ul>
 ]]></description>
       <enclosure
-        url="https://0tdi95zyjwsefpzx.public.blob.vercel-storage.com/download/Bouclier-ai-v0.9.1-macOS.dmg"
-        sparkle:edSignature="DR0ScboX+gCX1WmlHK1IDUtq9m3v1os8tELcYG5cAlKpKO3pgzFmxtMSGrCrlgOW1Fq6GgDBf1uYu0MfLqukBA=="
-        length="272989500"
+        url="https://0tdi95zyjwsefpzx.public.blob.vercel-storage.com/download/Bouclier-ai-v0.9.2-macOS.dmg"
+        sparkle:edSignature="lwTYnHo0GGaZj6HQaCQlR+k7iYMbkzMOWvGHwn8httc0IUqtEIp0V4P5yW3Hk2jMXEhdZ8+zWV6pSd55JDadDA=="
+        length="272174324"
         type="application/octet-stream"
       />
     </item>
