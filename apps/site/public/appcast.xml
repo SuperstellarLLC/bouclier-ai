@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" xmlns:dc="http://purl.org/dc/elements/1.1/">
+  <channel>
+    <title>Bouclier.ai Updates</title>
+    <link>https://www.bouclier.ai/appcast.xml</link>
+    <description>Updates for Bouclier.ai — prompt injection firewall for macOS</description>
+    <language>en</language>
+    <item>
+      <title>Version 0.9.3</title>
+      <pubDate>Mon, 10 Aug 2026 14:19:32 +0200</pubDate>
+      <sparkle:version>0.9.3</sparkle:version>
+      <sparkle:shortVersionString>0.9.3</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+      <description><![CDATA[
+<h2>Bouclier.ai v0.9.3</h2>
+<h4>Fixed</h4>
+<ul>
+<li><strong>Retrieved-document injections were being skipped by the gateway.</strong> The cheap pre-scan gate that decides whether to inspect a request only recognised tool-call outputs (<code>tool_result</code> / <code>function_call_output</code> / <code>role:"tool"</code>), even though the inspector treats Anthropic <code>document</code> and <code>search_result</code> blocks — and <code><document></code>-wrapped content in a user turn — as untrusted. A request whose only untrusted content was a retrieved document or search result (no tool call anywhere) passed the gate untouched and was forwarded uninspected — silently defeating the v0.9.1 provenance widening for the exact RAG-poisoning case it was meant to cover. The gate now covers the same shapes the inspector does, with regression tests. (Detection only; no effect while running in monitor mode.)</li>
+</ul>
+]]></description>
+      <enclosure
+        url="https://0tdi95zyjwsefpzx.public.blob.vercel-storage.com/download/Bouclier-ai-v0.9.3-macOS.dmg"
+        sparkle:edSignature="pqLNxgBgazPzzIichz4f9HaRUlG/mUOGaJb7RqufRo8K3pvkMvpWMbrVyjp8vM55FcoojA31B/IVRMQrH3aHBQ=="
+        length="272173905"
+        type="application/octet-stream"
+      />
+    </item>
+  </channel>
+</rss>

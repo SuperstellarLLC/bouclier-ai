@@ -1,0 +1,92 @@
+# dependencies
+node_modules/
+
+# testing
+coverage/
+playwright-report/
+test-results/
+
+# next.js
+.next/
+out/
+
+# production
+build/
+dist/
+
+# misc
+.DS_Store
+*.pem
+Thumbs.db
+
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# env files
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# vercel
+.vercel
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts
+
+# sentry
+.sentryclirc
+
+# editor
+.idea/
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+*.swp
+*.swo
+
+# docker
+docker-compose.override.yml
+
+# swift
+.build/
+.swiftpm/
+*.xcodeproj/
+*.xcworkspace/
+DerivedData/
+Package.resolved
+
+# ML conversion venv + HuggingFace cache
+apps/desktop/.venv-ml/
+
+# CoreML model + tokenizer — both produced by apps/desktop/scripts/
+# ensure-model.sh (convert-*.py) at release time from Meta's gated
+# HuggingFace checkpoint. The .mlpackage is too large for GitHub (>100 MB
+# per file); the tokenizer is regenerated alongside it, so neither is
+# committed. Both land in Sources/.../Resources before `swift build` and
+# ship inside the app bundle; absent them, the classifier degrades to
+# regex-only. Regenerate with `./scripts/ensure-model.sh`.
+**/PromptGuard2.mlpackage/
+**/Piiranha.mlpackage/
+**/PromptGuardTokenizer/
+**/PiiranhaTokenizer/
+
+# turbo
+.turbo/
+
+# package build artifacts
+packages/*/dist/
+
+# Local env files (Vercel OIDC token, pulled env vars) — never commit.
+# Scoped so the tracked .env.example template is unaffected.
+.env.local
+.env*.local
+.vercel
+
+# External benchmark corpora (fetched by benchmark/fetch-corpora.py; third-party, not vendored)
+apps/desktop/benchmark/data/

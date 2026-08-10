@@ -1,0 +1,105 @@
+name: Bouclier
+options:
+  bundleIdPrefix: ai.bouclier
+  deploymentTarget:
+    macOS: "15.0"
+  createIntermediateGroups: true
+
+# Signing settings only matter when generating an Xcode project for a
+# signed release build (`xcodegen && xcodebuild -scheme Bouclier
+# -configuration Release`). Contributors who just want to build and run
+# locally can use `swift build` / `swift run` directly — those paths
+# don't touch these values. To build a signed copy on a different
+# Apple Developer team, override these in your own checkout — they're
+# left in because the maintainer ships the signed DMG from this exact
+# config; the team ID is otherwise visible in any `codesign -dvv` of
+# the published binary.
+settings:
+  base:
+    DEVELOPMENT_TEAM: U86PR842AK
+    CODE_SIGN_STYLE: Manual
+    CODE_SIGN_IDENTITY: "Developer ID Application: Superstellar LLC (U86PR842AK)"
+
+packages:
+  GRDB:
+    url: https://github.com/groue/GRDB.swift.git
+    from: "7.0.0"
+  swift-nio:
+    url: https://github.com/apple/swift-nio.git
+    from: "2.76.0"
+  swift-nio-ssl:
+    url: https://github.com/apple/swift-nio-ssl.git
+    from: "2.29.0"
+  swift-nio-transport-services:
+    url: https://github.com/apple/swift-nio-transport-services.git
+    from: "1.23.0"
+  Sparkle:
+    url: https://github.com/sparkle-project/Sparkle.git
+    from: "2.6.0"
+
+targets:
+  Bouclier:
+    type: application
+    platform: macOS
+    sources:
+      - path: Sources/Bouclier
+    resources:
+      - path: Sources/Bouclier/Resources
+      - path: icon/Bouclier.icns
+    dependencies:
+      - package: GRDB
+      - package: swift-nio
+        product: NIO
+      - package: swift-nio
+        product: NIOCore
+      - package: swift-nio
+        product: NIOPosix
+      - package: swift-nio
+        product: NIOHTTP1
+      - package: swift-nio
+        product: NIOTLS
+      - package: swift-nio-ssl
+        product: NIOSSL
+      - package: swift-nio-transport-services
+        product: NIOTransportServices
+      - package: Sparkle
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: ai.bouclier.app
+        PROVISIONING_PROFILE_SPECIFIER: "Bouclier"
+        CODE_SIGN_ENTITLEMENTS: Bouclier.entitlements
+        ENABLE_HARDENED_RUNTIME: YES
+        SWIFT_VERSION: "6.0"
+        LD_RUNPATH_SEARCH_PATHS:
+          - "@executable_path/../Frameworks"
+      configs:
+        Release:
+          SWIFT_OPTIMIZATION_LEVEL: -O
+    info:
+      path: Sources/Bouclier/Resources/GeneratedInfo.plist
+      properties:
+        CFBundleName: Bouclier
+        CFBundleDisplayName: Bouclier
+        CFBundleIconFile: Bouclier
+        LSUIElement: true
+        SUPublicEDKey: "QNMtWO7H9Z9Hv1J9bAsunleicPvJVP2bMJQezjV3vmM="
+        SUFeedURL: "https://www.bouclier.ai/appcast.xml"
+        SUEnableAutomaticChecks: true
+
+  bouclier-ai-mcp-wrapper:
+    type: tool
+    platform: macOS
+    sources:
+      - path: Sources/MCPWrapper
+    settings:
+      base:
+        SWIFT_VERSION: "6.0"
+
+  bouclier-ai-env:
+    type: tool
+    platform: macOS
+    sources:
+      - path: Sources/EnvHelper
+    settings:
+      base:
+        SWIFT_VERSION: "6.0"

@@ -1,0 +1,484 @@
+import Foundation
+
+/// Wires the user's shells and GUI apps to route through the Bouclier
+/// gateway automatically — without the user pasting anything into a
+/// dotfile.
+///
+/// **Why this exists.** The gateway is certificate-free: an agent opts in
+/// by pointing `ANTHROPIC_BASE_URL` / `OPENAI_BASE_URL` at
+/// `http://127.0.0.1:<port>`, and nothing that doesn't set those vars is
+/// inspected. Expecting every user to export them by hand in every shell
+/// is the "seatbelt made of paper" failure mode — they enable protection,
+/// forget the export, and their agent talks straight to the provider
+/// while the shield reads green. So enabling protection sets the vars for
+/// them, everywhere a CLI or GUI-launched agent will look.
+///
+/// **What it does.** When the user enables protection we (a) write
+/// canonical env files at `~/.config/bouclier-ai/env.sh` and
+/// `env.fish` that export `ANTHROPIC_BASE_URL` / `OPENAI_BASE_URL`,
+/// (b) inject a delimited, idempotent block into `~/.zshenv`,
+/// `~/.bash_profile`, `~/.bashrc`, `~/.profile`, and
+/// `~/.config/fish/config.fish` that sources those files, and (c) call
+/// `launchctl setenv` so GUI apps launched via Spotlight/Finder/Dock
+/// inherit the same vars for the rest of the login session. No CA-bundle
+/// vars and no `HTTPS_PROXY`: the front hop is plaintext loopback to an
+/// LLM origin, not a CONNECT proxy or a TLS-terminating one.
+///
+/// **Routing is opt-in per process.** Only shells started *after* enable
+/// (which source the new block) and GUI processes launched *after*
+/// `launchctl setenv` pick the vars up. An already-running terminal,
+/// tmux session, or editor keeps talking direct until it is restarted —
+/// which is why "open a new terminal" is the one instruction onboarding
+/// must give.
+///
+/// **Why `.zshenv` specifically.** Non-interactive shells (the ones
+/// Claude Code and most editor-launched processes use) read `.zshenv`
+/// only — `.zshrc` is interactive-only. Anything we want a CLI tool
+/// to inherit has to live in `.zshenv` or in the launchctl session.
+///
+/// **Idempotency.** Each managed file is bracketed by sentinel
+/// comments; reapply strips the old block before writing a new one,
+/// so changing the proxy port or CA path doesn't accumulate stale
+/// exports.
+///
+/// **Safety.** Every dotfile write is atomic via tmpfile + rename so
+/// a power loss mid-write can't leave a half-written `.zshenv` (which
+/// would lock the user out of zsh). Failures in any individual file
+/// are logged and skipped — a missing `~/.config/fish` is fine.
+enum ShellEnvInjector {
+    /// User preference: ships on by default. Surface in Settings →
+    /// General so a user with a corporate proxy that conflicts (or a
+    /// Vim devotee with hand-tuned dotfiles) can opt out cleanly.
+    static let autoConfigureKey = "autoConfigureShellEnv"
+
+    static var isEnabled: Bool {
+        UserDefaults.standard.object(forKey: autoConfigureKey) as? Bool ?? true
+    }
+
+    // The former `apply(proxyPort:caCertPath:)` + `buildExports` (which
+    // exported HTTPS_PROXY/HTTP_PROXY and NODE_EXTRA_CA_CERTS/SSL_CERT_FILE/
+    // REQUESTS_CA_BUNDLE for extreme mode's TLS-terminating proxy) were
+    // removed in v0.9.0. Extreme mode is gone; `applyStandard` below is the
+    // only live path and it sets base-URL vars only. `envVarKeys` still
+    // lists the old keys so a machine upgrading from a pre-removal install
+    // gets them unset by `unsetLaunchctl`.
+
+    /// Remove everything we injected. Called on uninstall and when
+    /// the user flips the General toggle off. Best-effort: a missing
+    /// dotfile is not an error.
+    static func remove() {
+        for path in [home(".zshenv"), home(".bash_profile"), home(".bashrc"), home(".profile"), fishConfigPath()] {
+            stripBlock(from: path)
+        }
+
+        try? FileManager.default.removeItem(at: configDir().appendingPathComponent("env.sh"))
+        try? FileManager.default.removeItem(at: configDir().appendingPathComponent("env.fish"))
+
+        removeWatchdog()
+        unsetLaunchctl()
+    }
+
+    /// Drop the launchctl session env vars without touching the dotfile
+    /// blocks or the canonical env files. Called from `ProxyManager.stop`
+    /// and the crash/exit handlers so a quit-or-crash leaves the user
+    /// session unable to route through the now-dead proxy — paired with
+    /// the shell scripts' fail-open TCP check, the user's CLI tools
+    /// recover transparently instead of seeing `connection refused`.
+    static func unsetLaunchctl() {
+        for key in Self.envVarKeys {
+            _ = runLaunchctl(["unsetenv", key])
+        }
+    }
+
+    // MARK: - Content builders
+
+    // Union of every key either mode sets. `unsetLaunchctl` and the
+    // watchdog clear all of them, so switching extreme↔standard (or a
+    // crash) never strands a stale var from the other mode.
+    private static let envVarKeys = [
+        "HTTPS_PROXY",
+        "HTTP_PROXY",
+        "NODE_EXTRA_CA_CERTS",
+        "SSL_CERT_FILE",
+        "REQUESTS_CA_BUNDLE",
+        "ANTHROPIC_BASE_URL",
+        "OPENAI_BASE_URL",
+    ]
+
+    struct Exports {
+        let pairs: [(String, String)]
+    }
+
+    /// Standard (non-CA) mode: point the agent's SDKs at the gateway via
+    /// base-URL overrides instead of `HTTPS_PROXY`. We deliberately do NOT
+    /// set `HTTPS_PROXY` — the gateway is an LLM origin, not a CONNECT
+    /// proxy, so routing all HTTPS through it would break everything else.
+    /// And no CA-bundle vars: the front hop is plaintext loopback, so
+    /// there's no Bouclier cert for runtimes to trust.
+    ///
+    /// `ANTHROPIC_BASE_URL` is the host root (the SDK appends
+    /// `/v1/messages`); `OPENAI_BASE_URL` conventionally includes `/v1`
+    /// (the SDK appends `/chat/completions`). The gateway's router accepts
+    /// both shapes.
+    static func buildStandardExports(gatewayPort: Int) -> Exports {
+        let base = "http://127.0.0.1:\(gatewayPort)"
+        return Exports(pairs: [
+            ("ANTHROPIC_BASE_URL", base),
+            ("OPENAI_BASE_URL", base + "/v1"),
+        ])
+    }
+
+    /// Apply standard-mode env injection. Mirrors `apply` (dotfiles +
+    /// launchctl + watchdog, all fail-open) but with base-URL exports.
+    @discardableResult
+    static func applyStandard(gatewayPort: Int) -> Bool {
+        guard isEnabled else { return false }
+        let exports = buildStandardExports(gatewayPort: gatewayPort)
+
+        let envSh = configDir().appendingPathComponent("env.sh")
+        let envFish = configDir().appendingPathComponent("env.fish")
+        _ = ensureConfigDir()
+        writeAtomically(content: posixEnvFileContent(exports: exports), to: envSh)
+        writeAtomically(content: fishEnvFileContent(exports: exports), to: envFish)
+
+        let posixSource = "[ -f \"\(envSh.path)\" ] && . \"\(envSh.path)\""
+        let fishSource = "if test -f \"\(envFish.path)\"; source \"\(envFish.path)\"; end"
+        injectBlock(into: home(".zshenv"), payload: posixSource)
+        injectBlock(into: home(".bash_profile"), payload: posixSource)
+        injectBlock(into: home(".bashrc"), payload: posixSource)
+        injectBlock(into: home(".profile"), payload: posixSource)
+        injectBlock(into: fishConfigPath(), payload: fishSource, createParent: true)
+
+        unsetLaunchctl()
+        applyLaunchctlSetenv(exports: exports)
+        installWatchdog(proxyPort: gatewayPort)
+        return true
+    }
+
+    /// Port the proxy is bound to. Used by the shell scripts'
+    /// fail-open TCP check.
+    private static func proxyPort(from url: String) -> Int {
+        // Pull the port out of `http://127.0.0.1:8484`. If anything is
+        // off, fall back to the well-known default — wrong answer here
+        // just means a slightly slower failed connect on shell start.
+        if let last = url.split(separator: ":").last, let p = Int(last) { return p }
+        return 8484
+    }
+
+    static func posixEnvFileContent(exports: Exports) -> String {
+        let port = proxyPort(from: exports.pairs.first(where: { $0.1.contains("127.0.0.1:") })?.1 ?? "")
+        let keys = exports.pairs.map(\.0).joined(separator: " ")
+        var lines = [
+            "# Bouclier.ai — auto-generated. Do not edit by hand.",
+            "# Points AI SDKs at the local certificate-free gateway by",
+            "# exporting ANTHROPIC_BASE_URL / OPENAI_BASE_URL.",
+            "#",
+            "# Fail-open: if Bouclier isn't listening we *unset* the proxy",
+            "# vars so CLI tools talk direct instead of erroring with",
+            "# 'connection refused'. Explicit unset matters because a stale",
+            "# value can be inherited from launchctl setenv, the parent",
+            "# shell, or a previous Bouclier session — without the unset",
+            "# the conditional `export` doesn't override it. ~5ms TCP probe.",
+            "__bouclier_sync() {",
+            "    if /usr/bin/nc -z 127.0.0.1 \(port) 2>/dev/null; then",
+        ]
+        for (k, v) in exports.pairs {
+            lines.append("        export \(k)=\"\(shellEscape(v))\"")
+        }
+        lines.append("    else")
+        lines.append("        unset \(keys)")
+        lines.append("    fi")
+        lines.append("}")
+        // Run once now (this is the only path non-interactive shells —
+        // Claude Code, editor-spawned tools — ever take).
+        lines.append("__bouclier_sync")
+        // Re-sync before every interactive prompt so a *live* shell
+        // self-heals when Bouclier is killed mid-session. Without this,
+        // the vars exported at shell start keep pointing at the dead
+        // proxy and the next `claude`/`curl` in that same tab fails with
+        // 'connection refused' until the tab is closed. The probe is a
+        // loopback TCP connect — sub-millisecond — so per-prompt cost is
+        // negligible. add-zsh-hook de-dupes; the bash branch guards
+        // against double-registration on re-source.
+        lines.append(contentsOf: [
+            "if [ -n \"$ZSH_VERSION\" ]; then",
+            "    autoload -Uz add-zsh-hook 2>/dev/null && add-zsh-hook precmd __bouclier_sync 2>/dev/null",
+            "elif [ -n \"$BASH_VERSION\" ]; then",
+            "    case \"$PROMPT_COMMAND\" in",
+            "        *__bouclier_sync*) ;;",
+            "        *) PROMPT_COMMAND=\"__bouclier_sync${PROMPT_COMMAND:+; $PROMPT_COMMAND}\" ;;",
+            "    esac",
+            "fi",
+        ])
+        return lines.joined(separator: "\n") + "\n"
+    }
+
+    static func fishEnvFileContent(exports: Exports) -> String {
+        let port = proxyPort(from: exports.pairs.first(where: { $0.1.contains("127.0.0.1:") })?.1 ?? "")
+        let keys = exports.pairs.map(\.0).joined(separator: " ")
+        var lines = [
+            "# Bouclier.ai — auto-generated. Do not edit by hand.",
+            "# Fail-open: unset proxy vars when Bouclier isn't listening so",
+            "# `git push`, `curl`, etc. don't break when the proxy is down.",
+            "function __bouclier_sync",
+            "    if /usr/bin/nc -z 127.0.0.1 \(port) 2>/dev/null",
+        ]
+        for (k, v) in exports.pairs {
+            lines.append("        set -gx \(k) \"\(shellEscape(v))\"")
+        }
+        lines.append("    else")
+        lines.append("        set -e \(keys)")
+        lines.append("    end")
+        lines.append("end")
+        // Run once now, then re-sync on every prompt so a live shell
+        // self-heals when Bouclier is killed mid-session (see the POSIX
+        // file for the full rationale).
+        lines.append("__bouclier_sync")
+        lines.append(contentsOf: [
+            "function __bouclier_sync_prompt --on-event fish_prompt",
+            "    __bouclier_sync",
+            "end",
+        ])
+        return lines.joined(separator: "\n") + "\n"
+    }
+
+    private static func shellEscape(_ value: String) -> String {
+        // Conservative: escape backslashes and double quotes. The values
+        // we emit are paths and a `http://127.0.0.1:port` URL — neither
+        // legitimately contains either character, but a paranoid escape
+        // is cheaper than auditing every caller.
+        value.replacingOccurrences(of: "\\", with: "\\\\")
+             .replacingOccurrences(of: "\"", with: "\\\"")
+    }
+
+    // MARK: - Block management
+
+    private static let blockBegin = "# >>> bouclier.ai env (managed) >>>"
+    private static let blockEnd = "# <<< bouclier.ai env (managed) <<<"
+
+    /// Insert or replace the managed block in `path`. Atomic write —
+    /// a partial write to `.zshenv` would lock the user out of zsh, so
+    /// we never overwrite the live file directly.
+    static func injectBlock(into path: URL, payload: String, createParent: Bool = false) {
+        if createParent {
+            try? FileManager.default.createDirectory(
+                at: path.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+        }
+
+        let existing = (try? String(contentsOf: path, encoding: .utf8)) ?? ""
+        let stripped = stripBlock(in: existing)
+        let separator = stripped.isEmpty || stripped.hasSuffix("\n") ? "" : "\n"
+        let block = "\(blockBegin)\n\(payload)\n\(blockEnd)\n"
+        let next = stripped + separator + (stripped.isEmpty ? "" : "\n") + block
+        writeAtomically(content: next, to: path)
+    }
+
+    /// Remove the managed block from `path` in-place. Atomic write.
+    static func stripBlock(from path: URL) {
+        guard let existing = try? String(contentsOf: path, encoding: .utf8) else { return }
+        let stripped = stripBlock(in: existing)
+        if stripped == existing { return }
+        if stripped.isEmpty {
+            // If the file was nothing but our block, remove it so we
+            // don't leave a stray empty `.profile` behind.
+            try? FileManager.default.removeItem(at: path)
+            return
+        }
+        writeAtomically(content: stripped, to: path)
+    }
+
+    private static func stripBlock(in content: String) -> String {
+        guard let beginRange = content.range(of: blockBegin) else { return content }
+        // Walk back to include the newline before our block, if any,
+        // so we don't leave a blank line.
+        let blockStart: String.Index = {
+            var idx = beginRange.lowerBound
+            if idx > content.startIndex {
+                let prev = content.index(before: idx)
+                if content[prev] == "\n" { idx = prev }
+            }
+            return idx
+        }()
+        guard let endRange = content.range(of: blockEnd, range: beginRange.upperBound..<content.endIndex) else {
+            // Malformed — only a begin marker. Drop everything from
+            // begin to EOF to recover.
+            return String(content[content.startIndex..<blockStart])
+        }
+        // Consume trailing newline after the end marker so consecutive
+        // applies don't accumulate blank lines.
+        var blockEndIdx = endRange.upperBound
+        if blockEndIdx < content.endIndex, content[blockEndIdx] == "\n" {
+            blockEndIdx = content.index(after: blockEndIdx)
+        }
+        let before = content[content.startIndex..<blockStart]
+        let after = content[blockEndIdx..<content.endIndex]
+        return String(before) + String(after)
+    }
+
+    // MARK: - launchctl
+
+    private static func applyLaunchctlSetenv(exports: Exports) {
+        for (k, v) in exports.pairs {
+            _ = runLaunchctl(["setenv", k, v])
+        }
+    }
+
+    // MARK: - Crash-resilient watchdog (LaunchAgent)
+
+    /// Label for the LaunchAgent. macOS uses this to identify the
+    /// loaded job; must match the plist's `Label` key.
+    static let watchdogLabel = "ai.bouclier.proxy-env-watchdog"
+
+    /// Path to the per-user LaunchAgent plist. We install at the user
+    /// level (no admin password) and only act on per-user launchctl
+    /// state, so the privileges line up.
+    static func watchdogPlistPath() -> URL {
+        FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/LaunchAgents/\(watchdogLabel).plist")
+    }
+
+    /// Generate the LaunchAgent plist content. Hoisted out for testing.
+    ///
+    /// The agent runs every minute. On each tick it checks whether any
+    /// process matching the Bouclier app bundle is alive; if not, it
+    /// `launchctl unsetenv`s the proxy env. This catches the hard-crash
+    /// / force-quit / SIGKILL case where Bouclier's own atexit + SIGTERM
+    /// handlers never fire, leaving stale env pointing at a dead port.
+    /// One minute of staleness is the worst-case window — paired with
+    /// the shell-level fail-open guard for new shells, that's tolerable.
+    static func watchdogPlist(proxyPort: Int) -> String {
+        // Single-line shell command so we don't have to externalise a
+        // separate script — keeps install/uninstall self-contained.
+        //
+        // The probe tests what we actually care about — "is the proxy
+        // listener reachable" — rather than "is a Bouclier process
+        // alive." `pgrep -f` would match any process whose command-line
+        // *mentions* the bundle path (including our own diagnostic
+        // commands and shell scripts), which gave false positives
+        // during live QA. A TCP connect to the listening port has no
+        // such ambiguity.
+        //
+        // When the probe fails we clear *both* sides of the stale state:
+        // the `launchctl` session env (so GUI apps spawned via Spotlight
+        // don't inherit a dead pointer) AND macOS system PAC across every
+        // network service (so browsers and any URLSession-based app
+        // respecting system proxy settings stop trying to talk to a dead
+        // 127.0.0.1 port). PAC config is system-level and persists across
+        // reboot — without this sweep, a hard crash leaves the user
+        // unable to reach LLM APIs forever.
+        let unsetCmd = Self.envVarKeys.map { "launchctl unsetenv \($0)" }.joined(separator: "; ")
+        let pacSweep = "/usr/sbin/networksetup -listallnetworkservices 2>/dev/null | tail -n +2 | grep -v '^\\*' | while IFS= read -r svc; do [ -n \"$svc\" ] && /usr/sbin/networksetup -setautoproxystate \"$svc\" off >/dev/null 2>&1; done"
+        let probe = "/usr/bin/nc -z 127.0.0.1 \(proxyPort) >/dev/null 2>&1"
+        let script = "\(probe) || { \(unsetCmd); \(pacSweep); }"
+        return """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+        <plist version="1.0">
+        <dict>
+            <key>Label</key>
+            <string>\(watchdogLabel)</string>
+            <key>ProgramArguments</key>
+            <array>
+                <string>/bin/sh</string>
+                <string>-c</string>
+                <string>\(script)</string>
+            </array>
+            <key>StartInterval</key>
+            <integer>60</integer>
+            <key>RunAtLoad</key>
+            <true/>
+            <key>StandardOutPath</key>
+            <string>/dev/null</string>
+            <key>StandardErrorPath</key>
+            <string>/dev/null</string>
+        </dict>
+        </plist>
+        """
+    }
+
+    /// Install the watchdog: write the plist, load it via `launchctl`.
+    /// Idempotent — re-installing first unloads any existing copy so
+    /// changes to the plist body take effect on the next apply().
+    static func installWatchdog(proxyPort: Int) {
+        let path = watchdogPlistPath()
+        do {
+            try FileManager.default.createDirectory(
+                at: path.deletingLastPathComponent(), withIntermediateDirectories: true
+            )
+        } catch {}
+        writeAtomically(content: watchdogPlist(proxyPort: proxyPort), to: path)
+        // bootout first so we pick up any plist edits; ignore failure
+        // when the agent isn't yet loaded (first run).
+        _ = runLaunchctl(["bootout", "gui/\(uid())/\(watchdogLabel)"])
+        _ = runLaunchctl(["bootstrap", "gui/\(uid())", path.path])
+    }
+
+    /// Uninstall the watchdog: unload the agent and remove the plist.
+    static func removeWatchdog() {
+        let path = watchdogPlistPath()
+        _ = runLaunchctl(["bootout", "gui/\(uid())/\(watchdogLabel)"])
+        try? FileManager.default.removeItem(at: path)
+    }
+
+    private static func uid() -> String {
+        String(getuid())
+    }
+
+    @discardableResult
+    private static func runLaunchctl(_ args: [String]) -> Bool {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/bin/launchctl")
+        p.arguments = args
+        p.standardOutput = FileHandle.nullDevice
+        p.standardError = FileHandle.nullDevice
+        do {
+            try p.run()
+            p.waitUntilExit()
+            return p.terminationStatus == 0
+        } catch {
+            return false
+        }
+    }
+
+    // MARK: - Filesystem helpers
+
+    private static func home(_ component: String) -> URL {
+        FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(component)
+    }
+
+    private static func configDir() -> URL {
+        home(".config/bouclier-ai")
+    }
+
+    private static func fishConfigPath() -> URL {
+        home(".config/fish/config.fish")
+    }
+
+    @discardableResult
+    private static func ensureConfigDir() -> Bool {
+        do {
+            try FileManager.default.createDirectory(at: configDir(), withIntermediateDirectories: true)
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    private static func writeAtomically(content: String, to url: URL) {
+        do {
+            try FileManager.default.createDirectory(
+                at: url.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+        } catch {}
+        guard let data = content.data(using: .utf8) else { return }
+        do {
+            try data.write(to: url, options: .atomic)
+        } catch {
+            // Best-effort: a single dotfile failing to write must not
+            // abort the rest of the setup flow.
+        }
+    }
+}

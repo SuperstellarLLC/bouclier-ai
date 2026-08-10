@@ -1,0 +1,107 @@
+# Tag-verifier and draft-release workflow.
+#
+# When a `v*` tag is pushed, this workflow rebuilds and tests the
+# desktop app from that exact tag, uploads the unsigned build as an
+# artifact for QA, and opens a draft GitHub release populated from
+# the matching `## [VERSION]` section of CHANGELOG.md.
+#
+# Signing, notarisation, DMG creation, and Sparkle appcast publication
+# happen locally on a maintainer's machine via
+# `apps/desktop/scripts/release.sh` — macOS code-signing in CI is
+# fragile and our threat model puts the signing keys on a single
+# maintainer-held machine. The draft release is finalised manually
+# after the signed DMG is uploaded to the download host.
+
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  verify:
+    name: Verify tag builds & tests pass
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install workspace deps
+        run: pnpm install --frozen-lockfile
+
+      - name: Build shared patterns package
+        run: pnpm --filter @bouclier-ai/patterns build
+
+      - name: Sync patterns into desktop bundle
+        run: apps/desktop/scripts/sync-patterns.sh
+
+      - name: Build Swift package (release)
+        working-directory: apps/desktop
+        run: swift build -c release
+
+      - name: Run Swift tests
+        working-directory: apps/desktop
+        run: swift test
+
+      - name: Upload unsigned binaries
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: bouclier-${{ github.ref_name }}-unsigned
+          path: |
+            apps/desktop/.build/release/Bouclier
+            apps/desktop/.build/release/bouclier-ai-mcp-wrapper
+            apps/desktop/.build/release/bouclier-ai-env
+          retention-days: 14
+          if-no-files-found: error
+
+  draft-release:
+    name: Open draft GitHub release
+    runs-on: ubuntu-latest
+    needs: verify
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Extract CHANGELOG section for this tag
+        id: changelog
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo "Extracting changelog section for ${VERSION}"
+          {
+            echo 'BODY<<__EOF__'
+            awk -v ver="$VERSION" '
+              $0 ~ ("^## \\[" ver "\\]") { found = 1; next }
+              found && /^## \[/ { exit }
+              found { print }
+            ' CHANGELOG.md
+            echo '__EOF__'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Create draft release
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
+        with:
+          draft: true
+          name: ${{ github.ref_name }}
+          tag_name: ${{ github.ref_name }}
+          body: |
+            ${{ steps.changelog.outputs.BODY }}
+
+            ---
+
+            > Signed DMG and Sparkle appcast are published separately via
+            > `apps/desktop/scripts/release.sh` on a maintainer machine.
+            > This release will be promoted from *draft* once those
+            > artifacts are uploaded.

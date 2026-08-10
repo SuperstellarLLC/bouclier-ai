@@ -1,0 +1,48 @@
+# Enforce Conventional Commits at the PR level.
+#
+# `commitlint` runs locally via husky on every commit, but PRs from
+# Dependabot, contributor forks, and the GitHub web UI's "edit" flow
+# can still land non-conforming titles. The merge button is "Squash",
+# so the PR title becomes the canonical commit message — this check
+# is the safety net.
+
+name: PR title
+
+on:
+  pull_request_target:
+    types: [opened, edited, reopened, synchronize]
+
+permissions:
+  pull-requests: read
+
+jobs:
+  conventional:
+    name: Validate title
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: amannn/action-semantic-pull-request@e32d7e603df1aa1ba07e981f2a23455dee596825 # v5
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          # Conventional Commit types we accept. Mirrored against the
+          # local `commitlint.config.ts` rule set.
+          types: |
+            feat
+            fix
+            perf
+            refactor
+            docs
+            test
+            build
+            ci
+            chore
+            revert
+            style
+          # Match commitlint.config.ts: subject must not be Start-Case,
+          # PascalCase, or UPPER-CASE.
+          subjectPattern: ^[^A-Z].+$
+          subjectPatternError: |
+            The subject "{subject}" begins with an uppercase letter or is otherwise
+            non-conventional. Use lower-case: `fix: handle empty body` not
+            `fix: Handle empty body`. See `commitlint.config.ts` for the local rule.

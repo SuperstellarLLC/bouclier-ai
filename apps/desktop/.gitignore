@@ -1,0 +1,5 @@
+build/
+profiles/
+**/GeneratedInfo.plist
+*.mobileprovision
+*.provisionprofile

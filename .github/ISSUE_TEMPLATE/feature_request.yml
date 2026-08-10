@@ -1,0 +1,37 @@
+name: Feature request
+description: Propose a new capability or improvement.
+title: "feat: "
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before filing, check the [roadmap discussion](https://github.com/SuperstellarLLC/bouclier-ai/discussions/categories/ideas) — your idea may already be tracked.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What user problem are you trying to solve? Avoid prescribing a solution here.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: What would you like Bouclier.ai to do? Sketch the UX or API if it helps.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Workarounds, related tools, or prior art.
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Use cases, related providers, screenshots, links.
