@@ -63,6 +63,13 @@ export function MobileNav({ downloadUrl }: { downloadUrl: string }) {
               How it works
             </a>
             <a
+              href="#benchmarks"
+              onClick={() => setOpen(false)}
+              className="text-text-secondary hover:text-text py-1 text-sm"
+            >
+              Benchmarks
+            </a>
+            <a
               href="#agents"
               onClick={() => setOpen(false)}
               className="text-text-secondary hover:text-text py-1 text-sm"

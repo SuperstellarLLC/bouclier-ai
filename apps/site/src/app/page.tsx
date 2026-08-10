@@ -40,6 +40,12 @@ export default function Home() {
               How it works
             </a>
             <a
+              href="#benchmarks"
+              className="text-text-secondary hover:text-text text-sm transition-colors"
+            >
+              Benchmarks
+            </a>
+            <a
               href="#agents"
               className="text-text-secondary hover:text-text text-sm transition-colors"
             >
@@ -244,6 +250,76 @@ export default function Home() {
                 gating is on the roadmap, not shipped.
               </li>
             </ul>
+          </div>
+        </div>
+      </section>
+
+      {/* ── How we measure ───────────────────────── */}
+      <section id="benchmarks" className="border-border bg-surface border-t py-24">
+        <div className="mx-auto max-w-5xl px-6">
+          <div className="reveal">
+            <SectionLabel>How we measure</SectionLabel>
+            <h2 className="mt-3 text-3xl font-bold tracking-tight">
+              Real numbers, on data we didn&apos;t write.
+            </h2>
+            <p className="text-text-secondary mt-4 max-w-2xl">
+              We run the <em>shipped</em> pipeline — the 161 patterns, the false-positive dampeners,
+              and the on-device Prompt Guard 2 classifier — against third-party corpora, and publish
+              the harness so you can reproduce it. Each test string is scored as untrusted tool
+              output, exactly as the gateway would.
+            </p>
+          </div>
+
+          <div className="reveal-stagger reveal-stagger-2 mt-12 grid gap-6 md:grid-cols-2">
+            <div className="border-border rounded-2xl border bg-white p-6">
+              <div className="text-bouclier text-3xl font-bold tabular-nums">~1%</div>
+              <h3 className="mt-1 text-base font-semibold">False positives on benign content</h3>
+              <p className="text-text-secondary mt-2 text-sm leading-relaxed">
+                Across 512 external benign prompts — including{" "}
+                <a
+                  href="https://github.com/leolee99/NotInject"
+                  className="text-bouclier underline underline-offset-2"
+                >
+                  NotInject
+                </a>
+                , a set built to trip guardrails with security vocabulary — the shipped build
+                blocked 0.6% (1.8% on NotInject alone). This is the number that matters for staying
+                out of your way, and it&apos;s the hard one to game.
+              </p>
+            </div>
+            <div className="border-border rounded-2xl border bg-white p-6">
+              <div className="text-bouclier text-3xl font-bold tabular-nums">~99%</div>
+              <h3 className="mt-1 text-base font-semibold">
+                Instruction-override injections caught
+              </h3>
+              <p className="text-text-secondary mt-2 text-sm leading-relaxed">
+                On 777 payloads from a public instruction-override corpus (Lakera&apos;s{" "}
+                <code className="rounded bg-zinc-100 px-1 py-0.5 text-xs">gandalf</code> set). This
+                is detection on a <em>static</em> corpus of one attack class — read it as coverage
+                of known families, not a guarantee.
+              </p>
+            </div>
+          </div>
+
+          <div className="reveal mt-6 rounded-2xl border-2 border-amber-200 bg-amber-50/50 p-6">
+            <h3 className="text-lg font-semibold text-amber-900">What these numbers are not</h3>
+            <p className="text-text-secondary mt-2 text-sm leading-relaxed">
+              These are <strong>static-corpus</strong> results. They say nothing about an attacker
+              optimizing against the detector — every detector of this kind, ours included, is
+              bypassed at high rates under adaptive attack. A clean pass is not evidence of safety.
+              The default install runs in monitor mode and blocks nothing until you turn enforcement
+              on. Measured on v{APP_VERSION} (10 Aug 2026); numbers move with each release.
+            </p>
+          </div>
+
+          <div className="reveal mt-6">
+            <a
+              href="https://github.com/SuperstellarLLC/bouclier-ai/tree/main/apps/desktop/benchmark"
+              className="border-border text-text hover:border-bouclier/30 inline-flex items-center gap-2 rounded-xl border bg-white px-5 py-3 text-sm font-semibold shadow-sm transition-all hover:shadow-md"
+            >
+              Reproduce it — the harness + corpora
+              <span aria-hidden>→</span>
+            </a>
           </div>
         </div>
       </section>
