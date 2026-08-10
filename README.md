@@ -3,12 +3,12 @@
 
   <h1>Bouclier.ai</h1>
 
-  <p><strong>A local-only macOS prompt-injection firewall for AI coding agents. It reads every tool result on its way into the model and refuses the request when a fetched page, a README, or an MCP response is trying to give your agent orders. Your own prompts are never touched. No certificate to install.</strong></p>
+  <p><strong>A local-only macOS prompt-injection firewall for AI coding agents. It reads every tool result on its way into the model — a fetched page, a README, an MCP response — and flags anything trying to give your agent orders (and refuses it outright once you turn blocking on). It monitors by default, so it never breaks your work. Your own prompts are never touched. No certificate to install.</strong></p>
 
   <p>
     <a href="https://github.com/SuperstellarLLC/bouclier-ai/actions/workflows/ci.yml"><img src="https://github.com/SuperstellarLLC/bouclier-ai/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
     <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue.svg" alt="License: Apache-2.0"></a>
-    <a href="https://github.com/SuperstellarLLC/bouclier-ai/releases"><img src="https://img.shields.io/github/v/release/SuperstellarLLC/bouclier-ai?display_name=tag" alt="Latest release"></a>
+    <a href="https://www.bouclier.ai"><img src="https://img.shields.io/badge/download-macOS-black?logo=apple&logoColor=white" alt="Download for macOS"></a>
     <img src="https://img.shields.io/badge/platform-macOS%2015%2B-lightgrey" alt="macOS 15+">
     <img src="https://img.shields.io/badge/status-beta-orange" alt="Beta">
   </p>
