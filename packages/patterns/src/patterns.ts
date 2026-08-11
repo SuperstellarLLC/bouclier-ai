@@ -3,11 +3,14 @@ import { chainOfThoughtPatterns } from "./patterns/chain-of-thought.js";
 import { codeInjectionPatterns } from "./patterns/code-injection.js";
 import { credentialLeakPatterns } from "./patterns/credential-leak.js";
 import { evolutionPatterns } from "./patterns/evolution.js";
+import { exfiltrationPatterns } from "./patterns/exfiltration.js";
 import { functionHijackPatterns } from "./patterns/function-hijack.js";
 import { memoryManipulationPatterns } from "./patterns/memory-manipulation.js";
 import { modelSpecificPatterns } from "./patterns/model-specific.js";
 import { multilingualPatterns } from "./patterns/multilingual.js";
+import { promptExtractionPatterns } from "./patterns/prompt-extraction.js";
 import { sandboxEscapePatterns } from "./patterns/sandbox-escape.js";
+import { specialTokenPatterns } from "./patterns/special-tokens.js";
 import { toolPoisoningPatterns } from "./patterns/tool-poisoning.js";
 import type { Pattern } from "./types.js";
 
@@ -639,4 +642,7 @@ export const patterns: Pattern[] = [
   ...sandboxEscapePatterns,
   ...chainOfThoughtPatterns,
   ...alignmentBypassPatterns,
+  ...specialTokenPatterns,
+  ...promptExtractionPatterns,
+  ...exfiltrationPatterns,
 ];
