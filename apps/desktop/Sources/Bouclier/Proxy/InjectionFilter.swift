@@ -50,9 +50,16 @@ final class InjectionFilter: @unchecked Sendable {
     private static let blockThreshold: Double = 0.50
 
     /// A single signal at this strength short-circuits the decision —
-    /// "if any one signal is this confident, that's enough." Lets the
-    /// ML classifier alone trigger blocking on novel attacks the regex
-    /// pattern set has never seen.
+    /// "if any one signal is this confident, that's enough." This is the
+    /// **ML-alone block tier**: it lets the classifier trigger a block on
+    /// novel attacks the regex set has never seen, and it sits above the
+    /// gateway's corroborated bar (0.60), so ML-alone must clear a higher
+    /// bar than an ML+regex agreement. Crucially the ML signal is
+    /// benign-context *dampened* before it is tested here (see
+    /// `mlBenignMultiplier`), so quoted advisories / this project's own
+    /// pattern files don't clear it while genuine injections in untrusted
+    /// prose still do. ML stays load-bearing; it just loses its
+    /// foothold on security content it is only *reading about*.
     private static let strongSignalThreshold: Double = 0.85
 
     static let redactionMessage =
@@ -164,12 +171,26 @@ final class InjectionFilter: @unchecked Sendable {
                 mlAvailable = false
             }
         }
-        let mlSignal = Double(mlScore ?? 0)
+        let mlSignalRaw = Double(mlScore ?? 0)
+        // The regex tier dampens per match by offset; the ML score has no
+        // offset, so apply an equivalent whole-span benign-context factor.
+        // Without this, ML bypassed dampening entirely — the exact reason
+        // a quoted advisory or this project's own pattern files scored ~1.0
+        // and 403'd a session. Both tiers now see the same benign contexts.
+        let mlBenignMultiplier = Self.mlBenignMultiplier(
+            dampenerRanges: dampenerRanges,
+            contentLength: (content as NSString).length
+        )
+        let mlSignal = mlSignalRaw * mlBenignMultiplier
 
         // ─── Signal 3: Entropy anomaly (near-free) ───
         let entropySignal = EntropyAnalyzer.anomalyScore(content)
 
         // ─── Fuse: weighted sum + max-signal short-circuit ───
+        // The weighted sum rewards corroboration (regex + ML agreeing push
+        // each other up); the short-circuit is the single-strong-signal
+        // path — either an undampened critical regex hit or a dampened-ML
+        // score clearing the higher ML-alone bar.
         let fusedWeighted =
             regexSignal * 0.50 +
             mlSignal * 0.40 +
@@ -184,7 +205,7 @@ final class InjectionFilter: @unchecked Sendable {
         //   c) Nothing fires → return content unchanged
         let shouldBlock = !deduped.isEmpty
             || fusedScore >= Self.blockThreshold
-            || (mlScore.map { $0 >= Float(Self.strongSignalThreshold) } ?? false)
+            || (mlSignal >= Self.strongSignalThreshold)
 
         let sanitized: String
         if !deduped.isEmpty {
@@ -268,6 +289,58 @@ final class InjectionFilter: @unchecked Sendable {
             }
         }
         return ranges
+    }
+
+    /// Whole-span benign-context multiplier for the ML signal, in
+    /// (0, 1]. 1.0 means "no benign context — trust ML fully."
+    ///
+    /// The regex tier dampens each match by how close it sits to a
+    /// benign-context marker (`dampeningMultiplier`). The ML score is a
+    /// single number for the whole span with no offset, so we need a
+    /// span-level analogue. We reuse the same proximity notion: expand
+    /// every dampener hit by `dampenerProximity` on each side (the region
+    /// it makes "benign context"), union those windows, and take the
+    /// fraction of the span they cover. The multiplier interpolates from
+    /// 1.0 (no coverage) down to the strongest dampener present (full
+    /// coverage).
+    ///
+    /// Consequence, by construction:
+    ///   - A span saturated with markers — a security advisory, an OWASP
+    ///     page, this project's own pattern files — is ~fully covered, so
+    ///     ML is pulled down toward the strongest dampener and a quoted
+    ///     attack no longer reads as a live one.
+    ///   - A genuine injection in untrusted prose has no benign markers,
+    ///     coverage 0, multiplier 1.0 — ML still blocks it alone.
+    ///
+    /// The adversarial case (an attacker sprinkling "according to OWASP"
+    /// to buy dampening) is the same tradeoff the regex tier already
+    /// accepts; provenance + the higher ML-alone bar are the backstops,
+    /// and the span allowlist covers a surviving false positive.
+    static func mlBenignMultiplier(dampenerRanges: [DampenerRange], contentLength: Int) -> Double {
+        guard !dampenerRanges.isEmpty, contentLength > 0 else { return 1.0 }
+
+        var windows: [(start: Int, end: Int)] = dampenerRanges.map {
+            (max(0, $0.start - dampenerProximity), min(contentLength, $0.end + dampenerProximity))
+        }
+        windows.sort { $0.start < $1.start }
+
+        var coveredLen = 0
+        var curStart = windows[0].start
+        var curEnd = windows[0].end
+        for w in windows.dropFirst() {
+            if w.start <= curEnd {
+                curEnd = max(curEnd, w.end)
+            } else {
+                coveredLen += curEnd - curStart
+                curStart = w.start
+                curEnd = w.end
+            }
+        }
+        coveredLen += curEnd - curStart
+
+        let coverage = min(1.0, Double(coveredLen) / Double(contentLength))
+        let minDampen = dampenerRanges.map(\.dampen).min() ?? 1.0
+        return 1.0 - coverage * (1.0 - minDampen)
     }
 
     private static func normalize(_ content: String) -> String {
