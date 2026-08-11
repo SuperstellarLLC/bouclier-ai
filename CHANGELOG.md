@@ -8,6 +8,21 @@ The `[VERSION]` section for each release is extracted verbatim by
 `apps/desktop/scripts/publish-update.sh` and injected into the Sparkle
 appcast. Write for end users, not for internal engineering notes.
 
+## [0.9.5] — 2026-08-11
+
+### Fixed
+
+- **The ML detector no longer blocks on security content it is only reading about.** The on-device classifier's score bypassed the false-positive dampening that the regex tier already applied, so an agent reading a security advisory, an OWASP page, or a quoted injection example could be refused on the classifier's signal alone — and because a conversation is resent every turn, that refusal repeated on every resume, wedging the session. The classifier now sees the same benign-context dampening as the pattern tier: a span saturated with security-discussion markers is trusted less, while a genuine injection in ordinary untrusted text is unaffected. The classifier still blocks novel attacks on its own — it just loses its foothold on content it is only _discussing_.
+
+### Added
+
+- **Release a false positive without turning protection off.** If a specific flagged span is benign, the block notification (and the activity feed) now offer "Release this span": the gateway forwards that exact content from then on, so a single false positive can't keep 403-ing a long-running session. Only a salted, machine-local fingerprint of the span is stored — never its text — and you can re-arm everything from Settings ▸ Protection.
+- **25 new detection patterns, precision-first.** Coverage expands into the areas that were thinnest: model chat-template control tokens (ChatML, Llama-2/3, Gemma) and forged tool-result/role delimiters; system-prompt extraction ("repeat the words above", "reveal your instructions"); and data-exfiltration channels (Markdown image/link egress with interpolated data, template placeholders in URLs, out-of-band collaborator sinks). 161 → 186 patterns, chosen to stay near-zero on benign developer text (measured false-block rate on the benchmark's benign corpus is 2.9%).
+
+### Changed
+
+- **The daily "blocked" figure now counts blocked requests, not pattern hits.** It previously added the number of matched patterns — and even counted matches on requests that were forwarded in monitor mode — so the total could overstate what was actually refused while missing classifier-only blocks entirely. It now counts one per genuinely refused request, matching the menu-bar figure. Audit rows also record the score of the span that actually drove the block, rather than mixing one span's score with another's classifier reading.
+
 ## [0.9.4] — 2026-08-11
 
 ### Fixed
