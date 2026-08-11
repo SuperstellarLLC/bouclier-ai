@@ -343,6 +343,56 @@ final class InjectionFilter: @unchecked Sendable {
         return 1.0 - coverage * (1.0 - minDampen)
     }
 
+    // MARK: - Explainability (block-explainer, off the hot path)
+
+    /// Benign-context multiplier the ML signal would receive for `text`
+    /// (1.0 = no benign context, so ML is trusted fully). Exposed so the
+    /// opt-in block explainer can show why dampening did or didn't rescue
+    /// a span.
+    func benignMultiplier(for text: String) -> Double {
+        let ranges = findDampenerRanges(in: text)
+        return Self.mlBenignMultiplier(dampenerRanges: ranges, contentLength: (text as NSString).length)
+    }
+
+    /// Localize which passage of `text` drives the ML score by running the
+    /// classifier over overlapping windows and returning the strongest.
+    ///
+    /// The classifier collapses a whole span to one number with no
+    /// attribution; this is the cheapest honest way to turn "0.99
+    /// somewhere in 60 KB" into "this passage scored 0.99." Bounded by
+    /// `maxWindows` so a pathological span can't stall the capture, and
+    /// only ever called on a block when capture is enabled. Returns nil
+    /// when no classifier is attached (a regex block already names its
+    /// span via pattern matches).
+    func attributeTopWindow(
+        _ text: String,
+        windowChars: Int = 1500,
+        stride: Int = 1000,
+        maxWindows: Int = 24
+    ) -> (window: String, score: Float, windowsScanned: Int, truncated: Bool)? {
+        guard let classifier else { return nil }
+        let chars = Array(text)
+        guard !chars.isEmpty else { return nil }
+
+        var best: (window: String, score: Float)?
+        var scanned = 0
+        var start = 0
+        var lastEnd = 0
+        while start < chars.count, scanned < maxWindows {
+            let end = min(start + windowChars, chars.count)
+            let window = String(chars[start..<end])
+            if let c = try? classifier.classify(window), best == nil || c.maliciousScore > best!.score {
+                best = (window, c.maliciousScore)
+            }
+            scanned += 1
+            lastEnd = end
+            if end == chars.count { break }
+            start += stride
+        }
+        guard let b = best else { return nil }
+        return (b.window, b.score, scanned, lastEnd < chars.count)
+    }
+
     private static func normalize(_ content: String) -> String {
         // NFKC normalization (fullwidth chars, compatibility decompositions)
         var result = content.precomposedStringWithCompatibilityMapping

@@ -144,6 +144,52 @@ enum InjectionInspectionPass {
         return hasher.finalize().map { String(format: "%02x", $0) }.joined()
     }
 
+    /// Build a captured block sample for the offending untrusted span —
+    /// the opt-in block explainer. Re-extracts spans from the body, finds
+    /// the one that drove the block (by locator), and pairs an excerpt of
+    /// it with the per-signal breakdown and — when ML was the driver — the
+    /// passage the classifier reacted to most. Off the hot path: only
+    /// called on a block when capture is enabled. Returns nil if the
+    /// blocking span can't be recovered.
+    static func explain(
+        body: Data,
+        filter: InjectionFilter,
+        outcome: Outcome,
+        salt: Data,
+        targetHost: String,
+        timestamp: String
+    ) -> BlockSample? {
+        guard let blocked = outcome.blockedFinding else { return nil }
+        let spans = extractSpans(body: body)
+        let span = spans.first { $0.origin == .untrusted && $0.locator == blocked.locator }
+            ?? spans.first { $0.origin == .untrusted }
+        guard let span else { return nil }
+
+        let excerpt = span.text.count > BlockSampleStore.maxExcerptChars
+            ? String(span.text.prefix(BlockSampleStore.maxExcerptChars))
+            : span.text
+        let attribution = filter.attributeTopWindow(span.text)
+
+        return BlockSample(
+            timestamp: timestamp,
+            targetHost: targetHost,
+            locator: blocked.locator,
+            spanExcerpt: excerpt,
+            spanLength: span.text.count,
+            fusedScore: blocked.fusedScore,
+            mlScore: blocked.mlScore,
+            entropyAnomaly: blocked.entropyAnomaly,
+            matchCount: blocked.matchCount,
+            patternNames: blocked.patternNames,
+            benignMultiplier: filter.benignMultiplier(for: span.text),
+            topWindow: attribution?.window,
+            topWindowScore: attribution?.score,
+            windowsScanned: attribution?.windowsScanned ?? 0,
+            attributionTruncated: attribution?.truncated ?? false,
+            fingerprint: blocked.fingerprint
+        )
+    }
+
     // MARK: - Tuning
 
     /// Bodies above this are forwarded without inspection. Matches the

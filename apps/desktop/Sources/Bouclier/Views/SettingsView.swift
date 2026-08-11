@@ -41,6 +41,10 @@ struct GeneralSettingsView: View {
     @AppStorage("launchAtLogin") private var launchAtLogin: Bool = false
     @AppStorage("showNotifications") private var showNotifications: Bool = true
     @AppStorage("quietMode") private var quietMode: Bool = true
+    /// The one setting that records request content — the block explainer.
+    /// Off by default; local-only. Key matches the gateway's read.
+    @AppStorage("captureBlockSamplesEnabled") private var captureBlockSamples: Bool = false
+    @State private var sampleRefresh = 0
     /// Auto-write proxy + CA env vars into `~/.zshenv`, `~/.bashrc`,
     /// fish config, and launchctl. On by default — without it, Node /
     /// Python CLIs (Claude Code, Cursor, openai) silently bypass the
@@ -113,6 +117,33 @@ struct GeneralSettingsView: View {
                 Toggle("Quiet mode (no sounds)", isOn: $quietMode)
                     .disabled(!showNotifications)
             }
+            Section {
+                Toggle("Capture blocked content for tuning", isOn: $captureBlockSamples)
+                if captureBlockSamples {
+                    let n = sampleRefresh >= 0 ? BlockSampleStore.count : 0
+                    HStack {
+                        Text("\(n) block\(n == 1 ? "" : "s") captured")
+                            .font(.caption).foregroundStyle(.secondary)
+                        Spacer()
+                        Button("Reveal in Finder") {
+                            NSWorkspace.shared.activateFileViewerSelecting([BlockSampleStore.fileURL])
+                        }
+                        .disabled(n == 0)
+                        Button("Clear") {
+                            BlockSampleStore.clear()
+                            sampleRefresh += 1
+                        }
+                        .disabled(n == 0)
+                    }
+                }
+            } header: {
+                Text("Block explainer")
+            } footer: {
+                Text("When a request is blocked, save the offending untrusted span, the per-signal breakdown, and the passage the on-device classifier reacted to most — to a local file (block-samples.jsonl) so you can see why it blocked and tune. This is the only setting that records request content; it stays on this Mac and is never transmitted. Off by default.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             Section {
                 Button("Reset session stats", role: .destructive) {
                     showResetConfirm = true

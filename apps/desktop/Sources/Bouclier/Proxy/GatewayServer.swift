@@ -362,6 +362,25 @@ private final class GatewayHandler: ChannelInboundHandler, RemovableChannelHandl
                 // positive would otherwise wedge on every resume.
                 spanFingerprint: injection.blockedFingerprint
             ))
+            // Opt-in block explainer: capture the offending span + signal
+            // breakdown + ML window attribution to a LOCAL-ONLY store so
+            // the operator can see *why* this blocked. Off by default (it
+            // records content); best-effort, only on a block, off the hot
+            // path for normal traffic.
+            if UserDefaults.standard.bool(forKey: "captureBlockSamplesEnabled"),
+               let filter = InjectionFilter.active.current() {
+                let iso = ISO8601DateFormatter().string(from: Date())
+                if let sample = InjectionInspectionPass.explain(
+                    body: Data(mutableBody.readableBytesView),
+                    filter: filter,
+                    outcome: injection,
+                    salt: SpanAllowlist.salt(),
+                    targetHost: host,
+                    timestamp: iso
+                ) {
+                    BlockSampleStore.append(sample)
+                }
+            }
             respondWithRefusal(context: context, outcome: injection)
             requestHead = nil
             bodyBuffer.clear()
