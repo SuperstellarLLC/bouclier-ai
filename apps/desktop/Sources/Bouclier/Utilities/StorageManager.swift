@@ -60,7 +60,14 @@ final class StorageManager: @unchecked Sendable {
         migrator.registerMigration("v1") { db in
             try db.create(table: "scan_logs") { t in
                 t.autoIncrementedPrimaryKey("id")
-                t.column("timestamp", .text).notNull().defaults(sql: "datetime('now')")
+                // The parentheses are load-bearing: SQLite only accepts an
+                // expression default in CREATE TABLE as `DEFAULT (expr)`,
+                // and GRDB emits the `defaults(sql:)` string verbatim.
+                // Unparenthesized, this migration is a syntax error — v1
+                // throws, grdb_migrations stays empty, and (because init
+                // failures were swallowed) no install ever had a scan_logs
+                // table until this was fixed.
+                t.column("timestamp", .text).notNull().defaults(sql: "(datetime('now'))")
                 t.column("source", .text).notNull()           // 'api-proxy' | 'mcp-proxy'
                 t.column("targetHost", .text)
                 t.column("detected", .integer).notNull()       // 0 or 1
@@ -108,7 +115,8 @@ final class StorageManager: @unchecked Sendable {
         migrator.registerMigration("v3_pii_redactions") { db in
             try db.create(table: "pii_redactions") { t in
                 t.autoIncrementedPrimaryKey("id")
-                t.column("timestamp", .text).notNull().defaults(sql: "datetime('now')")
+                // Parenthesized for the same SQLite grammar reason as v1.
+                t.column("timestamp", .text).notNull().defaults(sql: "(datetime('now'))")
                 t.column("targetHost", .text)
                 t.column("entityType", .text).notNull()    // EMAIL, IBAN, FR_NIR, etc.
                 t.column("startOffset", .integer).notNull()

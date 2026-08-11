@@ -237,13 +237,20 @@ struct ProtectionSettingsView: View {
             Spacer()
 
             HStack {
-                if proxyManager.isRunning {
+                if proxyManager.protectionActive {
                     Label("Protection active", systemImage: "checkmark.shield.fill")
                         .foregroundStyle(.green)
                         .font(.callout)
                     Spacer()
                     Button("Disable", role: .destructive) { proxyManager.disableStandard() }
+                        .help("Traffic keeps flowing through the gateway, uninspected — active agent sessions are not interrupted")
                 } else {
+                    if proxyManager.isRunning {
+                        Label("Passthrough — protection off", systemImage: "shield.slash")
+                            .foregroundStyle(.secondary)
+                            .font(.callout)
+                        Spacer()
+                    }
                     Button("Enable Protection") { proxyManager.enableStandard() }
                         .buttonStyle(.borderedProminent)
                 }

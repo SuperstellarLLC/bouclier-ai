@@ -26,7 +26,7 @@ struct ProxyManagerLifecycleTests {
     /// is empty — the old message read as a bug to anyone watching the
     /// log feed. The two branches below must produce honest, distinct
     /// messages with distinct `blocked` flags.
-    @Test("Regex-driven detection logs as a block; ML-only detection logs as a flag")
+    @Test("Regex-driven and ML-only detections both log as blocks — detected means the 403 fired")
     func detectionMessagesDistinguishRegexFromMLOnly() {
         // Suppress macOS UserNotifications — `UNUserNotificationCenter`
         // crashes under `swift test` because there's no app bundle to
@@ -74,10 +74,13 @@ struct ProxyManagerLifecycleTests {
         #expect(regexEntry?.message.contains("[score 0.93]") == true,
                 "Block message must surface the fused score so an operator can triage")
 
-        // ML-only flag: matchCount == 0, patternNames empty, but
-        // detected=true because the fused score crossed threshold.
-        // This is the exact shape that produced the "Blocked 0
-        // injection(s):" line in the bug report.
+        // ML-only block: matchCount == 0, patternNames empty, but
+        // detected=true — the gateway only ever sets `detected` on its
+        // refusal path, so this request WAS 403'd even though no named
+        // pattern fired. (An earlier version of handleRequestLog labeled
+        // this shape a forwarded "flag": no red shield, no notification,
+        // counter unmoved — mislabeling a real block. This is the shape
+        // of the 2026-08-11 12:05 block that the activity feed denied.)
         let mlLog = RequestLog(
             timestamp: Date(),
             targetHost: "api.anthropic.com",
@@ -94,20 +97,20 @@ struct ProxyManagerLifecycleTests {
         let pmML = ProxyManager()
         let initialML = pmML.stats.injectionsBlocked
         pmML.handleRequestLog(mlLog)
-        #expect(pmML.stats.injectionsBlocked == initialML,
-                "ML-only flag must NOT increment injectionsBlocked — matchCount is 0 and nothing was actually blocked")
+        #expect(pmML.stats.injectionsBlocked == initialML + 1,
+                "An ML-only block must still move the counter — the request was refused; count it as one")
         let mlEntry = pmML.logs.first
         #expect(mlEntry != nil)
-        #expect(mlEntry?.blocked == false,
-                "ML-only flag must NOT light the red shield — the body was forwarded unchanged")
-        #expect(mlEntry?.message.contains("Flagged") == true,
-                "ML-only message must read as a flag, not a block")
-        #expect(mlEntry?.message.contains("forwarded unchanged") == true,
-                "ML-only message must be explicit that the request was forwarded — that's the difference from a regex block")
+        #expect(mlEntry?.blocked == true,
+                "An ML-only block must light the red shield — detected is only ever set by the gateway's 403 path")
+        #expect(mlEntry?.message.contains("Blocked request") == true,
+                "ML-only message must read as the block it is")
+        #expect(mlEntry?.message.contains("no named pattern") == true,
+                "ML-only message must say why there are no pattern names — lower-confidence signal, same enforcement")
         #expect(mlEntry?.message.contains("score 0.55") == true,
                 "ML-only message must carry the fused score for triage")
         #expect(mlEntry?.message.contains("Blocked 0") == false,
-                "The bug we are guarding against: 'Blocked 0 injection(s)' must never appear in the log feed")
+                "The original bug: 'Blocked 0 injection(s)' must never appear in the log feed")
     }
 
     /// Pins the new (v0.6) wiring: with the text-PII path gone, every

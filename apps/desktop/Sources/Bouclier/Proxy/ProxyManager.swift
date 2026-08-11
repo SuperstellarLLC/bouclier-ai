@@ -15,6 +15,14 @@ final class ProxyManager: ObservableObject {
     /// see `migrateAwayFromExtremeModeIfNeeded()` for the one-time
     /// cleanup of a CA a pre-removal install may have left behind.
     @Published var caInstalled = false
+    /// Whether inspection/enforcement is on — the *protection* state, as
+    /// distinct from `isRunning` (the *gateway* state). They diverge in
+    /// passthrough: protection off, gateway still relaying so active
+    /// agent sessions holding our base URL keep working. UI shield state
+    /// and the protection toggle key off this, never off `isRunning`.
+    /// Seeded from persisted state in `init` (stored-property initializers
+    /// cannot reference `Self`).
+    @Published var protectionActive = false
     @Published var errorMessage: String?
     @Published var stats = ProxyStats()
     @Published var logs: [LogEntry] = []
@@ -56,6 +64,8 @@ final class ProxyManager: ObservableObject {
     private(set) var didInitializeStorage = false
 
     init() {
+        protectionActive = Self.protectionEnabled
+
         // The detection engine is live again as of v0.9.0, this time
         // hanging off the certificate-free gateway rather than the
         // removed extreme mode. PatternManager loads patterns.json,
@@ -84,7 +94,18 @@ final class ProxyManager: ObservableObject {
     func initializeStorage() {
         guard !didInitializeStorage else { return }
         didInitializeStorage = true
-        storage = try? StorageManager()
+        do {
+            storage = try StorageManager()
+        } catch {
+            // A dead audit store must be loud. Every `storage?.recordScan`
+            // silently no-ops without it — which is exactly how a broken
+            // v1 migration shipped unnoticed while the activity feed and
+            // os_log kept working. One feed line + one os_log event at
+            // startup; the app itself stays fully functional.
+            storage = nil
+            log("Audit database unavailable — scan history will NOT be recorded: \(error)", blocked: false)
+            AuditLogger.shared.logEvent("storage_init_failed", detail: "\(error)")
+        }
         caInstalled = ca.isInstalled
 
         // One-shot cleanup for installs that had extreme mode (CA +
@@ -110,7 +131,13 @@ final class ProxyManager: ObservableObject {
         // protection before (the Protection tab's "Enable Protection"
         // button) — we don't reconfigure the user's shell/GUI env on
         // first launch without consent.
-        if Self.protectionEnabled && !isRunning {
+        // Also auto-start when protection is *disabled* but the user's
+        // shell env was ever pointed at the gateway: the gateway then runs
+        // as an allow-all passthrough, so agent sessions holding
+        // `ANTHROPIC_BASE_URL=127.0.0.1:<port>` keep working instead of
+        // dying on a connection refused. First-launch users have neither
+        // flag set, so nothing starts without consent.
+        if (Self.protectionEnabled || Self.envConfigured) && !isRunning {
             start()
         }
     }
@@ -161,11 +188,23 @@ final class ProxyManager: ObservableObject {
         UserDefaults.standard.bool(forKey: protectionEnabledKey)
     }
 
+    /// True once the user's shell/GUI env has ever been pointed at the
+    /// gateway (set by enable, kept by disable, cleared only by
+    /// uninstall/reset). Distinct from `protectionEnabled` so "protection
+    /// off" can mean *allow-all passthrough* rather than *dead port*:
+    /// as long as env may reference our port, the gateway must answer.
+    static let envConfiguredKey = "gatewayEnvConfigured"
+    static var envConfigured: Bool {
+        UserDefaults.standard.bool(forKey: envConfiguredKey)
+    }
+
     /// Enable standard (non-CA) protection: start the gateway and point the
     /// agent's SDKs at it. No CA, no PAC, no system extension. This is the
     /// frictionless default path from the Protection tab.
     func enableStandard() {
         UserDefaults.standard.set(true, forKey: Self.protectionEnabledKey)
+        UserDefaults.standard.set(true, forKey: Self.envConfiguredKey)
+        protectionActive = true
         UserDefaults.standard.set(ProxyMode.standard.rawValue, forKey: ProxyMode.userDefaultsKey)
         if isRunning {
             // Gateway is already bound — safe to re-point the env immediately.
@@ -179,15 +218,25 @@ final class ProxyManager: ObservableObject {
         log("Standard protection enabled (no CA)", blocked: false)
     }
 
-    /// Turn off standard protection: stop the gateway and clear the
-    /// auto-start opt-in. Deliberately NOT the nuclear `resetAllProxies`
-    /// (which sweeps PAC across every network service and strips shell
-    /// blocks) — the shell env fail-opens on its own when the gateway is
-    /// down, and re-enabling just re-applies it.
+    /// Turn off standard protection WITHOUT killing the gateway: the
+    /// listener stays bound and relays everything as an allow-all
+    /// passthrough (inspection skipped per request via the
+    /// `inspectionEnabled` closure handed to `GatewayServer`).
+    ///
+    /// Stopping the listener here was the old behaviour, and it broke
+    /// every *active* agent session: a running Claude Code process holds
+    /// `ANTHROPIC_BASE_URL=127.0.0.1:<port>` for its lifetime — the shell
+    /// dotfile's fail-open TCP probe only helps shells launched later.
+    /// Disable must degrade to "no protection", never to "no API".
+    /// Full teardown remains available via quit / uninstall / reset.
     func disableStandard() {
         UserDefaults.standard.set(false, forKey: Self.protectionEnabledKey)
-        stop()
-        log("Standard protection disabled", blocked: false)
+        protectionActive = false
+        if isRunning {
+            log("Protection disabled — gateway stays up as allow-all passthrough so active agent sessions keep working", blocked: false)
+        } else {
+            log("Standard protection disabled", blocked: false)
+        }
     }
 
     /// Build the read-only snapshot the StatusPublisher writes. Counts only —
@@ -227,8 +276,17 @@ final class ProxyManager: ObservableObject {
     /// no system extension — the agent reaches us via `ANTHROPIC_BASE_URL`.
     private func startStandard() {
         let boundPort = port
+        // Captured outside the closure: the static key lives on a
+        // @MainActor type and can't be touched from a @Sendable closure.
+        let protectionKey = Self.protectionEnabledKey
         let gateway = GatewayServer(
             port: boundPort,
+            // Read per request (UserDefaults is thread-safe and cached),
+            // so flipping protection on/off takes effect immediately on a
+            // *running* gateway — disable degrades to allow-all
+            // passthrough instead of tearing the listener down under
+            // active agent sessions.
+            inspectionEnabled: { UserDefaults.standard.bool(forKey: protectionKey) },
             onRequest: { [weak self] requestLog in
                 Task { @MainActor in self?.handleRequestLog(requestLog) }
             }
@@ -296,6 +354,8 @@ final class ProxyManager: ObservableObject {
     func uninstall() {
         stop()
         UserDefaults.standard.set(false, forKey: Self.protectionEnabledKey)
+        UserDefaults.standard.set(false, forKey: Self.envConfiguredKey)
+        protectionActive = false
         // Belt-and-suspenders: the one-shot migration already cleans up
         // extreme mode's CA/extension for installs that go through
         // `initializeStorage()`, but a full uninstall should leave zero
@@ -317,6 +377,8 @@ final class ProxyManager: ObservableObject {
     func resetAllProxies() {
         if isRunning { stop() }
         UserDefaults.standard.set(false, forKey: Self.protectionEnabledKey)
+        UserDefaults.standard.set(false, forKey: Self.envConfiguredKey)
+        protectionActive = false
         SystemProxy.disableAll()
         ShellEnvInjector.remove()
         log("All proxy settings reset", blocked: false)
@@ -365,23 +427,17 @@ final class ProxyManager: ObservableObject {
         stats.requestsScanned += 1
 
         if requestLog.detected {
-            stats.injectionsBlocked += requestLog.matchCount
+            // `detected` is only ever set by the gateway's refusal path:
+            // this request WAS 403'd, whether the signal was a named
+            // pattern or the fused ML/entropy score alone. (An earlier
+            // version of this branch treated matchCount == 0 as a
+            // forwarded "flag" — true under the pre-gateway wiring, but
+            // after enforcement moved into `forwardUpstream` it mislabeled
+            // real blocks: no feed entry marked blocked, no notification,
+            // and an understated SIEM severity.) Count at least 1 so an
+            // ML-only block still moves the menu-bar counter.
+            stats.injectionsBlocked += max(1, requestLog.matchCount)
 
-            // Distinguish two failure modes the operator sees very
-            // differently:
-            //
-            //  - **Regex-driven block** (matchCount > 0). At least one
-            //    pattern matched in untrusted content and the gateway
-            //    refused the request with a 403 (it is never rewritten).
-            //    Names the patterns and counts as a hard block.
-            //
-            //  - **ML/entropy-only flag** (matchCount == 0). Prompt
-            //    Guard 2 or the entropy heuristic pushed the fused
-            //    score over threshold without a specific pattern. The
-            //    body is forwarded unchanged — nothing was actually
-            //    blocked. The old "Blocked 0 injection(s):" line read
-            //    as a bug; surface this honestly as a flag with the
-            //    fused score so the operator can judge.
             let score = String(format: "%.2f", requestLog.fusedScore)
             if requestLog.matchCount > 0 {
                 let names = requestLog.patternNames.joined(separator: ", ")
@@ -389,21 +445,31 @@ final class ProxyManager: ObservableObject {
                     "Blocked \(requestLog.matchCount) injection(s) → \(requestLog.targetHost): \(names) [score \(score)]",
                     blocked: true
                 )
-                sendBlockNotification(count: requestLog.matchCount, target: requestLog.targetHost)
+                sendBlockNotification(
+                    body: "Blocked \(requestLog.matchCount) injection\(requestLog.matchCount > 1 ? "s" : "") → \(requestLog.targetHost)"
+                )
             } else {
+                // ML/entropy-only: Prompt Guard 2 or the entropy heuristic
+                // pushed the fused score past the block bar with no named
+                // pattern. Lower-confidence signal, same enforcement.
                 log(
-                    "Flagged by ML/entropy (score \(score)) → \(requestLog.targetHost) — forwarded unchanged",
-                    blocked: false
+                    "Blocked request → \(requestLog.targetHost): ML/entropy score \(score), no named pattern",
+                    blocked: true
+                )
+                sendBlockNotification(
+                    body: "Blocked suspicious request → \(requestLog.targetHost)"
                 )
             }
 
-            // SIEM audit log (os_log + optional webhook). Both paths
-            // emit so an analyst sees the ML-only signals too.
+            // SIEM audit log (os_log + optional webhook). Severity is
+            // "high" for both signal types — it describes the action (an
+            // enforced 403), not the confidence; matchCount/patterns let
+            // an analyst tell regex-driven from ML-only.
             AuditLogger.shared.logDetection(
                 host: requestLog.targetHost,
                 matchCount: requestLog.matchCount,
                 patterns: requestLog.patternNames,
-                severity: requestLog.matchCount > 0 ? "high" : "medium",
+                severity: "high",
                 bodySize: requestLog.bodySize
             )
         }
@@ -482,11 +548,11 @@ final class ProxyManager: ObservableObject {
         if logs.count > 500 { logs.removeLast(logs.count - 500) }
     }
 
-    private func sendBlockNotification(count: Int, target: String) {
+    private func sendBlockNotification(body: String) {
         guard UserDefaults.standard.object(forKey: "showNotifications") as? Bool ?? true else { return }
         let content = UNMutableNotificationContent()
         content.title = "Injection Blocked"
-        content.body = "Blocked \(count) injection\(count > 1 ? "s" : "") → \(target)"
+        content.body = body
         // Default to quiet when the user hasn't made a choice —
         // notification sounds on every blocked request get noisy fast on
         // heavy AI workflows. SettingsView's @AppStorage mirrors the

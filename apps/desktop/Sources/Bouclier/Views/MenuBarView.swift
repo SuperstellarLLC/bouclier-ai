@@ -31,6 +31,7 @@ struct MenuBarView: View {
         .padding(12)
         .frame(width: 320)
         .animation(.easeInOut(duration: 0.2), value: proxyManager.isRunning)
+        .animation(.easeInOut(duration: 0.2), value: proxyManager.protectionActive)
         .animation(.easeInOut(duration: 0.2), value: proxyManager.errorMessage)
         .animation(.easeInOut(duration: 0.2), value: proxyManager.logs.first?.id)
     }
@@ -75,15 +76,20 @@ struct MenuBarView: View {
             Toggle("", isOn: protectionBinding)
                 .toggleStyle(.switch)
                 .labelsHidden()
-                .help(proxyManager.isRunning ? "Pause protection" : "Turn on protection")
+                .help(proxyManager.protectionActive
+                    ? "Pause protection (traffic keeps flowing, uninspected)"
+                    : "Turn on protection")
                 .accessibilityLabel("Protection")
         }
     }
 
-    /// On = enable protection; off = pause.
+    /// On = enable protection; off = pause. Keys off `protectionActive`,
+    /// not `isRunning` — pausing leaves the gateway relaying (passthrough)
+    /// so active agent sessions keep working, and the switch must reflect
+    /// the protection state, not the listener.
     private var protectionBinding: Binding<Bool> {
         Binding(
-            get: { proxyManager.isRunning },
+            get: { proxyManager.protectionActive },
             set: { on in
                 if on { proxyManager.enableStandard() } else { proxyManager.disableStandard() }
             }
@@ -92,23 +98,26 @@ struct MenuBarView: View {
 
     private var heroIcon: String {
         if proxyManager.errorMessage != nil { return "exclamationmark.shield.fill" }
-        return proxyManager.isRunning ? "checkmark.shield.fill" : "shield.slash"
+        return proxyManager.protectionActive ? "checkmark.shield.fill" : "shield.slash"
     }
 
     private var heroTint: Color {
         if proxyManager.errorMessage != nil { return .red }
-        return proxyManager.isRunning ? .green : .secondary
+        return proxyManager.protectionActive ? .green : .secondary
     }
 
     private var heroTitle: String {
         if proxyManager.errorMessage != nil { return "Needs attention" }
-        return proxyManager.isRunning ? "Protected" : "Off"
+        return proxyManager.protectionActive ? "Protected" : "Off"
     }
 
     private var heroSubtitle: String {
         if proxyManager.errorMessage != nil { return "Protection couldn't start — see below." }
+        if proxyManager.protectionActive {
+            return "Your AI traffic is inspected for prompt injection in untrusted tool output."
+        }
         return proxyManager.isRunning
-            ? "Your AI traffic is inspected for prompt injection in untrusted tool output."
+            ? "Passthrough: traffic flows uninspected so active sessions keep working. Turn on to inspect."
             : "Turn on to inspect your AI traffic for prompt injection."
     }
 

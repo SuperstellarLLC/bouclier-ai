@@ -41,6 +41,13 @@ final class GatewayServer: Sendable {
     private let port: Int
     private let overrides: UpstreamOverrides
     private let onRequest: @Sendable (RequestLog) -> Void
+    /// Consulted once per request before any inspection work. When it
+    /// returns false the gateway is a pure allow-all relay: no trigger
+    /// gate, no scan, no block — so "protection off" degrades to
+    /// passthrough instead of a dead port under active agent sessions.
+    /// A closure (not a captured Bool) so the owner can flip it on a
+    /// *running* gateway; the production value reads `UserDefaults`.
+    private let inspectionEnabled: @Sendable () -> Bool
     /// Override system trust roots for upstream TLS verification. Set only
     /// by the e2e test (in-process HTTPS upstream signed by a throwaway
     /// CA). `nil` in production keeps `.fullVerification` against the
@@ -51,12 +58,14 @@ final class GatewayServer: Sendable {
         port: Int,
         overrides: UpstreamOverrides = .fromEnvironment(),
         upstreamTrustRootsPEM: [String]? = nil,
+        inspectionEnabled: @Sendable @escaping () -> Bool = { true },
         onRequest: @Sendable @escaping (RequestLog) -> Void
     ) {
         self.group = MultiThreadedEventLoopGroup(numberOfThreads: System.coreCount)
         self.port = port
         self.overrides = overrides
         self.upstreamTrustRootsPEM = upstreamTrustRootsPEM
+        self.inspectionEnabled = inspectionEnabled
         self.onRequest = onRequest
     }
 
@@ -64,7 +73,7 @@ final class GatewayServer: Sendable {
         let bootstrap = ServerBootstrap(group: group)
             .serverChannelOption(.backlog, value: 256)
             .serverChannelOption(.socketOption(.so_reuseaddr), value: 1)
-            .childChannelInitializer { [overrides, upstreamTrustRootsPEM, onRequest] channel in
+            .childChannelInitializer { [overrides, upstreamTrustRootsPEM, inspectionEnabled, onRequest] channel in
                 // Front pipeline is decoder-only: we parse inbound requests
                 // for routing, but relay responses as raw bytes (no
                 // response encoder), so upstream bytes reach the agent
@@ -76,6 +85,7 @@ final class GatewayServer: Sendable {
                         GatewayHandler(
                             overrides: overrides,
                             upstreamTrustRootsPEM: upstreamTrustRootsPEM,
+                            inspectionEnabled: inspectionEnabled,
                             onRequest: onRequest,
                             eventLoop: channel.eventLoop
                         )
@@ -208,6 +218,7 @@ private final class GatewayHandler: ChannelInboundHandler, RemovableChannelHandl
 
     private let overrides: UpstreamOverrides
     private let upstreamTrustRootsPEM: [String]?
+    private let inspectionEnabled: @Sendable () -> Bool
     private let onRequest: @Sendable (RequestLog) -> Void
     private let eventLoop: EventLoop
 
@@ -228,11 +239,13 @@ private final class GatewayHandler: ChannelInboundHandler, RemovableChannelHandl
     init(
         overrides: UpstreamOverrides,
         upstreamTrustRootsPEM: [String]?,
+        inspectionEnabled: @Sendable @escaping () -> Bool,
         onRequest: @Sendable @escaping (RequestLog) -> Void,
         eventLoop: EventLoop
     ) {
         self.overrides = overrides
         self.upstreamTrustRootsPEM = upstreamTrustRootsPEM
+        self.inspectionEnabled = inspectionEnabled
         self.onRequest = onRequest
         self.eventLoop = eventLoop
     }
@@ -291,7 +304,8 @@ private final class GatewayHandler: ChannelInboundHandler, RemovableChannelHandl
         // the engine hasn't loaded: Bouclier being unready must not break
         // the user's agent.
         var injection: InjectionInspectionPass.Outcome = .clean
-        if FeatureFlags.injectionDetection,
+        if inspectionEnabled(),
+           FeatureFlags.injectionDetection,
            mutableBody.readableBytes > 0,
            mutableBody.readableBytes <= InjectionInspectionPass.maxScanBytes,
            let filter = InjectionFilter.active.current()
