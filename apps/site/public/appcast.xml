@@ -6,31 +6,27 @@
     <description>Updates for Bouclier.ai — prompt injection firewall for macOS</description>
     <language>en</language>
     <item>
-      <title>Version 0.9.5</title>
-      <pubDate>Tue, 11 Aug 2026 14:01:33 +0200</pubDate>
-      <sparkle:version>0.9.5</sparkle:version>
-      <sparkle:shortVersionString>0.9.5</sparkle:shortVersionString>
+      <title>Version 0.9.6</title>
+      <pubDate>Tue, 11 Aug 2026 16:09:57 +0200</pubDate>
+      <sparkle:version>0.9.6</sparkle:version>
+      <sparkle:shortVersionString>0.9.6</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
       <description><![CDATA[
-<h2>Bouclier.ai v0.9.5</h2>
-<h4>Fixed</h4>
-<ul>
-<li><strong>The ML detector no longer blocks on security content it is only reading about.</strong> The on-device classifier's score bypassed the false-positive dampening that the regex tier already applied, so an agent reading a security advisory, an OWASP page, or a quoted injection example could be refused on the classifier's signal alone — and because a conversation is resent every turn, that refusal repeated on every resume, wedging the session. The classifier now sees the same benign-context dampening as the pattern tier: a span saturated with security-discussion markers is trusted less, while a genuine injection in ordinary untrusted text is unaffected. The classifier still blocks novel attacks on its own — it just loses its foothold on content it is only _discussing_.</li>
-</ul>
+<h2>Bouclier.ai v0.9.6</h2>
 <h4>Added</h4>
 <ul>
-<li><strong>Release a false positive without turning protection off.</strong> If a specific flagged span is benign, the block notification (and the activity feed) now offer "Release this span": the gateway forwards that exact content from then on, so a single false positive can't keep 403-ing a long-running session. Only a salted, machine-local fingerprint of the span is stored — never its text — and you can re-arm everything from Settings ▸ Protection.</li>
-<li><strong>25 new detection patterns, precision-first.</strong> Coverage expands into the areas that were thinnest: model chat-template control tokens (ChatML, Llama-2/3, Gemma) and forged tool-result/role delimiters; system-prompt extraction ("repeat the words above", "reveal your instructions"); and data-exfiltration channels (Markdown image/link egress with interpolated data, template placeholders in URLs, out-of-band collaborator sinks). 161 → 186 patterns, chosen to stay near-zero on benign developer text (measured false-block rate on the benchmark's benign corpus is 2.9%).</li>
+<li><strong>See _why_ a request was blocked.</strong> A new opt-in diagnostic (Settings ▸ Diagnostics, off by default) captures — to a local file, never transmitted — the offending content, the full per-signal breakdown, and the exact passage the on-device classifier reacted to most strongly. When a block turns out to be a false positive you can now see what tripped it and tune, instead of staring at a bare score. This is the only setting that records request content; it stays on your Mac.</li>
+<li><strong>Injected-action monitoring on the response leg.</strong> Detection previously watched only what goes _into_ the model. Bouclier now also watches the model's _reply_: if it tries to call a tool that exfiltrates data (an outbound URL carrying interpolated data) right after reading untrusted content, that "lethal trifecta" is flagged in the activity log and the audit trail. Monitor-only — it never alters the response — so it is defence-in-depth visibility on the leg the input filter can't see.</li>
 </ul>
 <h4>Changed</h4>
 <ul>
-<li><strong>The daily "blocked" figure now counts blocked requests, not pattern hits.</strong> It previously added the number of matched patterns — and even counted matches on requests that were forwarded in monitor mode — so the total could overstate what was actually refused while missing classifier-only blocks entirely. It now counts one per genuinely refused request, matching the menu-bar figure. Audit rows also record the score of the span that actually drove the block, rather than mixing one span's score with another's classifier reading.</li>
+<li><strong>Quitting Bouclier no longer cuts off a running agent session.</strong> Closing the app used to stop the local gateway, which broke any agent still pointed at it (Claude Code surfaces that as a login error). On quit, Bouclier now hands the port to a small transient passthrough relay so in-flight sessions keep working, and reclaims it cleanly on the next launch — no background daemon, no leftover state. (A hard force-kill still can't hand off; the shell fail-open probe covers newly-opened shells as before.)</li>
 </ul>
 ]]></description>
       <enclosure
-        url="https://0tdi95zyjwsefpzx.public.blob.vercel-storage.com/download/Bouclier-ai-v0.9.5-macOS.dmg"
-        sparkle:edSignature="1f/Y88MtqWatPNp0U9fJeJAv4YMn1/NLAyVO6OjRwjoPcIPcXycL+/sNWvRa8oF3n4u7QpIo0AfsbXQbtGkGCQ=="
-        length="272104464"
+        url="https://0tdi95zyjwsefpzx.public.blob.vercel-storage.com/download/Bouclier-ai-v0.9.6-macOS.dmg"
+        sparkle:edSignature="SZb5c+GenAAPPDit7x4oe7G9gHFblICs3ryKcCA1/yVloJZDpggmwo3ga4wbnINSky1/cefxrD9M6udRhBIVDQ=="
+        length="272141723"
         type="application/octet-stream"
       />
     </item>
