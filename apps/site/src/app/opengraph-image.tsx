@@ -47,7 +47,7 @@ export default function OGImage() {
           marginTop: 12,
         }}
       >
-        A web page should not be able to give your agent orders.
+        Web pages should not give your agents instructions.
       </div>
 
       <div

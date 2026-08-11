@@ -95,9 +95,9 @@ export default function Home() {
             </div>
 
             <h1 className="text-text mx-auto max-w-3xl text-5xl font-bold leading-[1.1] tracking-tight sm:text-6xl">
-              A web page should not be able
+              Web pages should not
               <br />
-              <span className="text-bouclier">to give your agent orders.</span>
+              <span className="text-bouclier">give your agents instructions.</span>
             </h1>
 
             <p className="text-text-secondary mx-auto mt-6 max-w-2xl text-lg leading-relaxed">

@@ -6,8 +6,8 @@ import { APP_VERSION } from "@/lib/constants";
 describe("Home page", () => {
   it("renders the hero heading", () => {
     render(<Home />);
-    expect(screen.getByText(/a web page should not be able/i)).toBeInTheDocument();
-    expect(screen.getByText(/to give your agent orders/i)).toBeInTheDocument();
+    expect(screen.getByText(/web pages should not/i)).toBeInTheDocument();
+    expect(screen.getByText(/give your agents instructions/i)).toBeInTheDocument();
   });
 
   it("leads with prompt-injection defence, split by provenance", () => {

@@ -8,6 +8,17 @@ The `[VERSION]` section for each release is extracted verbatim by
 `apps/desktop/scripts/publish-update.sh` and injected into the Sparkle
 appcast. Write for end users, not for internal engineering notes.
 
+## [0.9.4] — 2026-08-11
+
+### Fixed
+
+- **The local scan-history database never initialized.** A SQLite syntax error in the very first schema migration (an expression default missing its parentheses) meant every install ran without its audit store: scan history, daily stats, and the file-PII audit rows were silently absent, and only the in-app activity feed and the os_log audit stream worked. The schema now applies cleanly on next launch — no manual repair needed — and if storage ever fails to initialize again, it says so in the activity feed and the audit log instead of being swallowed.
+- **Refusals with no named pattern were shown as flags.** A request refused on the fused ML/entropy score alone (no specific pattern match) appeared in the activity feed as "flagged … forwarded unchanged", sent no notification, and didn't move the blocked counter — even though it had been refused. Every enforced refusal now shows as a block, notifies, counts, and is reported to the SIEM audit log at high severity. (Only applies with blocking opted in; monitor mode still never refuses.)
+
+### Changed
+
+- **Turning protection off no longer breaks running agents.** Disabling protection used to stop the local gateway, which killed any active agent session still pointed at it — Claude Code surfaces that as a login error mid-session. The gateway now stays up as an allow-all passthrough: traffic flows uninspected until you re-enable, active sessions never notice, and the menu bar and Settings show an explicit "Passthrough — protection off" state. Quitting the app entirely still stops the gateway.
+
 ## [0.9.3] — 2026-08-10
 
 ### Fixed
