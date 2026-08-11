@@ -91,6 +91,13 @@ struct RequestLog: Sendable {
     /// left no fingerprint.
     let spanFingerprint: String?
 
+    /// JSON path of the untrusted span that drove a block (e.g.
+    /// `messages[2].content[0].tool_result`) — structural metadata, never
+    /// the span's content. Surfaced in the block notification so the
+    /// operator can locate the offending span without the adversarial text
+    /// being broadcast. Nil for non-block logs.
+    let locator: String?
+
     init(
         timestamp: Date,
         targetHost: String,
@@ -103,7 +110,8 @@ struct RequestLog: Sendable {
         fusedScore: Double,
         mlAvailable: Bool,
         multimodal: MultimodalPIIInspector.Report? = nil,
-        spanFingerprint: String? = nil
+        spanFingerprint: String? = nil,
+        locator: String? = nil
     ) {
         self.timestamp = timestamp
         self.targetHost = targetHost
@@ -117,5 +125,6 @@ struct RequestLog: Sendable {
         self.mlAvailable = mlAvailable
         self.multimodal = multimodal
         self.spanFingerprint = spanFingerprint
+        self.locator = locator
     }
 }

@@ -491,10 +491,6 @@ final class ProxyManager: ObservableObject {
                     blocked: true,
                     fingerprint: requestLog.spanFingerprint
                 )
-                sendBlockNotification(
-                    body: "Blocked \(requestLog.matchCount) injection\(requestLog.matchCount > 1 ? "s" : "") → \(requestLog.targetHost)",
-                    fingerprint: requestLog.spanFingerprint
-                )
             } else {
                 // ML/entropy-only: Prompt Guard 2 or the entropy heuristic
                 // pushed the fused score past the block bar with no named
@@ -504,11 +500,21 @@ final class ProxyManager: ObservableObject {
                     blocked: true,
                     fingerprint: requestLog.spanFingerprint
                 )
-                sendBlockNotification(
-                    body: "Blocked suspicious request → \(requestLog.targetHost)",
-                    fingerprint: requestLog.spanFingerprint
-                )
             }
+
+            // One block notification for either signal type. The body is
+            // safe metadata only — the matched pattern name(s) and the JSON
+            // locator, never the span content — because a notification is a
+            // broadcast surface a screen-reading agent could re-ingest. The
+            // verbatim span stays in the opt-in, local-only block explainer.
+            sendBlockNotification(
+                body: Self.blockNotificationBody(
+                    patternNames: requestLog.patternNames,
+                    locator: requestLog.locator,
+                    host: requestLog.targetHost
+                ),
+                fingerprint: requestLog.spanFingerprint
+            )
 
             // SIEM audit log (os_log + optional webhook). Severity is
             // "high" for both signal types — it describes the action (an
@@ -636,6 +642,27 @@ final class ProxyManager: ObservableObject {
     func clearAllowlist() {
         SpanAllowlist.clear()
         log("Re-armed all released spans — the detector will block them again.", blocked: false)
+    }
+
+    /// Build the block-notification body from **safe metadata only** — the
+    /// matched pattern name(s) and the JSON locator — never the adversarial
+    /// span content, which stays in the opt-in, local-only block explainer.
+    /// The signature takes no span text, so it structurally *cannot* leak
+    /// content onto a broadcast surface a screen-reading agent could
+    /// re-ingest. `nonisolated static` so it is a pure unit under test. An
+    /// empty `patternNames` (an ML/entropy-only block, no named pattern)
+    /// yields the generic "Suspicious content" phrasing; pattern names are
+    /// shown two at a time with a "+N more" tail so the banner can't run long.
+    nonisolated static func blockNotificationBody(
+        patternNames: [String], locator: String?, host: String
+    ) -> String {
+        let where_ = locator ?? "tool output"
+        let shown = patternNames.sorted().prefix(2).joined(separator: ", ")
+        guard !shown.isEmpty else {
+            return "Suspicious content in \(where_) → \(host)"
+        }
+        let extra = patternNames.count > 2 ? " +\(patternNames.count - 2) more" : ""
+        return "\(shown)\(extra) in \(where_) → \(host)"
     }
 
     private func sendBlockNotification(body: String, fingerprint: String? = nil) {

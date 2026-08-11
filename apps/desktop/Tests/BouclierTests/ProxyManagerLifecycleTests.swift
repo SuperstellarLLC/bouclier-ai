@@ -20,6 +20,53 @@ struct ProxyManagerLifecycleTests {
                 "ProxyManager.init() must call initializeStorage() so the menubar shield reflects state at launch — not after the user happens to click the menu")
     }
 
+    /// The block notification must surface *safe metadata only* — matched
+    /// pattern name(s) + JSON locator — and never the adversarial span
+    /// content. `blockNotificationBody` takes no span text as a parameter,
+    /// so this pins both the phrasing and the structural guarantee that
+    /// content can't leak onto a broadcast surface (Notification Center,
+    /// Continuity mirroring, a screen-reading agent) the gateway can't see.
+    @Test("Block notification body is safe metadata only — pattern + locator, never span content")
+    func blockNotificationBodyIsMetadataOnly() {
+        // Named pattern + locator: leads with the detector label and the
+        // JSON path, not the payload.
+        #expect(
+            ProxyManager.blockNotificationBody(
+                patternNames: ["system-prompt-extraction"],
+                locator: "messages[2].content[0].tool_result",
+                host: "api.anthropic.com"
+            ) == "system-prompt-extraction in messages[2].content[0].tool_result → api.anthropic.com"
+        )
+
+        // More than two patterns: first two (sorted) + a "+N more" tail so
+        // the banner can't run long.
+        #expect(
+            ProxyManager.blockNotificationBody(
+                patternNames: ["delta", "alpha", "charlie", "bravo"],
+                locator: "messages[0].tool_result",
+                host: "h"
+            ) == "alpha, bravo +2 more in messages[0].tool_result → h"
+        )
+
+        // ML/entropy-only block: no named pattern → generic phrasing, still
+        // naming where it came from.
+        #expect(
+            ProxyManager.blockNotificationBody(
+                patternNames: [],
+                locator: "messages[1].tool_result",
+                host: "h"
+            ) == "Suspicious content in messages[1].tool_result → h"
+        )
+
+        // Missing locator falls back to a structural placeholder, never the
+        // span text.
+        #expect(
+            ProxyManager.blockNotificationBody(
+                patternNames: ["p"], locator: nil, host: "h"
+            ) == "p in tool output → h"
+        )
+    }
+
     /// Pins the v0.6.1 fix for the "Blocked 0 injection(s):" mystery
     /// log line. When the ML / entropy fusion fires without any
     /// individual regex matching, `matchCount` is 0 and `patternNames`

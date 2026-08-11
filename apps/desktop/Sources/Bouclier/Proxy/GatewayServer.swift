@@ -375,7 +375,10 @@ private final class GatewayHandler: ChannelInboundHandler, RemovableChannelHandl
                 // Lets the activity feed / notification offer "release this
                 // span" so the operator can recover a session a false
                 // positive would otherwise wedge on every resume.
-                spanFingerprint: injection.blockedFingerprint
+                spanFingerprint: injection.blockedFingerprint,
+                // JSON path of the blocking span — structural metadata for
+                // the notification, never the span's content.
+                locator: injection.blockedFinding?.locator
             ))
             // Opt-in block explainer: capture the offending span + signal
             // breakdown + ML window attribution to a LOCAL-ONLY store so
