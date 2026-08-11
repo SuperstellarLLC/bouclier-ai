@@ -1,5 +1,5 @@
 export const APP_NAME = "Bouclier.ai";
-export const APP_VERSION = "0.9.5";
+export const APP_VERSION = "0.9.6";
 export const APP_DESCRIPTION =
   "A local prompt-injection firewall for AI coding agents. Bouclier runs on your Mac and refuses requests when tool output — a web page, a README, an MCP result — tries to give your model orders. No certificate required.";
 export const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? "https://www.bouclier.ai";

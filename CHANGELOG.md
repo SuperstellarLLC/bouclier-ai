@@ -8,6 +8,17 @@ The `[VERSION]` section for each release is extracted verbatim by
 `apps/desktop/scripts/publish-update.sh` and injected into the Sparkle
 appcast. Write for end users, not for internal engineering notes.
 
+## [0.9.6] — 2026-08-11
+
+### Added
+
+- **See _why_ a request was blocked.** A new opt-in diagnostic (Settings ▸ Diagnostics, off by default) captures — to a local file, never transmitted — the offending content, the full per-signal breakdown, and the exact passage the on-device classifier reacted to most strongly. When a block turns out to be a false positive you can now see what tripped it and tune, instead of staring at a bare score. This is the only setting that records request content; it stays on your Mac.
+- **Injected-action monitoring on the response leg.** Detection previously watched only what goes _into_ the model. Bouclier now also watches the model's _reply_: if it tries to call a tool that exfiltrates data (an outbound URL carrying interpolated data) right after reading untrusted content, that "lethal trifecta" is flagged in the activity log and the audit trail. Monitor-only — it never alters the response — so it is defence-in-depth visibility on the leg the input filter can't see.
+
+### Changed
+
+- **Quitting Bouclier no longer cuts off a running agent session.** Closing the app used to stop the local gateway, which broke any agent still pointed at it (Claude Code surfaces that as a login error). On quit, Bouclier now hands the port to a small transient passthrough relay so in-flight sessions keep working, and reclaims it cleanly on the next launch — no background daemon, no leftover state. (A hard force-kill still can't hand off; the shell fail-open probe covers newly-opened shells as before.)
+
 ## [0.9.5] — 2026-08-11
 
 ### Fixed
