@@ -6,27 +6,31 @@
     <description>Updates for Bouclier.ai — prompt injection firewall for macOS</description>
     <language>en</language>
     <item>
-      <title>Version 0.9.4</title>
-      <pubDate>Tue, 11 Aug 2026 13:19:09 +0200</pubDate>
-      <sparkle:version>0.9.4</sparkle:version>
-      <sparkle:shortVersionString>0.9.4</sparkle:shortVersionString>
+      <title>Version 0.9.5</title>
+      <pubDate>Tue, 11 Aug 2026 14:01:33 +0200</pubDate>
+      <sparkle:version>0.9.5</sparkle:version>
+      <sparkle:shortVersionString>0.9.5</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
       <description><![CDATA[
-<h2>Bouclier.ai v0.9.4</h2>
+<h2>Bouclier.ai v0.9.5</h2>
 <h4>Fixed</h4>
 <ul>
-<li><strong>The local scan-history database never initialized.</strong> A SQLite syntax error in the very first schema migration (an expression default missing its parentheses) meant every install ran without its audit store: scan history, daily stats, and the file-PII audit rows were silently absent, and only the in-app activity feed and the os_log audit stream worked. The schema now applies cleanly on next launch — no manual repair needed — and if storage ever fails to initialize again, it says so in the activity feed and the audit log instead of being swallowed.</li>
-<li><strong>Refusals with no named pattern were shown as flags.</strong> A request refused on the fused ML/entropy score alone (no specific pattern match) appeared in the activity feed as "flagged … forwarded unchanged", sent no notification, and didn't move the blocked counter — even though it had been refused. Every enforced refusal now shows as a block, notifies, counts, and is reported to the SIEM audit log at high severity. (Only applies with blocking opted in; monitor mode still never refuses.)</li>
+<li><strong>The ML detector no longer blocks on security content it is only reading about.</strong> The on-device classifier's score bypassed the false-positive dampening that the regex tier already applied, so an agent reading a security advisory, an OWASP page, or a quoted injection example could be refused on the classifier's signal alone — and because a conversation is resent every turn, that refusal repeated on every resume, wedging the session. The classifier now sees the same benign-context dampening as the pattern tier: a span saturated with security-discussion markers is trusted less, while a genuine injection in ordinary untrusted text is unaffected. The classifier still blocks novel attacks on its own — it just loses its foothold on content it is only _discussing_.</li>
+</ul>
+<h4>Added</h4>
+<ul>
+<li><strong>Release a false positive without turning protection off.</strong> If a specific flagged span is benign, the block notification (and the activity feed) now offer "Release this span": the gateway forwards that exact content from then on, so a single false positive can't keep 403-ing a long-running session. Only a salted, machine-local fingerprint of the span is stored — never its text — and you can re-arm everything from Settings ▸ Protection.</li>
+<li><strong>25 new detection patterns, precision-first.</strong> Coverage expands into the areas that were thinnest: model chat-template control tokens (ChatML, Llama-2/3, Gemma) and forged tool-result/role delimiters; system-prompt extraction ("repeat the words above", "reveal your instructions"); and data-exfiltration channels (Markdown image/link egress with interpolated data, template placeholders in URLs, out-of-band collaborator sinks). 161 → 186 patterns, chosen to stay near-zero on benign developer text (measured false-block rate on the benchmark's benign corpus is 2.9%).</li>
 </ul>
 <h4>Changed</h4>
 <ul>
-<li><strong>Turning protection off no longer breaks running agents.</strong> Disabling protection used to stop the local gateway, which killed any active agent session still pointed at it — Claude Code surfaces that as a login error mid-session. The gateway now stays up as an allow-all passthrough: traffic flows uninspected until you re-enable, active sessions never notice, and the menu bar and Settings show an explicit "Passthrough — protection off" state. Quitting the app entirely still stops the gateway.</li>
+<li><strong>The daily "blocked" figure now counts blocked requests, not pattern hits.</strong> It previously added the number of matched patterns — and even counted matches on requests that were forwarded in monitor mode — so the total could overstate what was actually refused while missing classifier-only blocks entirely. It now counts one per genuinely refused request, matching the menu-bar figure. Audit rows also record the score of the span that actually drove the block, rather than mixing one span's score with another's classifier reading.</li>
 </ul>
 ]]></description>
       <enclosure
-        url="https://0tdi95zyjwsefpzx.public.blob.vercel-storage.com/download/Bouclier-ai-v0.9.4-macOS.dmg"
-        sparkle:edSignature="6mj7ftw+uFqhZqoZ7o9H2p8BsXjLrmtXr4VgPO26ipBm1Wia2WFlxRqN9p3T5Iw8Z7oGYBn1Lwdb3iMD9sVICQ=="
-        length="272084644"
+        url="https://0tdi95zyjwsefpzx.public.blob.vercel-storage.com/download/Bouclier-ai-v0.9.5-macOS.dmg"
+        sparkle:edSignature="1f/Y88MtqWatPNp0U9fJeJAv4YMn1/NLAyVO6OjRwjoPcIPcXycL+/sNWvRa8oF3n4u7QpIo0AfsbXQbtGkGCQ=="
+        length="272104464"
         type="application/octet-stream"
       />
     </item>
