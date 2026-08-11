@@ -36,8 +36,8 @@ enum FeatureFlags {
     }
 
     /// Whether a detected injection in **untrusted** content is actually
-    /// refused (403), versus only scanned and logged. Default: **off** —
-    /// monitor mode. Blocking a detection means 403-ing the agent, and an
+    /// refused (422), versus only scanned and logged. Default: **off** —
+    /// monitor mode. Blocking a detection means refusing the agent, and an
     /// untrusted span that trips a critical pattern is very often benign
     /// (source, diffs, email templates, LLM-prompt strings all quote
     /// "system prompt" / "ignore previous instructions"). A pattern engine

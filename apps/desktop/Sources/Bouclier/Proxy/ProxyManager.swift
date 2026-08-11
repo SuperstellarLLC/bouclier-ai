@@ -473,7 +473,7 @@ final class ProxyManager: ObservableObject {
 
         if requestLog.detected {
             // `detected` is only ever set by the gateway's refusal path:
-            // this request WAS 403'd, whether the signal was a named
+            // this request WAS refused, whether the signal was a named
             // pattern or the fused ML/entropy score alone. (An earlier
             // version of this branch treated matchCount == 0 as a
             // forwarded "flag" — true under the pre-gateway wiring, but
@@ -512,7 +512,7 @@ final class ProxyManager: ObservableObject {
 
             // SIEM audit log (os_log + optional webhook). Severity is
             // "high" for both signal types — it describes the action (an
-            // enforced 403), not the confidence; matchCount/patterns let
+            // enforced refusal), not the confidence; matchCount/patterns let
             // an analyst tell regex-driven from ML-only.
             AuditLogger.shared.logDetection(
                 host: requestLog.targetHost,
@@ -620,7 +620,7 @@ final class ProxyManager: ObservableObject {
 
     /// Release a blocked span: add its fingerprint to the allowlist so the
     /// gateway forwards future requests carrying it. The escape hatch for a
-    /// false positive that would otherwise 403 an agent session on every
+    /// false positive that would otherwise block an agent session on every
     /// resume. Re-arm from Settings. No-op for a nil/empty fingerprint
     /// (e.g. a principal-strict block, which carries none).
     func allowlistSpan(_ fingerprint: String?) {

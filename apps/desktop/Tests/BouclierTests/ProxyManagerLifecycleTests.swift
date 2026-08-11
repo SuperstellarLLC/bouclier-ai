@@ -26,7 +26,7 @@ struct ProxyManagerLifecycleTests {
     /// is empty — the old message read as a bug to anyone watching the
     /// log feed. The two branches below must produce honest, distinct
     /// messages with distinct `blocked` flags.
-    @Test("Regex-driven and ML-only detections both log as blocks — detected means the 403 fired")
+    @Test("Regex-driven and ML-only detections both log as blocks — detected means the refusal fired")
     func detectionMessagesDistinguishRegexFromMLOnly() {
         // Suppress macOS UserNotifications — `UNUserNotificationCenter`
         // crashes under `swift test` because there's no app bundle to
@@ -76,7 +76,7 @@ struct ProxyManagerLifecycleTests {
 
         // ML-only block: matchCount == 0, patternNames empty, but
         // detected=true — the gateway only ever sets `detected` on its
-        // refusal path, so this request WAS 403'd even though no named
+        // refusal path, so this request WAS refused even though no named
         // pattern fired. (An earlier version of handleRequestLog labeled
         // this shape a forwarded "flag": no red shield, no notification,
         // counter unmoved — mislabeling a real block. This is the shape
@@ -102,7 +102,7 @@ struct ProxyManagerLifecycleTests {
         let mlEntry = pmML.logs.first
         #expect(mlEntry != nil)
         #expect(mlEntry?.blocked == true,
-                "An ML-only block must light the red shield — detected is only ever set by the gateway's 403 path")
+                "An ML-only block must light the red shield — detected is only ever set by the gateway's refusal path")
         #expect(mlEntry?.message.contains("Blocked request") == true,
                 "ML-only message must read as the block it is")
         #expect(mlEntry?.message.contains("no named pattern") == true,

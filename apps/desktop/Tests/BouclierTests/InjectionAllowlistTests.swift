@@ -3,7 +3,7 @@ import Testing
 @testable import Bouclier
 
 /// Covers the span allowlist — the escape hatch that lets an operator
-/// release a persistent false positive so it stops 403-ing a session on
+/// release a persistent false positive so it stops blocking a session on
 /// every resume. Uses a nonsense trigger token ("QURTLE") as the stand-in
 /// "attack" so the tests carry no real injection text.
 @Suite("Span allowlist — release a persistent false positive")

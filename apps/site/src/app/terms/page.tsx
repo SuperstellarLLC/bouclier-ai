@@ -150,7 +150,7 @@ export default function TermsPage() {
             </li>
           </ul>
           <p className="mt-3 text-sm">
-            The Software never modifies a request: a flagged request is refused locally with a 403,
+            The Software never modifies a request: a flagged request is refused locally with a 422,
             never rewritten, and your own prompts are always forwarded unchanged. The attachment-PII
             detection engine described in earlier versions of these Terms is not on any live request
             path.

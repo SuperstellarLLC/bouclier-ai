@@ -8,6 +8,12 @@ The `[VERSION]` section for each release is extracted verbatim by
 `apps/desktop/scripts/publish-update.sh` and injected into the Sparkle
 appcast. Write for end users, not for internal engineering notes.
 
+## [0.9.7] — 2026-08-11
+
+### Changed
+
+- **A blocked request no longer looks like a login error.** When Bouclier refused a request it returned HTTP 403, which Claude Code — and the Anthropic SDK it is built on — read as an authentication failure. So a policy block surfaced as "Please run /login" and sent you to re-authenticate over something that was never an auth problem. Refusals now return 422 (Unprocessable Entity) instead: still a clean, readable API error naming what was blocked and where, but with no misleading login prompt and no silent retry loop behind it. The refusal body is otherwise unchanged.
+
 ## [0.9.6] — 2026-08-11
 
 ### Added

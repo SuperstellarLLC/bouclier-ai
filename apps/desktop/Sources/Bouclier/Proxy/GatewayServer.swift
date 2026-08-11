@@ -337,7 +337,7 @@ private final class GatewayHandler: ChannelInboundHandler, RemovableChannelHandl
                     strict: FeatureFlags.injectionStrict,
                     // Operator-released spans: a would-block untrusted span
                     // whose fingerprint is here is forwarded anyway, so a
-                    // persistent false positive can't 403 a session forever.
+                    // persistent false positive can't block a session forever.
                     allowlisted: SpanAllowlist.snapshot(),
                     salt: SpanAllowlist.salt()
                 )
@@ -582,14 +582,21 @@ private final class GatewayHandler: ChannelInboundHandler, RemovableChannelHandl
 
     /// Refuse a request whose untrusted content carried instructions.
     ///
-    /// 403 with a provider-shaped JSON error body: the agent SDK raises a
-    /// readable API error naming the offending location instead of dying
-    /// on a closed socket, so the operator can see *what* was blocked and
-    /// *where* without opening the menu bar.
+    /// 422 (Unprocessable Entity) with a provider-shaped JSON error body:
+    /// the agent SDK raises a readable API error naming the offending
+    /// location instead of dying on a closed socket, so the operator can
+    /// see *what* was blocked and *where* without opening the menu bar.
+    ///
+    /// Deliberately **not** 401/403: Claude Code (and the Anthropic SDK's
+    /// auth handling) maps both to a credential failure and tells the user
+    /// to run `/login`, mislabelling a policy block as an auth problem.
+    /// Deliberately **not** a retryable code (408/409/429/5xx): the block is
+    /// deterministic, so the SDK's auto-retry would loop it forever. 422 is
+    /// non-auth and non-retryable, so the refusal message surfaces cleanly.
     private func respondWithRefusal(context: ChannelHandlerContext, outcome: InjectionInspectionPass.Outcome) {
         respondLocally(
             channel: context.channel,
-            status: "403 Forbidden",
+            status: "422 Unprocessable Entity",
             body: InjectionInspectionPass.refusalJSON(for: outcome),
             contentType: "application/json"
         )

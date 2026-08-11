@@ -268,7 +268,7 @@ export function Playground() {
 
         <p className="text-text-secondary mt-6 text-xs">
           Bouclier never edits your prompt. A request is either forwarded byte-for-byte or refused
-          outright with a <code className="rounded bg-zinc-100 px-1 py-0.5">403</code> naming what
+          outright with a <code className="rounded bg-zinc-100 px-1 py-0.5">422</code> naming what
           matched and where — earlier versions rewrote flagged text in place, which broke prompt
           caching and tripped provider abuse detection, and that behaviour is gone for good.
         </p>
@@ -310,7 +310,7 @@ function ActionExplainer({ verdict, origin }: { verdict: Verdict; origin: Origin
   if (verdict === "blocked") {
     return (
       <div className="mt-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-900">
-        <strong>Refused.</strong> The agent receives a 403 with the matched pattern and the JSON
+        <strong>Refused.</strong> The agent receives a 422 with the matched pattern and the JSON
         path it came from. The model never sees the content, and nothing is silently altered.
       </div>
     );

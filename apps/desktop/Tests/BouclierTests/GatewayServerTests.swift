@@ -269,7 +269,7 @@ struct GatewayE2ETests {
             method: "POST", path: "/v1/messages", body: poisoned, extraHeaders: []
         )
 
-        #expect(resp.status == 403, "poisoned tool output should be refused, got \(resp.status)")
+        #expect(resp.status == 422, "poisoned tool output should be refused, got \(resp.status)")
         #expect(resp.body.contains("bouclier_injection_blocked"))
         #expect(resp.body.contains("tool_result"), "refusal must name where the content came from")
         #expect(

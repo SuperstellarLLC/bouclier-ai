@@ -8,7 +8,7 @@ import Foundation
 ///
 /// No classifier is perfect, and a block on a long-lived agent session is
 /// uniquely painful: the whole conversation is resent on every turn, so a
-/// single false positive on one tool result 403s the session *and every
+/// single false positive on one tool result blocks the session *and every
 /// resume of it* — the failure mode that motivated this feature. When the
 /// operator judges a specific flagged span benign, they can release it
 /// once and get their session back, without turning enforcement off

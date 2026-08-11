@@ -3,7 +3,7 @@ import UserNotifications
 
 /// Routes the "Release this span" action on a block notification back to
 /// the `SpanAllowlist`, so an operator can recover a session a false
-/// positive would otherwise 403 on every resume — without opening the app.
+/// positive would otherwise block on every resume — without opening the app.
 ///
 /// `NSObject` because `UNUserNotificationCenterDelegate` requires it.
 /// `UNUserNotificationCenter.delegate` is a weak reference, so

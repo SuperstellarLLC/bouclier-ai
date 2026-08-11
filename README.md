@@ -57,7 +57,7 @@ streams the response back.
     blocks and anything wrapped in the `<document>` RAG convention, even
     when it arrives inside a user turn. Nobody in your session typed
     these, so an instruction here is an attack by definition and the
-    request is **refused** with a `403` naming the pattern and the JSON
+    request is **refused** with a `422` naming the pattern and the JSON
     path.
   - **Principal** — your prompt and your system prompt. Scanned so the
     activity log stays useful, then **forwarded byte-for-byte no matter
@@ -131,7 +131,7 @@ A full developer setup is in [CONTRIBUTING.md](CONTRIBUTING.md).
 │ (Claude     │                   │ (local, on Mac)        │          │ (OpenAI, │
 │  Code,      │                   │                        │          │  Claude, │
 │  Cursor, …) │ ◄──────────────── │ ┌────────────────────┐ │ ◄─────── │  Gemini) │
-└─────────────┘   403 if refused  │ │ Injection pass     │ │          └──────────┘
+└─────────────┘   422 if refused  │ │ Injection pass     │ │          └──────────┘
                                   │ │  untrusted → block │ │
                                   │ │  principal → log   │ │
                                   │ └────────────────────┘ │

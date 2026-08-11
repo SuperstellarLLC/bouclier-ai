@@ -72,7 +72,7 @@ export default function PrivacyPage() {
           no decryption of traffic the gateway wasn&apos;t explicitly pointed at. Text prompt bodies
           and request headers are forwarded byte-for-byte; the Software never modifies a request. It
           either forwards it unchanged or, when injection is detected in untrusted content and
-          blocking is enabled, refuses it locally with a 403.
+          blocking is enabled, refuses it locally with a 422.
         </Section>
 
         <Section title="Providers reached">
@@ -174,7 +174,7 @@ export default function PrivacyPage() {
             untrusted content (tool results and other model-visible text the agent fetched itself).
             Inspection reads the request in memory for the duration of that request; it never stores
             or transmits it. When injection is detected and blocking is enabled, the request is
-            refused locally with a 403 — it never leaves your machine. Otherwise the request is
+            refused locally with a 422 — it never leaves your machine. Otherwise the request is
             forwarded byte-for-byte.
           </p>
           <p className="mt-3">

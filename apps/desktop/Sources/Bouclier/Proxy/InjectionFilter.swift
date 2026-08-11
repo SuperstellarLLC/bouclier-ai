@@ -176,7 +176,7 @@ final class InjectionFilter: @unchecked Sendable {
         // offset, so apply an equivalent whole-span benign-context factor.
         // Without this, ML bypassed dampening entirely — the exact reason
         // a quoted advisory or this project's own pattern files scored ~1.0
-        // and 403'd a session. Both tiers now see the same benign contexts.
+        // and blocked a session. Both tiers now see the same benign contexts.
         let mlBenignMultiplier = Self.mlBenignMultiplier(
             dampenerRanges: dampenerRanges,
             contentLength: (content as NSString).length

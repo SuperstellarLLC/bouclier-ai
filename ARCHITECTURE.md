@@ -107,7 +107,7 @@ inbound HTTP (loopback) ─► GatewayServer.GatewayHandler
                                │  - .inspect: spans split by provenance,
                                │    scored by the live InjectionFilter.
                                │  - untrusted + critical (or fused ≥ .60)
-                               │    ⇒ 403, request never leaves the box
+                               │    ⇒ 422, request never leaves the box
                                │  - principal ⇒ logged, forwarded as-is
                                ▼
                            forwardUpstream
@@ -135,7 +135,7 @@ request body and tags every model-visible span:
 
 | Origin       | Source                                                                      | Action on detection                            |
 | ------------ | --------------------------------------------------------------------------- | ---------------------------------------------- |
-| `.untrusted` | `tool_result` blocks, `role: "tool"` messages, `function_call_output` items | **Refuse** — 403, request never leaves the box |
+| `.untrusted` | `tool_result` blocks, `role: "tool"` messages, `function_call_output` items | **Refuse** — 422, request never leaves the box |
 | `.principal` | the operator's prompt text and system prompt                                | **Log only** — forwarded byte-for-byte         |
 
 Scanning "the prompt" undifferentiated is what makes guardrails unusable:
@@ -170,11 +170,22 @@ because the engine hasn't loaded, requests forward unmodified, per the
 v0.5.2 rule that Bouclier being unavailable must never break the user's
 agent.
 
+**The refusal is a 422, not a 403.** A blocked request comes back as
+`422 Unprocessable Entity` with a provider-shaped JSON error body naming
+the offending span. 401 and 403 are avoided on purpose: Claude Code and
+the Anthropic SDK it is built on read both as an authentication failure
+and prompt the user to run `/login`, mislabelling a policy block as a
+credential problem. A retryable status (408/409/429/5xx) is avoided too —
+the block is deterministic, so the SDK's automatic retry would loop it
+forever. 422 is neither auth-shaped nor retryable, so the agent surfaces
+one clean, readable error naming what was blocked instead of a login
+prompt or a retry storm.
+
 ## Scope: what we modify and what we don't
 
 **Bouclier never modifies outbound traffic.** A request is forwarded
 byte-for-byte — including the full header set (`Authorization`, `x-api-key`,
-custom trace IDs, `User-Agent`, …) — or refused outright with a 403. There
+custom trace IDs, `User-Agent`, …) — or refused outright with a 422. There
 is no rewrite path.
 
 The injection pass enforces this: it is a _binary_ control. It never edits

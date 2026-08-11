@@ -8,7 +8,7 @@ import Testing
 /// The regex tier dampens each match by its proximity to a benign-context
 /// marker, but the ML score has no offset, so before this fix it bypassed
 /// dampening entirely — a quoted advisory or this project's own pattern
-/// files scored ~1.0 and 403'd a live agent session on every resume.
+/// files scored ~1.0 and blocked a live agent session on every resume.
 /// `mlBenignMultiplier` is the whole-span analogue of that dampening; it
 /// is pure and offset-driven, so it is tested here directly without
 /// standing up a CoreML classifier.

@@ -195,7 +195,7 @@ export default function Home() {
                 convention, even inside a user turn. Content your agent fetched on its own. Nobody
                 in the session typed it, so an instruction in there is an attack by definition. By
                 default it&apos;s logged and forwarded (monitor mode); turn on blocking and the
-                request is refused with a 403 naming the pattern and the JSON path.
+                request is refused with a 422 naming the pattern and the JSON path.
               </p>
             </div>
             <div className="border-border rounded-2xl border-2 bg-white p-6">

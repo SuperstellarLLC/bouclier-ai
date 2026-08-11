@@ -471,7 +471,7 @@ enum InjectionInspectionPass {
     ///   - allowlisted: span fingerprints the operator has released. An
     ///     untrusted span that would block is forwarded (recorded as a
     ///     flag) when its fingerprint is in this set — the escape hatch for
-    ///     a persistent false positive that would otherwise 403 a session
+    ///     a persistent false positive that would otherwise block a session
     ///     on every resume.
     ///   - salt: per-install salt for `spanFingerprint`, so a fingerprint
     ///     is machine-local. Defaults empty for tests that don't exercise

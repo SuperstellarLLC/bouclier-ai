@@ -48,7 +48,7 @@ export default function BlockedPage() {
         <div className="mt-10 rounded-xl border border-amber-200 bg-amber-50 p-6">
           <p className="text-sm font-medium text-amber-800">Your agent received:</p>
           <code className="text-text mt-3 block overflow-x-auto rounded-lg bg-white p-4 font-mono text-xs leading-relaxed">
-            HTTP/1.1 403 Forbidden
+            HTTP/1.1 422 Unprocessable Entity
             <br />
             {`{"type":"error","error":{"type":"bouclier_injection_blocked",`}
             <br />
@@ -58,6 +58,23 @@ export default function BlockedPage() {
             The <code className="rounded bg-white px-1 py-0.5">locator</code> is the exact JSON path
             the content came from, so you can find it. Nothing was rewritten — Bouclier either
             forwards a request byte-for-byte or refuses it outright.
+          </p>
+        </div>
+
+        {/* Not a login problem */}
+        <div className="border-border mt-6 rounded-xl border p-6">
+          <h2 className="text-sm font-semibold">Not a login problem</h2>
+          <p className="text-text-secondary mt-2 text-sm leading-relaxed">
+            A refusal comes back as{" "}
+            <code className="bg-surface rounded px-1 py-0.5">422 Unprocessable Entity</code> — a
+            policy response, not an authentication error. If your coding agent reacted by suggesting
+            you re-authenticate (&quot;Please run{" "}
+            <code className="bg-surface rounded px-1 py-0.5">/login</code>&quot;), that was a
+            mislabel: Bouclier deliberately avoids{" "}
+            <code className="bg-surface rounded px-1 py-0.5">401</code> and{" "}
+            <code className="bg-surface rounded px-1 py-0.5">403</code>, which agents read as a
+            credential failure. Your login is fine — a single request was blocked, and the next one
+            goes through.
           </p>
         </div>
 
