@@ -315,7 +315,17 @@ final class StorageManager: @unchecked Sendable {
                     ]
                 )
 
-                // Update daily stats
+                // Update daily stats. `injectionsBlocked` counts only
+                // requests that were actually refused, and mirrors the
+                // in-memory `stats.injectionsBlocked` increment exactly:
+                //   - monitor mode / forwarded (detected == false): +0.
+                //     Previously this added `matchCount`, so a flagged-but-
+                //     forwarded request with pattern hits inflated the
+                //     "blocked" figure — a request that was never blocked.
+                //   - an ML/entropy-only block (detected, matchCount 0):
+                //     +1, so it isn't undercounted to zero.
+                //   - a regex block: +matchCount.
+                let blockedIncrement = detected ? max(1, matchCount) : 0
                 let today = Self.todayString()
                 try db.execute(
                     sql: """
@@ -325,7 +335,7 @@ final class StorageManager: @unchecked Sendable {
                             requestsScanned = requestsScanned + 1,
                             injectionsBlocked = injectionsBlocked + ?
                         """,
-                    arguments: [today, matchCount, matchCount]
+                    arguments: [today, blockedIncrement, blockedIncrement]
                 )
             }
         } catch {
