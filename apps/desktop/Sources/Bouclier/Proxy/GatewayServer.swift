@@ -48,6 +48,10 @@ final class GatewayServer: Sendable {
     /// A closure (not a captured Bool) so the owner can flip it on a
     /// *running* gateway; the production value reads `UserDefaults`.
     private let inspectionEnabled: @Sendable () -> Bool
+    /// Reports injected-action findings observed on the response leg. Never
+    /// affects forwarding (the response relay is byte-faithful); this is a
+    /// monitoring signal only.
+    private let onResponseAction: @Sendable ([ResponseActionInspector.Finding]) -> Void
     /// Override system trust roots for upstream TLS verification. Set only
     /// by the e2e test (in-process HTTPS upstream signed by a throwaway
     /// CA). `nil` in production keeps `.fullVerification` against the
@@ -59,6 +63,7 @@ final class GatewayServer: Sendable {
         overrides: UpstreamOverrides = .fromEnvironment(),
         upstreamTrustRootsPEM: [String]? = nil,
         inspectionEnabled: @Sendable @escaping () -> Bool = { true },
+        onResponseAction: @Sendable @escaping ([ResponseActionInspector.Finding]) -> Void = { _ in },
         onRequest: @Sendable @escaping (RequestLog) -> Void
     ) {
         self.group = MultiThreadedEventLoopGroup(numberOfThreads: System.coreCount)
@@ -66,6 +71,7 @@ final class GatewayServer: Sendable {
         self.overrides = overrides
         self.upstreamTrustRootsPEM = upstreamTrustRootsPEM
         self.inspectionEnabled = inspectionEnabled
+        self.onResponseAction = onResponseAction
         self.onRequest = onRequest
     }
 
@@ -73,7 +79,7 @@ final class GatewayServer: Sendable {
         let bootstrap = ServerBootstrap(group: group)
             .serverChannelOption(.backlog, value: 256)
             .serverChannelOption(.socketOption(.so_reuseaddr), value: 1)
-            .childChannelInitializer { [overrides, upstreamTrustRootsPEM, inspectionEnabled, onRequest] channel in
+            .childChannelInitializer { [overrides, upstreamTrustRootsPEM, inspectionEnabled, onResponseAction, onRequest] channel in
                 // Front pipeline is decoder-only: we parse inbound requests
                 // for routing, but relay responses as raw bytes (no
                 // response encoder), so upstream bytes reach the agent
@@ -86,6 +92,7 @@ final class GatewayServer: Sendable {
                             overrides: overrides,
                             upstreamTrustRootsPEM: upstreamTrustRootsPEM,
                             inspectionEnabled: inspectionEnabled,
+                            onResponseAction: onResponseAction,
                             onRequest: onRequest,
                             eventLoop: channel.eventLoop
                         )
@@ -219,11 +226,17 @@ private final class GatewayHandler: ChannelInboundHandler, RemovableChannelHandl
     private let overrides: UpstreamOverrides
     private let upstreamTrustRootsPEM: [String]?
     private let inspectionEnabled: @Sendable () -> Bool
+    private let onResponseAction: @Sendable ([ResponseActionInspector.Finding]) -> Void
     private let onRequest: @Sendable (RequestLog) -> Void
     private let eventLoop: EventLoop
 
     private var requestHead: HTTPRequestHead?
     private var bodyBuffer = ByteBuffer()
+    /// Per-connection response-action monitor. Created lazily on the first
+    /// forwarded request and re-primed per request via `beginRequest`.
+    /// Nil when monitoring is off or no engine is loaded — in which case
+    /// the relay stays a pure passthrough, exactly as before.
+    private var responseInspector: ResponseActionInspector?
 
     private var upstreamChannel: Channel?
     /// The host the upstream connection was opened to. A single client
@@ -240,12 +253,14 @@ private final class GatewayHandler: ChannelInboundHandler, RemovableChannelHandl
         overrides: UpstreamOverrides,
         upstreamTrustRootsPEM: [String]?,
         inspectionEnabled: @Sendable @escaping () -> Bool,
+        onResponseAction: @Sendable @escaping ([ResponseActionInspector.Finding]) -> Void,
         onRequest: @Sendable @escaping (RequestLog) -> Void,
         eventLoop: EventLoop
     ) {
         self.overrides = overrides
         self.upstreamTrustRootsPEM = upstreamTrustRootsPEM
         self.inspectionEnabled = inspectionEnabled
+        self.onResponseAction = onResponseAction
         self.onRequest = onRequest
         self.eventLoop = eventLoop
     }
@@ -441,6 +456,23 @@ private final class GatewayHandler: ChannelInboundHandler, RemovableChannelHandl
             multimodal: nil
         ))
 
+        // Prime the response-action monitor for this request. It watches
+        // the model's *reply* for an injected outbound action; `untrusted`
+        // records whether this request carried untrusted content — the
+        // trifecta precondition. Lazily created and reused across keep-alive
+        // requests; nil (monitoring off / passthrough / no engine) leaves
+        // the relay a pure byte-faithful passthrough.
+        if FeatureFlags.responseActionMonitoring,
+           inspectionEnabled(),
+           let filter = InjectionFilter.active.current() {
+            let untrusted = injection.scannedSpanCount > 0
+            if let insp = responseInspector {
+                insp.beginRequest(requestHadUntrusted: untrusted)
+            } else {
+                responseInspector = ResponseActionInspector(filter: filter, requestHadUntrusted: untrusted)
+            }
+        }
+
         sendUpstream(context: context, write: writeRequest, host: host, port: port)
 
         requestHead = nil
@@ -465,6 +497,12 @@ private final class GatewayHandler: ChannelInboundHandler, RemovableChannelHandl
 
     private func connectToUpstream(context: ChannelHandlerContext, host: String, port: Int) {
         let clientChannel = context.channel
+        // Captured into the relay's initializer. The inspector object is
+        // stable across this connection's requests (re-primed via
+        // beginRequest), so the relay observes every response with the
+        // right per-request untrusted flag.
+        let inspector = responseInspector
+        let onAction = onResponseAction
         do {
             var tlsConfig = TLSConfiguration.makeClientConfiguration()
             tlsConfig.certificateVerification = .fullVerification
@@ -488,7 +526,11 @@ private final class GatewayHandler: ChannelInboundHandler, RemovableChannelHandl
                         let sslHandler = try NIOSSLClientHandler(context: sslContext, serverHostname: host)
                         return channel.pipeline.addHandlers([
                             sslHandler,
-                            GatewayRelayHandler(clientChannel: clientChannel),
+                            GatewayRelayHandler(
+                                clientChannel: clientChannel,
+                                inspector: inspector,
+                                onFinding: onAction
+                            ),
                         ])
                     } catch {
                         return channel.eventLoop.makeFailedFuture(error)
@@ -617,24 +659,51 @@ enum GatewayWire {
 // MARK: - Upstream Relay (response side)
 
 /// Shovels response bytes from the provider back to the agent, raw and
-/// unmodified. Phase 1 is a pure passthrough — request-side handling is
-/// the only mutation path. Phase 2 will interpose the placeholder→real
-/// restore here (straddle-safe over SSE frames), reusing
-/// `SSEStreamInspector`'s buffering.
+/// unmodified — the relay is byte-faithful and never rewrites the response.
+///
+/// It may *observe*: when a `ResponseActionInspector` is attached, each
+/// chunk is forwarded first (unchanged) and then a non-consuming copy is
+/// fed to the inspector to watch for an injected outbound action. The
+/// observation cannot affect forwarding — the bytes are already on their
+/// way — and any parse failure is swallowed. With no inspector this is the
+/// exact pure passthrough it always was.
 private final class GatewayRelayHandler: ChannelInboundHandler, @unchecked Sendable {
     typealias InboundIn = ByteBuffer
 
     private let clientChannel: Channel
+    private let inspector: ResponseActionInspector?
+    private let onFinding: @Sendable ([ResponseActionInspector.Finding]) -> Void
 
-    init(clientChannel: Channel) {
+    init(
+        clientChannel: Channel,
+        inspector: ResponseActionInspector? = nil,
+        onFinding: @escaping @Sendable ([ResponseActionInspector.Finding]) -> Void = { _ in }
+    ) {
         self.clientChannel = clientChannel
+        self.inspector = inspector
+        self.onFinding = onFinding
     }
 
     func channelRead(context: ChannelHandlerContext, data: NIOAny) {
-        clientChannel.writeAndFlush(unwrapInboundIn(data), promise: nil)
+        let buffer = unwrapInboundIn(data)
+        // Forward first, byte-for-byte. Observation happens after and can
+        // never delay or alter what the agent receives.
+        clientChannel.writeAndFlush(buffer, promise: nil)
+
+        guard let inspector, buffer.readableBytes > 0,
+              let text = buffer.getString(at: buffer.readerIndex, length: buffer.readableBytes)
+        else { return }
+        inspector.ingest(text)
+        let found = inspector.takeNewFindings()
+        if !found.isEmpty { onFinding(found) }
     }
 
     func channelInactive(context: ChannelHandlerContext) {
+        if let inspector {
+            inspector.finish()
+            let found = inspector.takeNewFindings()
+            if !found.isEmpty { onFinding(found) }
+        }
         clientChannel.close(promise: nil)
         context.fireChannelInactive()
     }

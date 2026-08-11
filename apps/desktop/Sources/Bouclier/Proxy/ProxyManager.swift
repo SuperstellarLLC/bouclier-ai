@@ -325,6 +325,9 @@ final class ProxyManager: ObservableObject {
             // passthrough instead of tearing the listener down under
             // active agent sessions.
             inspectionEnabled: { UserDefaults.standard.bool(forKey: protectionKey) },
+            onResponseAction: { [weak self] findings in
+                Task { @MainActor in self?.handleResponseActions(findings) }
+            },
             onRequest: { [weak self] requestLog in
                 Task { @MainActor in self?.handleRequestLog(requestLog) }
             }
@@ -588,6 +591,27 @@ final class ProxyManager: ObservableObject {
         }
     }
 
+    /// Surface output-side injected-action findings. Monitor-only: these
+    /// are never blocked (the response relay is byte-faithful), so they are
+    /// logged as warnings, not blocks, and don't touch the block counter —
+    /// the same honesty rule the flag/block split follows.
+    func handleResponseActions(_ findings: [ResponseActionInspector.Finding]) {
+        for f in findings {
+            let cats = f.categories.joined(separator: ", ")
+            let tool = f.toolName.isEmpty ? "(unnamed tool)" : f.toolName
+            if f.trifecta {
+                stats.actionsFlagged += 1
+                log("⚠︎ Injected action: \(tool) tried \(cats) right after untrusted input — monitor only, not blocked", blocked: false)
+            } else {
+                log("Outbound action flagged: \(tool) → \(cats) (no untrusted input in request) — monitor only", blocked: false)
+            }
+            AuditLogger.shared.logEvent(
+                "response_action",
+                detail: "tool=\(tool) categories=\(cats) trifecta=\(f.trifecta) patterns=\(f.patternNames.sorted().joined(separator: ","))"
+            )
+        }
+    }
+
     private func log(_ message: String, blocked: Bool, fingerprint: String? = nil) {
         let entry = LogEntry(message: message, blocked: blocked, spanFingerprint: fingerprint)
         logs.insert(entry, at: 0)
@@ -659,11 +683,16 @@ struct ProxyStats {
     /// Cumulative count of attachments (images, PDFs, audio) that
     /// were inspected and stripped of PII before forwarding.
     var mediaBlocked: Int = 0
+    /// Cumulative count of injected outbound actions observed on the
+    /// response leg (trifecta completions). Monitor-only — these were not
+    /// blocked, so they are counted separately from `injectionsBlocked`.
+    var actionsFlagged: Int = 0
     mutating func reset() {
         requestsScanned = 0
         injectionsBlocked = 0
         piiRedacted = 0
         mediaBlocked = 0
+        actionsFlagged = 0
     }
 }
 

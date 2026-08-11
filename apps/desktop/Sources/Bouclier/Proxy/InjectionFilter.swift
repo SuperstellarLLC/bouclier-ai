@@ -343,6 +343,34 @@ final class InjectionFilter: @unchecked Sendable {
         return 1.0 - coverage * (1.0 - minDampen)
     }
 
+    /// Regex-tier-only scan: pattern matches with their names and
+    /// categories, no ML and no entropy. Fast (sub-millisecond over small
+    /// inputs) and side-effect free, so it is safe to call on the NIO event
+    /// loop — unlike `scan`, whose ML tier is a synchronous CoreML call.
+    /// Used by `ResponseActionInspector`, which keys only on which category
+    /// matched in a tool call's arguments.
+    func scanRegexOnly(_ content: String) -> (matchCount: Int, patternNames: [String], categories: [String]) {
+        guard !content.isEmpty else { return (0, [], []) }
+        let normalized = Self.normalize(content)
+        let variants = content == normalized ? [content] : [content, normalized]
+
+        var allMatches: [(range: NSRange, name: String, category: String, severity: String)] = []
+        for variant in variants {
+            let nsContent = variant as NSString
+            for pattern in patterns where pattern.enabled {
+                let matches = pattern.regex.matches(
+                    in: variant, range: NSRange(location: 0, length: nsContent.length)
+                )
+                for match in matches {
+                    allMatches.append((match.range, pattern.name, pattern.category, pattern.severity))
+                }
+            }
+        }
+        allMatches.sort { $0.range.location < $1.range.location }
+        let deduped = deduplicateOverlaps(allMatches)
+        return (deduped.count, Array(Set(deduped.map(\.name))), Array(Set(deduped.map(\.category))))
+    }
+
     // MARK: - Explainability (block-explainer, off the hot path)
 
     /// Benign-context multiplier the ML signal would receive for `text`

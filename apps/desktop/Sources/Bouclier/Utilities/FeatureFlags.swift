@@ -72,6 +72,17 @@ enum FeatureFlags {
         resolve(key: "uriScanning", default: true)
     }
 
+    /// Whether the gateway watches the model's *response* stream for an
+    /// injected outbound action — a tool call whose arguments carry an
+    /// exfiltration signature — and flags the lethal-trifecta completion
+    /// when the request also carried untrusted content. Default: on.
+    /// Monitor-only: it never alters the byte-faithful response stream, so
+    /// this is pure defence-in-depth telemetry on the leg the input
+    /// classifier can't see. Turn off to restore raw response pass-through.
+    static var responseActionMonitoring: Bool {
+        resolve(key: "responseActionMonitoring", default: true)
+    }
+
     /// Whether Bouclier records in-process metrics at all. Privacy-
     /// conscious deployments can disable this without disabling the
     /// firewall itself. Default: on.
