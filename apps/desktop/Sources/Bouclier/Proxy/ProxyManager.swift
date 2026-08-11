@@ -66,6 +66,13 @@ final class ProxyManager: ObservableObject {
     /// environments — that's expected, but the *gate* must still fire).
     private(set) var didInitializeStorage = false
 
+    /// The port the gateway is currently bound to, or nil when nothing is
+    /// listening. Read from `AppDelegate.applicationWillTerminate` (a
+    /// non-isolated context) to decide whether to hand the port off to a
+    /// passthrough relay on quit. Stays set in passthrough mode too, so a
+    /// quit while protection is paused still keeps the session alive.
+    nonisolated(unsafe) static var liveGatewayPort: Int?
+
     init() {
         protectionActive = Self.protectionEnabled
 
@@ -97,6 +104,12 @@ final class ProxyManager: ObservableObject {
     func initializeStorage() {
         guard !didInitializeStorage else { return }
         didInitializeStorage = true
+
+        // Undo any relay left behind by a previous quit BEFORE we bind:
+        // kill it, free the port, drop its pidfile. This is the launch-
+        // time cleanup that keeps the handoff residue-free — after this
+        // the system looks exactly as if no relay ever ran.
+        RelaySupport.reclaim()
         do {
             storage = try StorageManager()
         } catch {
@@ -325,6 +338,9 @@ final class ProxyManager: ObservableObject {
                 await MainActor.run {
                     self.proxyChannel = channel
                     self.isRunning = true
+                    // Publish the live port so a quit can hand it off to a
+                    // passthrough relay before the listener goes away.
+                    Self.liveGatewayPort = boundPort
                     self.log("Gateway (standard mode) listening on 127.0.0.1:\(boundPort)", blocked: false)
                     // Only wire shells/GUI apps to the gateway once the
                     // listener is actually bound and accepting. Applying
@@ -358,6 +374,7 @@ final class ProxyManager: ObservableObject {
         }
 
         isRunning = false
+        Self.liveGatewayPort = nil
         errorMessage = nil
 
         // disableAll, not disable: the active interface check only
