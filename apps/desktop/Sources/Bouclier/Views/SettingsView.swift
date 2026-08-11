@@ -181,6 +181,9 @@ struct GeneralSettingsView: View {
 struct ProtectionSettingsView: View {
     @ObservedObject var proxyManager: ProxyManager
     @State private var showUninstallConfirm = false
+    /// Bumped to force a re-read of the (UserDefaults-backed) allowlist
+    /// count after the operator re-arms it.
+    @State private var allowlistRefresh = 0
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -253,6 +256,29 @@ struct ProtectionSettingsView: View {
                     }
                     Button("Enable Protection") { proxyManager.enableStandard() }
                         .buttonStyle(.borderedProminent)
+                }
+            }
+
+            // Released-span allowlist: surfaced only when non-empty, with a
+            // one-click re-arm. This is the counterweight to the "Unblock"
+            // action — a visible reminder that some spans are being
+            // forwarded past the detector, and the way to undo it.
+            let releasedCount = allowlistRefresh >= 0 ? proxyManager.allowlistedSpanCount : 0
+            if releasedCount > 0 {
+                Divider()
+                HStack(spacing: 6) {
+                    Image(systemName: "shield.slash")
+                        .foregroundStyle(.orange)
+                    Text("\(releasedCount) released span\(releasedCount == 1 ? "" : "s") forwarded past the detector")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Re-arm all") {
+                        proxyManager.clearAllowlist()
+                        allowlistRefresh += 1
+                    }
+                    .font(.caption)
+                    .help("Stop forwarding all released spans — the detector will block them again")
                 }
             }
 

@@ -84,6 +84,13 @@ struct RequestLog: Sendable {
     /// it ran and the attachments were clean.
     let multimodal: MultimodalPIIInspector.Report?
 
+    /// Salted fingerprint of the untrusted span that drove a block, when
+    /// this request was refused. Lets the UI offer "release this span"
+    /// (add to `SpanAllowlist`) so a persistent false positive can be
+    /// recovered from. Nil for non-block logs and ML/entropy blocks that
+    /// left no fingerprint.
+    let spanFingerprint: String?
+
     init(
         timestamp: Date,
         targetHost: String,
@@ -95,7 +102,8 @@ struct RequestLog: Sendable {
         entropyAnomaly: Double,
         fusedScore: Double,
         mlAvailable: Bool,
-        multimodal: MultimodalPIIInspector.Report? = nil
+        multimodal: MultimodalPIIInspector.Report? = nil,
+        spanFingerprint: String? = nil
     ) {
         self.timestamp = timestamp
         self.targetHost = targetHost
@@ -108,5 +116,6 @@ struct RequestLog: Sendable {
         self.fusedScore = fusedScore
         self.mlAvailable = mlAvailable
         self.multimodal = multimodal
+        self.spanFingerprint = spanFingerprint
     }
 }

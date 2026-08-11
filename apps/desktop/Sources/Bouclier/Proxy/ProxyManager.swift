@@ -57,6 +57,9 @@ final class ProxyManager: ObservableObject {
     let ca = CertificateAuthority()
     let extensionManager = ExtensionManager()
     private(set) var storage: StorageManager?
+    /// Delegate for the block-notification "Release this span" action.
+    /// Strongly held here because `UNUserNotificationCenter.delegate` is weak.
+    private var notificationHandler: NotificationActionHandler?
     /// True once `initializeStorage()` has run. Exposed so a regression
     /// test can pin "this runs at construction time" without depending
     /// on storage actually succeeding (SQLite init can fail in sandbox/CI
@@ -107,6 +110,20 @@ final class ProxyManager: ObservableObject {
             AuditLogger.shared.logEvent("storage_init_failed", detail: "\(error)")
         }
         caInstalled = ca.isInstalled
+
+        // Install the notification action handler so the "Release this
+        // span" button on a block notification routes back to the
+        // allowlist. Held for the app's lifetime (the delegate is weakly
+        // held by UNUserNotificationCenter). Only in the packaged .app:
+        // touching UNUserNotificationCenter's delegate/categories throws
+        // an NSException in the SwiftPM test host, which has no bundle
+        // entitlement — and construction must stay crash-free there.
+        if Self.isRunningInPackagedApp {
+            let handler = NotificationActionHandler(proxyManager: self)
+            notificationHandler = handler
+            UNUserNotificationCenter.current().delegate = handler
+            NotificationActionHandler.registerCategories()
+        }
 
         // One-shot cleanup for installs that had extreme mode (CA +
         // System Extension + PAC) active before it was removed. Must run
@@ -186,6 +203,14 @@ final class ProxyManager: ObservableObject {
     static let protectionEnabledKey = "protectionEnabled"
     static var protectionEnabled: Bool {
         UserDefaults.standard.bool(forKey: protectionEnabledKey)
+    }
+
+    /// True only in the shipping `.app` bundle. The SwiftPM test host runs
+    /// inside an `.xctest` bundle and `swift run` inside a bare binary;
+    /// UserNotifications APIs that need an entitlement throw there. Guards
+    /// notification setup so unit tests can construct `ProxyManager`.
+    static var isRunningInPackagedApp: Bool {
+        Bundle.main.bundleURL.pathExtension == "app"
     }
 
     /// True once the user's shell/GUI env has ever been pointed at the
@@ -443,10 +468,12 @@ final class ProxyManager: ObservableObject {
                 let names = requestLog.patternNames.joined(separator: ", ")
                 log(
                     "Blocked \(requestLog.matchCount) injection(s) → \(requestLog.targetHost): \(names) [score \(score)]",
-                    blocked: true
+                    blocked: true,
+                    fingerprint: requestLog.spanFingerprint
                 )
                 sendBlockNotification(
-                    body: "Blocked \(requestLog.matchCount) injection\(requestLog.matchCount > 1 ? "s" : "") → \(requestLog.targetHost)"
+                    body: "Blocked \(requestLog.matchCount) injection\(requestLog.matchCount > 1 ? "s" : "") → \(requestLog.targetHost)",
+                    fingerprint: requestLog.spanFingerprint
                 )
             } else {
                 // ML/entropy-only: Prompt Guard 2 or the entropy heuristic
@@ -454,10 +481,12 @@ final class ProxyManager: ObservableObject {
                 // pattern. Lower-confidence signal, same enforcement.
                 log(
                     "Blocked request → \(requestLog.targetHost): ML/entropy score \(score), no named pattern",
-                    blocked: true
+                    blocked: true,
+                    fingerprint: requestLog.spanFingerprint
                 )
                 sendBlockNotification(
-                    body: "Blocked suspicious request → \(requestLog.targetHost)"
+                    body: "Blocked suspicious request → \(requestLog.targetHost)",
+                    fingerprint: requestLog.spanFingerprint
                 )
             }
 
@@ -542,13 +571,33 @@ final class ProxyManager: ObservableObject {
         }
     }
 
-    private func log(_ message: String, blocked: Bool) {
-        let entry = LogEntry(message: message, blocked: blocked)
+    private func log(_ message: String, blocked: Bool, fingerprint: String? = nil) {
+        let entry = LogEntry(message: message, blocked: blocked, spanFingerprint: fingerprint)
         logs.insert(entry, at: 0)
         if logs.count > 500 { logs.removeLast(logs.count - 500) }
     }
 
-    private func sendBlockNotification(body: String) {
+    /// Release a blocked span: add its fingerprint to the allowlist so the
+    /// gateway forwards future requests carrying it. The escape hatch for a
+    /// false positive that would otherwise 403 an agent session on every
+    /// resume. Re-arm from Settings. No-op for a nil/empty fingerprint
+    /// (e.g. a principal-strict block, which carries none).
+    func allowlistSpan(_ fingerprint: String?) {
+        guard let fingerprint, !fingerprint.isEmpty else { return }
+        SpanAllowlist.add(fingerprint)
+        log("Released a flagged span — future requests carrying it are forwarded. Re-arm in Settings ▸ Allowlist.", blocked: false)
+    }
+
+    /// Count of released spans, for the Settings allowlist control.
+    var allowlistedSpanCount: Int { SpanAllowlist.all().count }
+
+    /// Re-arm every released span.
+    func clearAllowlist() {
+        SpanAllowlist.clear()
+        log("Re-armed all released spans — the detector will block them again.", blocked: false)
+    }
+
+    private func sendBlockNotification(body: String, fingerprint: String? = nil) {
         guard UserDefaults.standard.object(forKey: "showNotifications") as? Bool ?? true else { return }
         let content = UNMutableNotificationContent()
         content.title = "Injection Blocked"
@@ -559,6 +608,13 @@ final class ProxyManager: ObservableObject {
         // same default so the Settings toggle renders consistently.
         let quiet = UserDefaults.standard.object(forKey: "quietMode") as? Bool ?? true
         content.sound = quiet ? nil : .default
+        // Attach the "Release this span" action only when we have a
+        // fingerprint to release — a one-tap recovery from a false positive
+        // straight off the notification, without opening the app.
+        if let fingerprint, !fingerprint.isEmpty {
+            content.categoryIdentifier = NotificationActionHandler.blockCategoryID
+            content.userInfo = ["spanFingerprint": fingerprint]
+        }
         let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
         UNUserNotificationCenter.current().add(request)
     }
@@ -599,4 +655,8 @@ struct LogEntry: Identifiable {
     let timestamp = Date()
     let message: String
     let blocked: Bool
+    /// Set on a block entry whose span can be released via the allowlist;
+    /// the activity row shows an "Unblock" affordance targeting this span.
+    /// Nil for non-block entries and blocks with no fingerprint.
+    let spanFingerprint: String?
 }

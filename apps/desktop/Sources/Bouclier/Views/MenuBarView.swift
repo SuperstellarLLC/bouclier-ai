@@ -196,6 +196,15 @@ struct MenuBarView: View {
                                 .lineLimit(1)
                                 .truncationMode(.middle)
                             Spacer(minLength: 0)
+                            // Recover a false positive without waiting for
+                            // the notification: release this exact span so
+                            // the gateway forwards it on the next resume.
+                            if let fp = entry.spanFingerprint, !fp.isEmpty {
+                                Button("Unblock") { proxyManager.allowlistSpan(fp) }
+                                    .font(.caption2)
+                                    .buttonStyle(.link)
+                                    .help("Forward this flagged content from now on (re-arm in Settings)")
+                            }
                         }
                     }
                 }

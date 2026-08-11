@@ -319,7 +319,12 @@ private final class GatewayHandler: ChannelInboundHandler, RemovableChannelHandl
                 injection = InjectionInspectionPass.inspect(
                     body: Data(mutableBody.readableBytesView),
                     filter: filter,
-                    strict: FeatureFlags.injectionStrict
+                    strict: FeatureFlags.injectionStrict,
+                    // Operator-released spans: a would-block untrusted span
+                    // whose fingerprint is here is forwarded anyway, so a
+                    // persistent false positive can't 403 a session forever.
+                    allowlisted: SpanAllowlist.snapshot(),
+                    salt: SpanAllowlist.salt()
                 )
             }
         }
@@ -342,9 +347,20 @@ private final class GatewayHandler: ChannelInboundHandler, RemovableChannelHandl
                 bodySize: mutableBody.readableBytes,
                 mlScore: injection.blockedFinding?.mlScore,
                 entropyAnomaly: injection.blockedFinding?.entropyAnomaly ?? 0,
-                fusedScore: injection.topScore,
+                // Record the fused score of the span that actually drove
+                // the block, not `topScore` (the max across all spans).
+                // With several untrusted spans those differ, and pairing a
+                // max fused score with the blocking span's ml/entropy made
+                // the audit row incoherent — three columns describing
+                // different spans. Fall back to topScore only if there is
+                // somehow no blocked finding.
+                fusedScore: injection.blockedFinding?.fusedScore ?? injection.topScore,
                 mlAvailable: injection.mlAvailable,
-                multimodal: nil
+                multimodal: nil,
+                // Lets the activity feed / notification offer "release this
+                // span" so the operator can recover a session a false
+                // positive would otherwise wedge on every resume.
+                spanFingerprint: injection.blockedFingerprint
             ))
             respondWithRefusal(context: context, outcome: injection)
             requestHead = nil

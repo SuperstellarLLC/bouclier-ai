@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 /// Gateway-side prompt-injection inspection.
@@ -81,6 +82,15 @@ enum InjectionInspectionPass {
         let fusedScore: Double
         let mlScore: Float?
         let entropyAnomaly: Double
+        /// Salted fingerprint of the scanned span. Stable across resumes
+        /// of the same conversation (the offending tool result is the same
+        /// bytes each turn), so the operator can release exactly this span
+        /// via the allowlist. Empty for principal spans (never blocked).
+        let fingerprint: String
+        /// True when this untrusted span crossed the block bar but was
+        /// forwarded anyway because its fingerprint is on the allowlist.
+        /// Recorded so the activity log can say "released, not blocked".
+        let allowlisted: Bool
     }
 
     enum Decision: String, Sendable {
@@ -109,8 +119,29 @@ enum InjectionInspectionPass {
         )
 
         var blockedFinding: Finding? {
-            findings.first { $0.origin == .untrusted }
+            // Prefer the span that actually blocked (not one that was
+            // released) so the refusal payload names the live offender.
+            findings.first { $0.origin == .untrusted && !$0.allowlisted }
+                ?? findings.first { $0.origin == .untrusted }
         }
+
+        /// Fingerprint of the untrusted span that drove a block, for the
+        /// "release this span" affordance. Nil when nothing blocked.
+        var blockedFingerprint: String? {
+            guard let fp = blockedFinding?.fingerprint, !fp.isEmpty else { return nil }
+            return fp
+        }
+    }
+
+    /// Salted SHA-256 fingerprint (hex) of a scanned span. Machine-local
+    /// via `salt`; stable for identical span bytes, so a release taken from
+    /// a block matches the same span on the next resume of a conversation.
+    /// See `SpanAllowlist`.
+    static func spanFingerprint(_ text: String, salt: Data) -> String {
+        var hasher = SHA256()
+        hasher.update(data: salt)
+        hasher.update(data: Data(text.utf8))
+        return hasher.finalize().map { String(format: "%02x", $0) }.joined()
     }
 
     // MARK: - Tuning
@@ -390,7 +421,22 @@ enum InjectionInspectionPass {
     ///   blocks. Off by default and off in the shipped DMG; exposed for
     ///   MDM deployments that genuinely want to police their own users'
     ///   prompts and accept the false-positive cost.
-    static func inspect(body: Data, filter: InjectionFilter, strict: Bool = false) -> Outcome {
+    /// - Parameters:
+    ///   - allowlisted: span fingerprints the operator has released. An
+    ///     untrusted span that would block is forwarded (recorded as a
+    ///     flag) when its fingerprint is in this set — the escape hatch for
+    ///     a persistent false positive that would otherwise 403 a session
+    ///     on every resume.
+    ///   - salt: per-install salt for `spanFingerprint`, so a fingerprint
+    ///     is machine-local. Defaults empty for tests that don't exercise
+    ///     the allowlist.
+    static func inspect(
+        body: Data,
+        filter: InjectionFilter,
+        strict: Bool = false,
+        allowlisted: Set<String> = [],
+        salt: Data = Data()
+    ) -> Outcome {
         let spans = extractSpans(body: body)
         guard !spans.isEmpty else { return .clean }
 
@@ -406,7 +452,15 @@ enum InjectionInspectionPass {
 
             guard result.matchCount > 0 || result.shouldBlock else { continue }
 
-            let finding = Finding(
+            // Fingerprint only untrusted spans — principal text is never
+            // blocked, so it is never allowlistable.
+            let fingerprint = span.origin == .untrusted
+                ? spanFingerprint(span.text, salt: salt)
+                : ""
+            let wouldBlock = span.origin == .untrusted && result.fusedScore >= untrustedBlockThreshold
+            let isReleased = wouldBlock && allowlisted.contains(fingerprint)
+
+            findings.append(Finding(
                 origin: span.origin,
                 locator: span.locator,
                 patternNames: result.patternNames,
@@ -415,9 +469,10 @@ enum InjectionInspectionPass {
                 matchCount: result.matchCount,
                 fusedScore: result.fusedScore,
                 mlScore: result.mlScore,
-                entropyAnomaly: result.entropyAnomaly
-            )
-            findings.append(finding)
+                entropyAnomaly: result.entropyAnomaly,
+                fingerprint: fingerprint,
+                allowlisted: isReleased
+            ))
 
             switch span.origin {
             case .untrusted:
@@ -426,7 +481,8 @@ enum InjectionInspectionPass {
                 // dampening and re-introduce the false positives on benign
                 // security/tutorial/quoted content that dampening exists to
                 // suppress; an undampened critical already reaches 1.0.)
-                if result.fusedScore >= untrustedBlockThreshold {
+                // A released (allowlisted) span is recorded but never blocks.
+                if wouldBlock, !isReleased {
                     block = true
                 }
             case .principal:
