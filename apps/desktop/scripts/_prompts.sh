@@ -78,3 +78,33 @@ latest_built_version() {
     | sort -V \
     | tail -1
 }
+
+# Highest version published in the signed Sparkle appcast — the last version
+# actually *released* to users (distinct from `latest_built_version`, which
+# only reflects a DMG sitting on disk). Bare semver ("0.9.7"), empty if
+# unreadable. Handles multiple <item>s and both the element and attribute
+# short-version forms. Always exits 0 (safe under `set -euo pipefail`).
+latest_released_version() {
+  local appcast_file="$1"
+  [ -f "$appcast_file" ] || { echo ""; return 0; }
+  { grep 'shortVersionString' "$appcast_file" 2>/dev/null \
+      | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' \
+      | sort -V \
+      | tail -1; } || true
+}
+
+# The version to offer at the release prompt. When the prepped version in
+# constants.ts ($current, == CHANGELOG top, drift-enforced) is already ahead of
+# the last *released* version ($released), a release has been prepped but not
+# yet cut — offer that prepped version rather than $next (the next patch), so
+# the maintainer doesn't have to retype the real number on every prepped
+# release. Once the prepped version has shipped (current == released), fall
+# through to the next patch.
+default_release_version() {
+  local current="$1" released="$2" next="$3"
+  if [ -n "$current" ] && [ "$current" != "$released" ]; then
+    printf '%s\n' "$current"
+  else
+    printf '%s\n' "$next"
+  fi
+}

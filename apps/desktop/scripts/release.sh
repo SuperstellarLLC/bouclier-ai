@@ -36,14 +36,20 @@ echo ""
 # accept a standard bump, and only type for major/minor jumps.
 CURRENT_VERSION=$(current_app_version "$SITE_DIR/src/lib/constants.ts")
 NEXT_VERSION=$(bump_patch "$CURRENT_VERSION")
-if [ -n "$CURRENT_VERSION" ]; then
-  echo "  Current released version: $CURRENT_VERSION"
+RELEASED_VERSION=$(latest_released_version "$SITE_DIR/public/appcast.xml")
+# Offer the prepped-but-uncut version when constants.ts is already ahead of the
+# appcast (a release was prepped but never cut); otherwise the next patch. This
+# stops the prompt defaulting to N+1 — and the maintainer retyping the real
+# number — on every prepped release.
+DEFAULT_VERSION=$(default_release_version "$CURRENT_VERSION" "$RELEASED_VERSION" "$NEXT_VERSION")
+if [ -n "$RELEASED_VERSION" ]; then
+  echo "  Last released version: $RELEASED_VERSION"
 fi
 # The release script is maintainer-driven (single host with the signing
 # keys). Defaults come from env so the public repo doesn't hard-code
 # the maintainer's Apple ID. Set $BOUCLIER_APPLE_ID and
 # $BOUCLIER_APPLE_TEAM_ID in your shell or a .env to skip the prompt.
-prompt_with_default VERSION "Version" "${NEXT_VERSION:-0.2.8}"
+prompt_with_default VERSION "Version" "${DEFAULT_VERSION:-0.2.8}"
 prompt_with_default APPLE_ID "Apple ID" "${BOUCLIER_APPLE_ID:-}"
 prompt_with_default TEAM_ID "Apple Team ID" "${BOUCLIER_APPLE_TEAM_ID:-}"
 prompt_with_default DOWNLOAD_BASE_URL "Vercel Blob public URL" \

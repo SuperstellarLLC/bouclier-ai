@@ -33,6 +33,8 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm lint
       - run: pnpm format:check
+      - name: Test release-script helpers
+        run: bash apps/desktop/scripts/prompts_test.sh
 
   test-patterns:
     name: Test patterns
