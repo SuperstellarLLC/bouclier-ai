@@ -139,7 +139,7 @@ struct GeneralSettingsView: View {
             } header: {
                 Text("Block explainer")
             } footer: {
-                Text("When a request is blocked, save the offending untrusted span, the per-signal breakdown, and the passage the on-device classifier reacted to most — to a local file (block-samples.jsonl) so you can see why it blocked and tune. This is the only setting that records request content; it stays on this Mac and is never transmitted. Off by default.")
+                Text("When a request is blocked, save the offending untrusted span, the per-signal breakdown, and the passage the on-device classifier reacted to most — to a local file (block-samples.jsonl) so you can see why it blocked and tune. This is the only setting that records request content; it stays on this Mac unless you choose to report a specific block as a false positive, which sends a redacted copy — after you review exactly what's sent. Off by default.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
