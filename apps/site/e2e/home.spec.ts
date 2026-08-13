@@ -72,7 +72,9 @@ test.describe("Security headers", () => {
     const response = await page.goto("/");
     const headers = response?.headers();
     expect(headers?.["x-content-type-options"]).toBe("nosniff");
-    expect(headers?.["x-frame-options"]).toBe("SAMEORIGIN");
+    // DENY (not SAMEORIGIN) to match the CSP `frame-ancestors 'none'` — the
+    // site never frames itself, so all framing is refused.
+    expect(headers?.["x-frame-options"]).toBe("DENY");
     expect(headers?.["referrer-policy"]).toBe("strict-origin-when-cross-origin");
   });
 });
