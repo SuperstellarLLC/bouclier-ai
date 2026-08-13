@@ -144,6 +144,16 @@ export default function PrivacyPage() {
             <li className="flex gap-2">
               <span className="bg-text-secondary mt-2 h-1 w-1 shrink-0 rounded-full" />
               <span>
+                <strong>Block samples (opt-in, off by default)</strong> — only when you enable
+                &quot;Capture blocked content for tuning&quot;: the offending untrusted span
+                excerpt, the per-signal breakdown, and the passage the classifier reacted to, stored
+                in a local file (block-samples.jsonl). Never transmitted unless you explicitly tap
+                &quot;Report false positive&quot; (see &quot;Data we share&quot;).
+              </span>
+            </li>
+            <li className="flex gap-2">
+              <span className="bg-text-secondary mt-2 h-1 w-1 shrink-0 rounded-full" />
+              <span>
                 <strong>Daily stats</strong> — date, requests inspected, injections blocked.
                 Retained 365 days.
               </span>
@@ -159,13 +169,28 @@ export default function PrivacyPage() {
         </Section>
 
         <Section title="Data we collect">
-          None. Bouclier.ai has no user accounts, no analytics, no crash reporting, and no usage
-          telemetry.
+          None by default. Bouclier.ai has no user accounts, no analytics, no crash reporting, and
+          no passive telemetry. The one exception is entirely user-initiated: if you tap
+          &quot;Report false positive&quot; on a block, a redacted copy of that single flagged span
+          is sent to us (see &quot;Data we share&quot;). Nothing is collected unless you take that
+          action.
         </Section>
 
         <Section title="Data we share">
-          None. The SIEM webhook feature sends metadata to infrastructure controlled by the
-          organization&apos;s IT administrator, not to Bouclier.ai or any third party.
+          <p>
+            Nothing automatically. The SIEM webhook feature sends metadata to infrastructure
+            controlled by the organization&apos;s IT administrator, not to Bouclier.ai or any third
+            party.
+          </p>
+          <p className="mt-3">
+            The one thing shared <em>with Bouclier.ai</em> is a false-positive report you explicitly
+            send. Tapping &quot;Report false positive&quot; on a block transmits a redacted copy of
+            that one flagged span — secrets and PII scrubbed on your Mac, and shown to you in full
+            for review before anything is sent — to bouclier.ai so we can tune the detector and stop
+            blocking legitimate content. The report carries the matched pattern names, the signal
+            scores, and the redacted excerpt; it does <strong>not</strong> carry your IP address,
+            user-agent, or any identifier. Nothing is sent unless you tap the button and confirm.
+          </p>
         </Section>
 
         <Section title="Injection inspection method">
