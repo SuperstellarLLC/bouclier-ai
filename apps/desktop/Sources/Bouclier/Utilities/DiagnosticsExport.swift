@@ -7,9 +7,9 @@ import Foundation
 ///   - `meta`        : app/version/os fingerprint (no user identifiers)
 ///   - `metrics`     : `MetricsSnapshot` from the in-process registry
 ///   - `dailyStats`  : rolling 30-day requests/injections per day
-///   - `recentEvents`: last N scan-log rows with pattern/severity only
-///                     (no request bodies, no URIs, no hosts beyond the
-///                     built-in allowlist)
+///   - `recentEvents`: last N scan-log rows — detector, pattern IDs,
+///                     severity, and ML/fused scores (no request bodies,
+///                     no URIs, no hosts beyond the built-in allowlist)
 ///
 /// Privacy: the diagnostics bundle never contains request payloads,
 /// URLs, headers, or any user identifier. It is safe to attach to a
@@ -42,6 +42,14 @@ enum DiagnosticsExport {
             let matchCount: Int
             let patternIds: [String]
             let severity: String?
+            /// What drove the row: `regex` (named patterns matched),
+            /// `ml` (blocked on the fused/ML score with no named pattern),
+            /// or `none`. Makes an ML block distinguishable from a no-op.
+            let detector: String
+            /// ML classifier score, when it ran; nil when it didn't.
+            let mlScore: Double?
+            /// Fused score that the block decision was made on.
+            let fusedScore: Double
         }
     }
 
@@ -75,6 +83,16 @@ enum DiagnosticsExport {
             // should not be disclosed in a diagnostics bundle.
             let safeHost = row.targetHost.flatMap { allowedHosts.contains($0) ? $0 : nil }
             let ids = row.patternIds.flatMap { Self.decodePatternIds($0) } ?? []
+            // Classify what drove the row so an ML/fused block (no named
+            // pattern, matchCount 0) isn't indistinguishable from a no-op.
+            let detector: String
+            if row.matchCount > 0 {
+                detector = "regex"
+            } else if row.detected != 0 {
+                detector = "ml"
+            } else {
+                detector = "none"
+            }
             return Bundle.EventEntry(
                 timestamp: row.timestamp,
                 source: row.source,
@@ -82,7 +100,10 @@ enum DiagnosticsExport {
                 detected: row.detected != 0,
                 matchCount: row.matchCount,
                 patternIds: ids,
-                severity: row.severity
+                severity: row.severity,
+                detector: detector,
+                mlScore: row.mlScore,
+                fusedScore: row.fusedScore
             )
         }
 

@@ -587,6 +587,12 @@ final class ProxyManager: ObservableObject {
             mlAvailable: requestLog.mlAvailable
         )
 
+        // Feed the in-process metrics registry that the diagnostics bundle
+        // reports (`metrics` block). Fire-and-forget: metric counters are
+        // commutative, so hopping to the actor must never delay the funnel.
+        let metricsSample = Metrics.sample(for: requestLog)
+        Task { await Metrics.shared.record(metricsSample) }
+
         // Per-entity audit rows for file-PII findings. Stored after
         // the parent scan_logs insert so the cascade FK is satisfied.
         // Batched into one SQLite transaction. Type + hash prefix only;
