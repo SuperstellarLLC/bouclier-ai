@@ -79,6 +79,33 @@ enum BlockSampleStore {
         return text.split(separator: "\n", omittingEmptySubsequences: true).count
     }
 
+    /// The most recent captured sample whose fingerprint matches, or nil.
+    /// Used by the false-positive reporter to pull the (already truncated)
+    /// span + signal breakdown for a block the operator is reporting. Reads
+    /// the file fresh — reporting is a rare, user-initiated action off the
+    /// hot path. Nil when capture was off for that block, or the sample has
+    /// already rolled off the `maxSamples` window.
+    static func find(byFingerprint fingerprint: String) -> BlockSample? {
+        guard let text = try? String(contentsOf: fileURL, encoding: .utf8) else { return nil }
+        return find(byFingerprint: fingerprint, in: text)
+    }
+
+    /// Pure lookup over a JSONL block of samples (newest appended last). Split
+    /// from the file-reading overload so the reporter's lookup is testable
+    /// without touching the real on-disk store — which holds the operator's
+    /// captured content and must never be clobbered by a test.
+    static func find(byFingerprint fingerprint: String, in jsonl: String) -> BlockSample? {
+        guard !fingerprint.isEmpty else { return nil }
+        let decoder = JSONDecoder()
+        for line in jsonl.split(separator: "\n", omittingEmptySubsequences: true).reversed() {
+            guard let data = line.data(using: .utf8),
+                  let sample = try? decoder.decode(BlockSample.self, from: data)
+            else { continue }
+            if sample.fingerprint == fingerprint { return sample }
+        }
+        return nil
+    }
+
     static func clear() {
         try? FileManager.default.removeItem(at: fileURL)
     }

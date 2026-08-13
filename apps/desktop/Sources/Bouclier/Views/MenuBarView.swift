@@ -204,6 +204,10 @@ struct MenuBarView: View {
                                     .font(.caption2)
                                     .buttonStyle(.link)
                                     .help("Forward this flagged content from now on (re-arm in Settings)")
+                                Button("Report") { proxyManager.reportFalsePositive(fingerprint: fp) }
+                                    .font(.caption2)
+                                    .buttonStyle(.link)
+                                    .help("Report this as a false positive — you'll review exactly what's sent before it leaves your Mac")
                             }
                         }
                     }

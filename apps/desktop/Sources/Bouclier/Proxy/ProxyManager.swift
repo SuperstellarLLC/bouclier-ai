@@ -1,3 +1,4 @@
+import AppKit
 import BouclierCore
 import Foundation
 import NIOCore
@@ -677,6 +678,55 @@ final class ProxyManager: ObservableObject {
         }
         let extra = patternNames.count > 2 ? " +\(patternNames.count - 2) more" : ""
         return "\(shown)\(extra) in \(where_) → \(host)"
+    }
+
+    /// Held for the app's lifetime so a report window survives the menu-bar
+    /// popover closing under it, and a notification-triggered report can
+    /// raise it from any state.
+    private let reportPresenter = ReportPresenter()
+
+    /// App version string for the report payload (CFBundleShortVersionString).
+    static var appVersion: String {
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown"
+    }
+
+    /// Report a blocked span as a false positive. Looks up the captured
+    /// `BlockSample` by fingerprint, redacts it, and presents the review-and-
+    /// confirm window (nothing is sent until the operator clicks Send there).
+    /// A report *requires* a captured sample — the redacted excerpt is the
+    /// whole point, and the intake rejects a report without it — so when
+    /// capture was off for this block we explain that instead of sending
+    /// something empty.
+    func reportFalsePositive(fingerprint: String?) {
+        guard let fingerprint, !fingerprint.isEmpty else {
+            presentNoSampleNotice()
+            return
+        }
+        // Look up + redact off the main actor: redaction runs the full PII
+        // scan (incl. the CoreML tier) over adversarial content, which must
+        // not block the UI. Presenting hops back to the main actor.
+        Task {
+            guard let sample = BlockSampleStore.find(byFingerprint: fingerprint) else {
+                presentNoSampleNotice()
+                return
+            }
+            let draft = await FalsePositiveReporter.draft(from: sample, appVersion: Self.appVersion)
+            reportPresenter.present(draft) { note in
+                await FalsePositiveReporter.send(draft: draft, note: note)
+            }
+        }
+    }
+
+    /// Explain that a report needs the block to have been captured. There is
+    /// nothing to send retroactively, but future blocks become reportable
+    /// once the operator turns capture on.
+    private func presentNoSampleNotice() {
+        let alert = NSAlert()
+        alert.messageText = "Nothing captured for this block"
+        alert.informativeText = "Reporting a false positive sends the flagged content so we can tune the detector — but that content is only kept when \u{201C}Capture blocked content for tuning\u{201D} is on (Settings ▸ Diagnostics, off by default). Turn it on, and the next time this is blocked you can report it."
+        alert.addButton(withTitle: "OK")
+        NSApp.activate(ignoringOtherApps: true)
+        alert.runModal()
     }
 
     private func sendBlockNotification(body: String, fingerprint: String? = nil) {
