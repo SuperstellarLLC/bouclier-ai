@@ -7,9 +7,11 @@
  * before it is sent — this endpoint trusts that and just validates,
  * size-caps, and stores.
  *
- * What we DO NOT record (same discipline as /api/download):
- *   - IP address (we never read x-forwarded-for or similar).
- *   - User-agent, referrer, geo, cookies.
+ * What we DO NOT store with a report: no IP, user-agent, referrer, geo, or
+ * cookie is written into the report or the store — the persisted payload is
+ * only the fields the app sends. (The shared rate-limit middleware transiently
+ * reads x-forwarded-for to throttle abuse; that IP lives in an in-memory
+ * window and is never logged, persisted, or attached to a report.)
  *
  * Abuse posture: unauthenticated by necessity (the app ships no secret),
  * so the gate is a hard body-size cap + strict shape validation + POST

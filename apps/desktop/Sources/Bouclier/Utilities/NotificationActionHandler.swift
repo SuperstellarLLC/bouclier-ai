@@ -11,6 +11,7 @@ import UserNotifications
 final class NotificationActionHandler: NSObject, UNUserNotificationCenterDelegate {
     static let blockCategoryID = "injection_block"
     static let releaseActionID = "release_span"
+    static let reportActionID = "report_fp"
 
     private weak var proxyManager: ProxyManager?
 
@@ -27,9 +28,17 @@ final class NotificationActionHandler: NSObject, UNUserNotificationCenterDelegat
             title: "Release this span",
             options: []
         )
+        // `.foreground` brings the app forward so the review-and-confirm
+        // window can be shown — a report is never sent straight off the
+        // notification; the operator always sees the payload first.
+        let report = UNNotificationAction(
+            identifier: reportActionID,
+            title: "Report false positive",
+            options: [.foreground]
+        )
         let category = UNNotificationCategory(
             identifier: blockCategoryID,
-            actions: [release],
+            actions: [release, report],
             intentIdentifiers: [],
             options: []
         )
@@ -42,11 +51,18 @@ final class NotificationActionHandler: NSObject, UNUserNotificationCenterDelegat
         withCompletionHandler completionHandler: @escaping () -> Void
     ) {
         defer { completionHandler() }
-        guard response.actionIdentifier == Self.releaseActionID,
-              let fingerprint = response.notification.request.content.userInfo["spanFingerprint"] as? String
-        else { return }
-        Task { @MainActor [weak proxyManager] in
-            proxyManager?.allowlistSpan(fingerprint)
+        let fingerprint = response.notification.request.content.userInfo["spanFingerprint"] as? String
+        switch response.actionIdentifier {
+        case Self.releaseActionID:
+            Task { @MainActor [weak proxyManager] in
+                proxyManager?.allowlistSpan(fingerprint)
+            }
+        case Self.reportActionID:
+            Task { @MainActor [weak proxyManager] in
+                proxyManager?.reportFalsePositive(fingerprint: fingerprint)
+            }
+        default:
+            break
         }
     }
 
