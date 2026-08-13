@@ -27,6 +27,22 @@ export const env = createEnv({
      * deploying without the token is a safe default.
      */
     DOWNLOAD_STATS_TOKEN: z.string().min(16).optional(),
+    /**
+     * Postgres connection string for the false-positive report store
+     * (Neon / Vercel Postgres, serverless HTTP driver). When unset, the
+     * /api/report route logs each report to the console instead of
+     * persisting — a fresh deployment without a database still 200s.
+     * Durable + queryable (unlike a capped Redis list), so a flood can't
+     * evict genuine reports and detection tuning can actually query them.
+     */
+    DATABASE_URL: z.string().url().optional(),
+    /**
+     * Proof-of-work difficulty (leading zero BITS) required on each
+     * /api/report submission — an IP-free, secret-free abuse cost that
+     * makes flooding expensive without any client identity. Default 20
+     * (~1M hashes, ~0.1–1s on the reporter's Mac) when unset; 0 disables.
+     */
+    REPORT_POW_BITS: z.coerce.number().int().min(0).max(32).optional(),
     // AUTH_SECRET: z.string().min(32),
   },
 
@@ -50,6 +66,8 @@ export const env = createEnv({
     UPSTASH_REDIS_REST_URL: process.env.UPSTASH_REDIS_REST_URL,
     UPSTASH_REDIS_REST_TOKEN: process.env.UPSTASH_REDIS_REST_TOKEN,
     DOWNLOAD_STATS_TOKEN: process.env.DOWNLOAD_STATS_TOKEN,
+    DATABASE_URL: process.env.DATABASE_URL,
+    REPORT_POW_BITS: process.env.REPORT_POW_BITS,
     // NEXT_PUBLIC_POSTHOG_KEY: process.env.NEXT_PUBLIC_POSTHOG_KEY,
   },
 

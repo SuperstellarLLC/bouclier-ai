@@ -12,6 +12,9 @@ export default defineConfig({
   test: {
     environment: "jsdom",
     globals: true,
+    // Low proof-of-work difficulty so the /api/report tests can mine a valid
+    // stamp instantly; production defaults to a much higher difficulty.
+    env: { REPORT_POW_BITS: "8" },
     setupFiles: ["./src/__tests__/setup.ts"],
     css: true,
     server: {
