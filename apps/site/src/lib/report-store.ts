@@ -1,32 +1,31 @@
 /**
- * False-positive report store.
+ * False-positive report store — Postgres (Neon / Vercel Postgres).
  *
- * When an operator hits "Report false positive" in the menu-bar app, the
- * app POSTs a *redacted* block sample to `/api/report`. This module is the
- * only place that persists it. It is a deliberate sibling of
- * `download-tracker.ts` and inherits the same discipline:
+ * When an operator taps "Report false positive" in the menu-bar app, the app
+ * POSTs a *redacted* block sample to `/api/report`. This module is the only
+ * place that persists it. Design notes:
  *
- * - Record only what the operator chose to send: the redaction happens on
- *   their Mac, and they see the exact bytes in a confirm dialog before it
- *   leaves. This module trusts that and stores the payload as-received.
- * - DO NOT record IP address, user-agent, referrer, geo, or anything else
- *   that identifies the reporter. The app's brand promise is "no
- *   telemetry"; a false-positive report is a *user-initiated* share of one
- *   flagged span, not passive tracking.
- * - Be graceful when storage isn't configured — fall back to a
- *   `console.log` line so a deployment without Upstash still 200s the
- *   report instead of erroring.
- *
- * Storage: Upstash Redis REST (same store as downloads). Rolling event log
- * via LPUSH + LTRIM; a lifetime counter and per-day buckets for a
- * glanceable "are reports coming in" signal. If you swap stores later,
- * only this module changes.
+ * - **Durable + queryable.** Reports are the raw material for tuning detection,
+ *   so they belong in a database you can query (by pattern, date, fingerprint),
+ *   not an evictable Redis list. A row is never dropped by a later write, so a
+ *   flood can't push genuine reports out (the eviction the audit flagged).
+ * - **IP-free global write cap.** The only abuse control here is a single global
+ *   ceiling on inserts-per-minute, enforced *atomically inside the INSERT* — no
+ *   client IP, identity, or per-key state. It bounds cost and DB growth; the
+ *   proof-of-work stamp on the route makes reaching the cap expensive.
+ * - **No IP / UA / identifier is ever stored** — only the redacted fields the
+ *   app sends. Redaction happens on the operator's Mac and is shown to them
+ *   before send; this module trusts that and just validates + caps + persists.
+ * - **Graceful when unconfigured.** No `DATABASE_URL` → each report is logged to
+ *   the console instead of persisted, so a fresh deployment still 200s.
  */
+
+import { neon, type NeonQueryFunction } from "@neondatabase/serverless";
 
 import { env } from "@/env";
 
-/** Rolling report-log size — older reports drop off the back. */
-const MAX_REPORTS = 2_000;
+/** Global ceiling on accepted reports per rolling minute (across everyone). */
+const GLOBAL_WRITES_PER_MIN = 300;
 
 /** Server-side hard caps, defence-in-depth behind the app's own capping. */
 export const LIMITS = {
@@ -41,18 +40,14 @@ export const LIMITS = {
 } as const;
 
 /**
- * A redacted false-positive report as accepted by `/api/report`. Mirrors
- * the desktop `BlockSample` (minus anything identifying). `ts` is stamped
- * server-side at receive time — the client's clock is never trusted.
+ * A redacted false-positive report as accepted by `/api/report`. Mirrors the
+ * desktop `BlockSample` (minus anything identifying). `ts` is only used by the
+ * console fallback; the DB stamps `created_at` server-side.
  */
 export interface FalsePositiveReport {
-  /** ISO 8601 UTC, stamped on receive. Not client-supplied. */
   ts: string;
-  /** App version that produced the block (e.g. "0.9.8"). */
   appVersion: string;
-  /** Upstream host the request targeted (api.anthropic.com, …). */
   targetHost: string;
-  /** JSON path of the offending span (structural, not content). */
   locator: string;
   patternNames: string[];
   fusedScore: number;
@@ -60,14 +55,10 @@ export interface FalsePositiveReport {
   entropyAnomaly: number;
   benignMultiplier: number;
   matchCount: number;
-  /** Redacted excerpt of the offending span (secrets/PII scrubbed app-side). */
   spanExcerpt: string;
-  /** Redacted highest-scoring ML window, when ML drove the block. */
   topWindow: string | null;
   topWindowScore: number | null;
-  /** Salted, machine-local span fingerprint — not reversible to content. */
   fingerprint: string;
-  /** Optional free-text note the reporter added. */
   note: string | null;
 }
 
@@ -87,18 +78,16 @@ function finiteOrNull(value: unknown): number | null {
 }
 
 /**
- * Validate + normalize an untrusted request body into a report, or return
- * null if it doesn't look like one. Strings are hard-capped and numbers
- * coerced, so a malformed or oversized field can't bloat the store or
- * smuggle a non-string through — the route has already size-capped the
- * raw body, this caps each field.
+ * Validate + normalize an untrusted request body into a report, or return null
+ * if it doesn't look like one. Strings are hard-capped and numbers coerced, so
+ * a malformed or oversized field can't bloat a row or smuggle a non-string
+ * through — the route has already size-capped the raw body, this caps each
+ * field. Pure (no DB), so it's unit-testable on its own.
  */
 export function normalizeReport(raw: unknown): FalsePositiveReportInput | null {
   if (!raw || typeof raw !== "object") return null;
   const r = raw as Record<string, unknown>;
 
-  // Require the fields that make a report actionable: where it came from,
-  // what matched, and the offending excerpt. Everything else is optional.
   if (typeof r.spanExcerpt !== "string" || r.spanExcerpt.length === 0) return null;
   if (typeof r.targetHost !== "string" || r.targetHost.length === 0) return null;
 
@@ -127,40 +116,84 @@ export function normalizeReport(raw: unknown): FalsePositiveReportInput | null {
   };
 }
 
-/** Persist one report. Safe to call even when storage isn't configured. */
-export async function recordReport(input: FalsePositiveReportInput): Promise<void> {
-  const report: FalsePositiveReport = { ts: new Date().toISOString(), ...input };
+let _sql: NeonQueryFunction<false, false> | null = null;
+function getSql(): NeonQueryFunction<false, false> | null {
+  if (!env.DATABASE_URL) return null;
+  if (!_sql) _sql = neon(env.DATABASE_URL);
+  return _sql;
+}
 
-  if (!env.UPSTASH_REDIS_REST_URL || !env.UPSTASH_REDIS_REST_TOKEN) {
-    // Console fallback so a deployment without Upstash still captures the
-    // report in Vercel function logs instead of dropping it.
-    console.log(JSON.stringify({ kind: "false_positive_report", ...report }));
+// Create the table + indexes once per process (idempotent). Reset on failure so
+// a transient error doesn't wedge every later write behind a rejected promise.
+let schemaReady: Promise<void> | null = null;
+function ensureSchema(sql: NeonQueryFunction<false, false>): Promise<void> {
+  if (!schemaReady) {
+    schemaReady = (async () => {
+      await sql`CREATE TABLE IF NOT EXISTS false_positive_reports (
+        id                bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+        created_at        timestamptz NOT NULL DEFAULT now(),
+        app_version       text NOT NULL,
+        target_host       text NOT NULL,
+        locator           text NOT NULL,
+        pattern_names     jsonb NOT NULL DEFAULT '[]'::jsonb,
+        fused_score       double precision NOT NULL,
+        ml_score          double precision,
+        entropy_anomaly   double precision NOT NULL,
+        benign_multiplier double precision NOT NULL,
+        match_count       integer NOT NULL,
+        span_excerpt      text NOT NULL,
+        top_window        text,
+        top_window_score  double precision,
+        fingerprint       text NOT NULL,
+        note              text
+      )`;
+      await sql`CREATE INDEX IF NOT EXISTS fpr_created_at_idx ON false_positive_reports (created_at DESC)`;
+      await sql`CREATE INDEX IF NOT EXISTS fpr_fingerprint_idx ON false_positive_reports (fingerprint)`;
+    })().catch((err) => {
+      schemaReady = null;
+      throw err;
+    });
+  }
+  return schemaReady;
+}
+
+/**
+ * Persist one report. Safe to call even when storage isn't configured. The
+ * global per-minute ceiling is enforced *inside* the INSERT (insert only if the
+ * last-minute count is under the cap) so it's atomic and needs no IP or
+ * per-client state; over the cap, the row is simply not written.
+ */
+export async function recordReport(input: FalsePositiveReportInput): Promise<void> {
+  const sql = getSql();
+  if (!sql) {
+    // Console fallback so a deployment without a database still captures the
+    // report in the function logs instead of dropping it.
+    console.log(
+      JSON.stringify({ kind: "false_positive_report", ts: new Date().toISOString(), ...input }),
+    );
     return;
   }
 
-  const day = report.ts.slice(0, 10); // YYYY-MM-DD
-  const pipeline = [
-    ["INCR", "reports:total"],
-    ["HINCRBY", "reports:daily", day, "1"],
-    ["LPUSH", "reports:events", JSON.stringify(report)],
-    ["LTRIM", "reports:events", "0", String(MAX_REPORTS - 1)],
-  ];
-
   try {
-    const res = await fetch(`${env.UPSTASH_REDIS_REST_URL}/pipeline`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${env.UPSTASH_REDIS_REST_TOKEN}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(pipeline),
-      cache: "no-store",
-    });
-    if (!res.ok) {
-      console.warn(`[report-store] Upstash write failed: ${res.status} ${res.statusText}`);
+    await ensureSchema(sql);
+    const rows = await sql`
+      INSERT INTO false_positive_reports
+        (app_version, target_host, locator, pattern_names, fused_score, ml_score,
+         entropy_anomaly, benign_multiplier, match_count, span_excerpt, top_window,
+         top_window_score, fingerprint, note)
+      SELECT ${input.appVersion}, ${input.targetHost}, ${input.locator},
+             ${JSON.stringify(input.patternNames)}::jsonb, ${input.fusedScore}, ${input.mlScore},
+             ${input.entropyAnomaly}, ${input.benignMultiplier}, ${input.matchCount},
+             ${input.spanExcerpt}, ${input.topWindow}, ${input.topWindowScore},
+             ${input.fingerprint}, ${input.note}
+      WHERE (SELECT count(*) FROM false_positive_reports
+             WHERE created_at > now() - interval '1 minute') < ${GLOBAL_WRITES_PER_MIN}
+      RETURNING id`;
+    if (rows.length === 0) {
+      console.warn("[report-store] global write cap reached; report dropped");
     }
   } catch (err) {
-    // Recording must never make the endpoint 500 on the reporter.
-    console.warn(`[report-store] Upstash unreachable: ${(err as Error).message}`);
+    // Persisting must never make the endpoint 500 on the reporter.
+    console.warn(`[report-store] persist failed: ${(err as Error).message}`);
   }
 }

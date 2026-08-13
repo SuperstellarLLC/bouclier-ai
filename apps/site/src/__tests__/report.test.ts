@@ -5,6 +5,8 @@ import { NextRequest } from "next/server";
 import { describe, expect, it } from "vitest";
 
 import { GET, POST } from "@/app/api/report/route";
+import { env } from "@/env";
+import { DEFAULT_POW_BITS, powMaterial, solvePow } from "@/lib/pow";
 import { LIMITS, normalizeReport } from "@/lib/report-store";
 
 const validInput = {
@@ -30,6 +32,15 @@ function postRequest(body: string, contentType = "application/json"): NextReques
     headers: { "content-type": contentType },
     body,
   });
+}
+
+// The route requires a valid proof-of-work stamp; tests run at low difficulty
+// (vitest env REPORT_POW_BITS=8), so mining one is instant.
+const POW_BITS = env.REPORT_POW_BITS ?? DEFAULT_POW_BITS;
+function withPow<T extends { fingerprint: string }>(input: T) {
+  const timestamp = Date.now();
+  const nonce = solvePow(powMaterial(timestamp, input.fingerprint), POW_BITS);
+  return { ...input, pow: { timestamp, nonce } };
 }
 
 describe("normalizeReport", () => {
@@ -100,10 +111,24 @@ describe("POST /api/report", () => {
     expect(res.status).toBe(400);
   });
 
-  it("200s a valid report", async () => {
-    const res = await POST(postRequest(JSON.stringify(validInput)));
+  it("200s a valid report with a valid proof-of-work", async () => {
+    const res = await POST(postRequest(JSON.stringify(withPow(validInput))));
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ ok: true });
+  });
+
+  it("403s a valid report with no proof-of-work", async () => {
+    const res = await POST(postRequest(JSON.stringify(validInput)));
+    expect(res.status).toBe(403);
+  });
+
+  it("403s a proof-of-work whose timestamp is stale (outside the freshness window)", async () => {
+    const stale = Date.now() - 10 * 60_000;
+    const nonce = solvePow(powMaterial(stale, validInput.fingerprint), POW_BITS);
+    const res = await POST(
+      postRequest(JSON.stringify({ ...validInput, pow: { timestamp: stale, nonce } })),
+    );
+    expect(res.status).toBe(403);
   });
 });
 
