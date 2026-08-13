@@ -8,11 +8,12 @@ The `[VERSION]` section for each release is extracted verbatim by
 `apps/desktop/scripts/publish-update.sh` and injected into the Sparkle
 appcast. Write for end users, not for internal engineering notes.
 
-## [0.9.8] — 2026-08-11
+## [0.9.8] — 2026-08-13
 
 ### Changed
 
 - **Block notifications now tell you what tripped, and where.** A block banner used to read "Blocked 1 injection → host" — enough to know something happened, not enough to act on. It now names the matched detection pattern and the exact location the content came from (e.g. "system-prompt-extraction in messages[2].tool_result → api.anthropic.com"), so you can judge a likely false positive and hit "Release this span" straight from the notification. By design the banner carries only that metadata: the offending text itself is never shown on a notification — a surface other apps and screen-readers can read — so the verbatim span stays in the opt-in, local-only block explainer.
+- **A burst of blocks no longer floods you with banners.** When a single agent session trips many blocks in a row — common when a false-positive pattern keeps matching repeated tool output — Bouclier shows the first few individually and then a single "N requests blocked in the last minute" summary (refreshed at most once a minute) instead of one banner per block.
 
 ## [0.9.7] — 2026-08-11
 

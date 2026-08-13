@@ -60,6 +60,11 @@ final class ProxyManager: ObservableObject {
     /// Delegate for the block-notification "Release this span" action.
     /// Strongly held here because `UNUserNotificationCenter.delegate` is weak.
     private var notificationHandler: NotificationActionHandler?
+
+    /// Coalesces bursts of block notifications so a false-positive storm (many
+    /// tool_results blocked in one agent session) shows a throttled summary
+    /// instead of one banner per block.
+    private var blockNotificationCoalescer = NotificationCoalescer()
     /// True once `initializeStorage()` has run. Exposed so a regression
     /// test can pin "this runs at construction time" without depending
     /// on storage actually succeeding (SQLite init can fail in sandbox/CI
@@ -502,19 +507,28 @@ final class ProxyManager: ObservableObject {
                 )
             }
 
-            // One block notification for either signal type. The body is
-            // safe metadata only — the matched pattern name(s) and the JSON
-            // locator, never the span content — because a notification is a
-            // broadcast surface a screen-reading agent could re-ingest. The
-            // verbatim span stays in the opt-in, local-only block explainer.
-            sendBlockNotification(
-                body: Self.blockNotificationBody(
-                    patternNames: requestLog.patternNames,
-                    locator: requestLog.locator,
-                    host: requestLog.targetHost
-                ),
-                fingerprint: requestLog.spanFingerprint
-            )
+            // One block notification for either signal type — coalesced so a
+            // false-positive storm (many tool_results blocked in one session)
+            // doesn't fire a banner per block. The individual body is safe
+            // metadata only (matched pattern name(s) + JSON locator, never span
+            // content — a notification is a broadcast surface a screen-reading
+            // agent could re-ingest); the verbatim span stays in the opt-in,
+            // local-only block explainer.
+            switch blockNotificationCoalescer.onBlock(at: Date().timeIntervalSinceReferenceDate) {
+            case .individual:
+                sendBlockNotification(
+                    body: Self.blockNotificationBody(
+                        patternNames: requestLog.patternNames,
+                        locator: requestLog.locator,
+                        host: requestLog.targetHost
+                    ),
+                    fingerprint: requestLog.spanFingerprint
+                )
+            case .summary(let count):
+                sendSummaryNotification(count: count, host: requestLog.targetHost)
+            case .suppress:
+                break
+            }
 
             // SIEM audit log (os_log + optional webhook). Severity is
             // "high" for both signal types — it describes the action (an
@@ -684,6 +698,22 @@ final class ProxyManager: ObservableObject {
             content.userInfo = ["spanFingerprint": fingerprint]
         }
         let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
+        UNUserNotificationCenter.current().add(request)
+    }
+
+    /// A coalesced banner for a burst of blocks, shown instead of a per-block
+    /// banner once the coalescer trips. Fixed identifier so a repeated summary
+    /// replaces the previous one rather than stacking. No per-span action: it
+    /// stands for several spans; the details live in the activity log and the
+    /// opt-in block explainer.
+    private func sendSummaryNotification(count: Int, host: String) {
+        guard UserDefaults.standard.object(forKey: "showNotifications") as? Bool ?? true else { return }
+        let content = UNMutableNotificationContent()
+        content.title = "Injection Blocked"
+        content.body = "\(count) requests blocked in the last minute → \(host)"
+        let quiet = UserDefaults.standard.object(forKey: "quietMode") as? Bool ?? true
+        content.sound = quiet ? nil : .default
+        let request = UNNotificationRequest(identifier: "injection_block_summary", content: content, trigger: nil)
         UNUserNotificationCenter.current().add(request)
     }
 
