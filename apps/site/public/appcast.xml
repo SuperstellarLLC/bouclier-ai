@@ -6,22 +6,23 @@
     <description>Updates for Bouclier.ai — prompt injection firewall for macOS</description>
     <language>en</language>
     <item>
-      <title>Version 0.9.7</title>
-      <pubDate>Tue, 11 Aug 2026 17:00:59 +0200</pubDate>
-      <sparkle:version>0.9.7</sparkle:version>
-      <sparkle:shortVersionString>0.9.7</sparkle:shortVersionString>
+      <title>Version 0.9.8</title>
+      <pubDate>Thu, 13 Aug 2026 14:41:02 +0200</pubDate>
+      <sparkle:version>0.9.8</sparkle:version>
+      <sparkle:shortVersionString>0.9.8</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
       <description><![CDATA[
-<h2>Bouclier.ai v0.9.7</h2>
+<h2>Bouclier.ai v0.9.8</h2>
 <h4>Changed</h4>
 <ul>
-<li><strong>A blocked request no longer looks like a login error.</strong> When Bouclier refused a request it returned HTTP 403, which Claude Code — and the Anthropic SDK it is built on — read as an authentication failure. So a policy block surfaced as "Please run /login" and sent you to re-authenticate over something that was never an auth problem. Refusals now return 422 (Unprocessable Entity) instead: still a clean, readable API error naming what was blocked and where, but with no misleading login prompt and no silent retry loop behind it. The refusal body is otherwise unchanged.</li>
+<li><strong>Block notifications now tell you what tripped, and where.</strong> A block banner used to read "Blocked 1 injection → host" — enough to know something happened, not enough to act on. It now names the matched detection pattern and the exact location the content came from (e.g. "system-prompt-extraction in messages[2].tool_result → api.anthropic.com"), so you can judge a likely false positive and hit "Release this span" straight from the notification. By design the banner carries only that metadata: the offending text itself is never shown on a notification — a surface other apps and screen-readers can read — so the verbatim span stays in the opt-in, local-only block explainer.</li>
+<li><strong>A burst of blocks no longer floods you with banners.</strong> When a single agent session trips many blocks in a row — common when a false-positive pattern keeps matching repeated tool output — Bouclier shows the first few individually and then a single "N requests blocked in the last minute" summary (refreshed at most once a minute) instead of one banner per block.</li>
 </ul>
 ]]></description>
       <enclosure
-        url="https://0tdi95zyjwsefpzx.public.blob.vercel-storage.com/download/Bouclier-ai-v0.9.7-macOS.dmg"
-        sparkle:edSignature="5VOQ7SZTZijK+5HniGZHMvzzCDnS3MBzb+2mUi54Mqn5NmBw71LRytvtHYIcYvu8gCrUfFen8m0BhtOGmjjOBg=="
-        length="272141591"
+        url="https://0tdi95zyjwsefpzx.public.blob.vercel-storage.com/download/Bouclier-ai-v0.9.8-macOS.dmg"
+        sparkle:edSignature="rcCRm91Sd5FYp4N7DYeqPDfDoioK+H/3ALl37j+Z1/7YFCO7rCh2nA2DVmJ7usvfb12KWqsymhvDPf4leOpmDw=="
+        length="272142702"
         type="application/octet-stream"
       />
     </item>
