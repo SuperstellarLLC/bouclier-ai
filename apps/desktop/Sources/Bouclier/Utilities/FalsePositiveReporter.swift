@@ -25,10 +25,18 @@ struct FalsePositiveDraft: Identifiable, Sendable {
     let fingerprint: String
 }
 
+/// An anti-abuse proof-of-work stamp attached to the wire body at send time.
+/// Not report content — a fresh timestamp plus a mined nonce, carrying no
+/// personal data — so it is added only on `send`, never shown in the preview.
+private struct ReportPowStamp: Encodable {
+    let timestamp: Int64
+    let nonce: String
+}
+
 /// The wire payload POSTed to `/api/report`. Keys match the site's
 /// `FalsePositiveReportInput` exactly (camelCase, no `ts` — the server
 /// stamps receipt time). Nil optionals are omitted; the server treats an
-/// absent field as null.
+/// absent field as null. `pow` is present only on an actual send.
 private struct FalsePositiveReportPayload: Encodable {
     let appVersion: String
     let targetHost: String
@@ -44,6 +52,7 @@ private struct FalsePositiveReportPayload: Encodable {
     let topWindowScore: Float?
     let fingerprint: String
     let note: String?
+    let pow: ReportPowStamp?
 }
 
 /// Builds and sends a false-positive report. The build step redacts; the
@@ -99,23 +108,30 @@ enum FalsePositiveReporter {
         )
     }
 
-    /// The exact bytes a send transmits. `previewJSON` and `send` encode
-    /// through **this one function**, so what the preview shows is byte-for-
-    /// byte the wire body — not a re-formatted approximation. Pretty-printed
-    /// and key-sorted for a stable, readable preview; a <5 KB report
-    /// pretty-prints to well under the endpoint's 32 KB cap.
-    static func encodedBody(for draft: FalsePositiveDraft, note: String) -> Data {
+    /// Pretty, key-sorted JSON encoder shared by preview and send, so the
+    /// preview is byte-for-byte the report *content* the wire carries.
+    private static func encode(_ payload: FalsePositiveReportPayload) -> Data {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
-        return (try? encoder.encode(payload(for: draft, note: note))) ?? Data("{}".utf8)
+        return (try? encoder.encode(payload)) ?? Data("{}".utf8)
     }
 
-    /// The exact wire body, as text, for the review window.
+    /// The exact report *content* bytes — everything the preview shows and the
+    /// send transmits, minus the anti-abuse `pow` stamp (added only on send and
+    /// carrying no personal data). So the preview shows all content that leaves
+    /// the Mac; the only thing it omits is a proof-of-work nonce.
+    static func encodedBody(for draft: FalsePositiveDraft, note: String) -> Data {
+        encode(payload(for: draft, note: note, pow: nil))
+    }
+
+    /// The report content, as text, for the review window.
     static func previewJSON(for draft: FalsePositiveDraft, note: String) -> String {
         String(data: encodedBody(for: draft, note: note), encoding: .utf8) ?? "{}"
     }
 
-    private static func payload(for draft: FalsePositiveDraft, note: String) -> FalsePositiveReportPayload {
+    private static func payload(
+        for draft: FalsePositiveDraft, note: String, pow: ReportPowStamp?
+    ) -> FalsePositiveReportPayload {
         let trimmed = note.trimmingCharacters(in: .whitespacesAndNewlines)
         return FalsePositiveReportPayload(
             appVersion: draft.appVersion,
@@ -131,7 +147,8 @@ enum FalsePositiveReporter {
             topWindow: draft.topWindow,
             topWindowScore: draft.topWindowScore,
             fingerprint: draft.fingerprint,
-            note: trimmed.isEmpty ? nil : trimmed
+            note: trimmed.isEmpty ? nil : trimmed,
+            pow: pow
         )
     }
 
@@ -139,10 +156,17 @@ enum FalsePositiveReporter {
     /// or non-200 outcome returns false so the UI can offer a retry — a
     /// failed report must never crash or block anything.
     static func send(draft: FalsePositiveDraft, note: String) async -> Bool {
+        // Mine the proof-of-work at send time — a fresh timestamp bound to the
+        // report's fingerprint — so a slow review can't stale the stamp.
+        let timestamp = ReportProofOfWork.nowMillis()
+        let material = ReportProofOfWork.material(timestamp: timestamp, fingerprint: draft.fingerprint)
+        let nonce = ReportProofOfWork.solve(material: material, bits: ReportProofOfWork.difficultyBits)
+        let stamp = ReportPowStamp(timestamp: timestamp, nonce: nonce)
+
         var req = URLRequest(url: endpoint)
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.httpBody = encodedBody(for: draft, note: note) // identical bytes to the preview
+        req.httpBody = encode(payload(for: draft, note: note, pow: stamp))
         do {
             let (_, resp) = try await session.data(for: req)
             return (resp as? HTTPURLResponse)?.statusCode == 200
