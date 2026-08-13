@@ -79,6 +79,15 @@ struct RequestLog: Sendable {
     let entropyAnomaly: Double
     let fusedScore: Double
     let mlAvailable: Bool
+    /// Detection categories and severities that fired on this request,
+    /// aggregated across findings. Feed the diagnostics metrics registry's
+    /// per-category / per-severity tallies. Empty when nothing matched.
+    let categories: [String]
+    let severities: [String]
+    /// Time spent scanning this request, in seconds. Feeds the metrics
+    /// latency histogram. Zero for requests that skipped inspection (no
+    /// untrusted content, or the engine wasn't ready).
+    let scanDurationSeconds: TimeInterval
     /// Multimodal scan report. Nil when multimodal inspection didn't
     /// run for this request (feature off, etc.); empty findings when
     /// it ran and the attachments were clean.
@@ -111,7 +120,10 @@ struct RequestLog: Sendable {
         mlAvailable: Bool,
         multimodal: MultimodalPIIInspector.Report? = nil,
         spanFingerprint: String? = nil,
-        locator: String? = nil
+        locator: String? = nil,
+        categories: [String] = [],
+        severities: [String] = [],
+        scanDurationSeconds: TimeInterval = 0
     ) {
         self.timestamp = timestamp
         self.targetHost = targetHost
@@ -123,6 +135,9 @@ struct RequestLog: Sendable {
         self.entropyAnomaly = entropyAnomaly
         self.fusedScore = fusedScore
         self.mlAvailable = mlAvailable
+        self.categories = categories
+        self.severities = severities
+        self.scanDurationSeconds = scanDurationSeconds
         self.multimodal = multimodal
         self.spanFingerprint = spanFingerprint
         self.locator = locator

@@ -2,7 +2,8 @@ import Foundation
 
 /// Thread-safe in-process metrics registry. Exposes counters,
 /// per-category/severity tallies, a rolling latency histogram, and
-/// a JSON snapshot for export via the observability endpoint.
+/// a JSON snapshot surfaced in the diagnostics bundle (`DiagnosticsExport`).
+/// Fed from the request funnel (`ProxyManager.handleRequestLog`).
 ///
 /// Design:
 /// - Actor-isolated so every mutation happens on the metrics serial queue
@@ -102,8 +103,8 @@ actor Metrics {
         )
     }
 
-    /// Reset state. Used by tests and by the diagnostics export after a
-    /// successful upload.
+    /// Reset state. Used by tests. (The diagnostics export snapshots
+    /// without resetting, so counters persist across exports.)
     func reset() {
         startedAt = Date()
         requestsTotal = 0
@@ -131,6 +132,58 @@ actor Metrics {
         for (i, bucket) in Self.latencyBucketsMs.enumerated() where ms <= bucket {
             latencyBuckets[i] += 1
         }
+    }
+}
+
+// MARK: - Request mapping
+
+extension Metrics {
+    /// The request-scoped inputs a completed scan contributes to the
+    /// registry, derived purely from a `RequestLog`. Kept as a separate
+    /// value so the wiring (`RequestLog` → metric dimensions) is
+    /// unit-testable without touching the shared actor.
+    struct RequestSample: Sendable {
+        let host: String
+        let bodySize: Int
+        let scanDurationSeconds: TimeInterval
+        let detected: Bool
+        let rewritten: Bool
+        let oversized: Bool
+        let categories: [String]
+        let severities: [String]
+    }
+
+    /// Map a finished scan record to its metric contribution.
+    static func sample(for log: RequestLog) -> RequestSample {
+        RequestSample(
+            host: log.targetHost,
+            bodySize: log.bodySize,
+            scanDurationSeconds: log.scanDurationSeconds,
+            detected: log.detected,
+            // The gateway relays the request byte-for-byte on the injection
+            // path — only the multimodal path rewrites (stripped/redacted
+            // attachments), so a rewrite means multimodal findings existed.
+            rewritten: !(log.multimodal?.findings.isEmpty ?? true),
+            // The oversize-reject path never reaches this funnel, so it is
+            // counted elsewhere; a scanned request is never "oversized" here.
+            oversized: false,
+            categories: log.categories,
+            severities: log.severities
+        )
+    }
+
+    /// Record a mapped `RequestSample` — one value instead of eight args.
+    func record(_ sample: RequestSample) {
+        recordRequest(
+            host: sample.host,
+            bodySize: sample.bodySize,
+            scanDurationSeconds: sample.scanDurationSeconds,
+            detected: sample.detected,
+            rewritten: sample.rewritten,
+            oversized: sample.oversized,
+            categories: sample.categories,
+            severities: sample.severities
+        )
     }
 }
 

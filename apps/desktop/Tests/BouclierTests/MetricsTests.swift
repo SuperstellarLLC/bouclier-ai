@@ -127,4 +127,48 @@ struct MetricsTests {
         #expect(snap.requestsTotal == 0)
         #expect(snap.hitsByCategory.isEmpty)
     }
+
+    @Test("sample(for:) maps a RequestLog to the request metric dimensions")
+    func mapsRequestLog() async {
+        // The exact shape the diagnostics log surfaced: an ML/fused block
+        // with no named pattern (matchCount 0) — this is what was never
+        // reaching the registry, leaving `metrics` all-zero.
+        let log = RequestLog(
+            timestamp: Date(),
+            targetHost: "api.anthropic.com",
+            detected: true,
+            matchCount: 0,
+            patternNames: [],
+            bodySize: 2048,
+            mlScore: 0.81,
+            entropyAnomaly: 0.3,
+            fusedScore: 0.77,
+            mlAvailable: true,
+            categories: ["role-hijack", "data-exfiltration"],
+            severities: ["high"],
+            scanDurationSeconds: 0.02
+        )
+
+        let sample = Metrics.sample(for: log)
+        #expect(sample.host == "api.anthropic.com")
+        #expect(sample.bodySize == 2048)
+        #expect(sample.detected)
+        #expect(sample.scanDurationSeconds == 0.02)
+        // Injection path relays byte-for-byte; no multimodal → no rewrite.
+        #expect(sample.rewritten == false)
+        #expect(Set(sample.categories) == ["role-hijack", "data-exfiltration"])
+        #expect(sample.severities == ["high"])
+
+        // And the mapped sample flows through the registry end-to-end.
+        let metrics = Metrics()
+        await metrics.record(sample)
+        let snap = await metrics.snapshot()
+        #expect(snap.requestsTotal == 1)
+        #expect(snap.requestsBlocked == 1)
+        #expect(snap.bytesScanned == 2048)
+        #expect(snap.blocksByHost["api.anthropic.com"] == 1)
+        #expect(snap.hitsByCategory["role-hijack"] == 1)
+        #expect(snap.hitsBySeverity["high"] == 1)
+        #expect(snap.latency.count == 1)
+    }
 }

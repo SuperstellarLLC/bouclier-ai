@@ -64,6 +64,49 @@ struct DiagnosticsExportTests {
         #expect(bundle.recentEvents[0].patternIds == ["role-001", "exfil-001"])
         #expect(bundle.recentEvents[0].targetHost == "api.openai.com")
         #expect(bundle.recentEvents[0].detected)
+        // Named patterns matched → regex detector.
+        #expect(bundle.recentEvents[0].detector == "regex")
+        #expect(bundle.recentEvents[0].mlScore == nil)
+    }
+
+    @Test("Surfaces detector + ML/fused scores so an ML block isn't an empty row")
+    func mlDrivenBlockIsLegible() {
+        // The exact shape from the diagnostics log: a high-severity block
+        // with matchCount 0 and no pattern IDs. Before the fix this was
+        // indistinguishable from a no-op; now it is marked `ml` with scores.
+        let snap = makeMetricsSnapshot()
+        let logs = [
+            ScanLogRow(
+                id: 7,
+                timestamp: "2026-08-13T14:03:44Z",
+                source: "tls-proxy",
+                targetHost: "api.anthropic.com",
+                detected: 1,
+                matchCount: 0,
+                patternIds: "[]",
+                severity: "high",
+                requestSize: 900,
+                mlScore: 0.62,
+                entropyAnomaly: 0.5,
+                fusedScore: 0.55,
+                mlAvailable: 1
+            ),
+        ]
+
+        let bundle = DiagnosticsExport.buildBundle(
+            metricsSnapshot: snap,
+            dailyStats: [],
+            recentLogs: logs,
+            allowedHosts: ["api.anthropic.com"]
+        )
+
+        let e = bundle.recentEvents[0]
+        #expect(e.detected)
+        #expect(e.matchCount == 0)
+        #expect(e.patternIds.isEmpty)
+        #expect(e.detector == "ml")
+        #expect(e.mlScore == 0.62)
+        #expect(e.fusedScore == 0.55)
     }
 
     @Test("Strips target host when it's not on the allowlist")

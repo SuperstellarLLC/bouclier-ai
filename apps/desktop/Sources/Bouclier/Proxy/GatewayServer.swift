@@ -318,6 +318,7 @@ private final class GatewayHandler: ChannelInboundHandler, RemovableChannelHandl
         // it is forwarded byte-for-byte, exactly as before. Fail-open if
         // the engine hasn't loaded: Bouclier being unready must not break
         // the user's agent.
+        let scanStart = Date()
         var injection: InjectionInspectionPass.Outcome = .clean
         if inspectionEnabled(),
            FeatureFlags.injectionDetection,
@@ -343,6 +344,13 @@ private final class GatewayHandler: ChannelInboundHandler, RemovableChannelHandl
                 )
             }
         }
+
+        // Scan telemetry for the in-process metrics registry (the
+        // diagnostics `metrics` block): how long the scan took and which
+        // categories/severities fired, aggregated across findings.
+        let scanDurationSeconds = max(0, Date().timeIntervalSince(scanStart))
+        let hitCategories = Array(Set(injection.findings.flatMap(\.categories)))
+        let hitSeverities = Array(Set(injection.findings.flatMap(\.severities)))
 
         // Enforcement is OPT-IN (monitor mode by default): a would-block
         // detection is logged but forwarded unless `injectionBlock` is on.
@@ -378,7 +386,10 @@ private final class GatewayHandler: ChannelInboundHandler, RemovableChannelHandl
                 spanFingerprint: injection.blockedFingerprint,
                 // JSON path of the blocking span — structural metadata for
                 // the notification, never the span's content.
-                locator: injection.blockedFinding?.locator
+                locator: injection.blockedFinding?.locator,
+                categories: hitCategories,
+                severities: hitSeverities,
+                scanDurationSeconds: scanDurationSeconds
             ))
             // Opt-in block explainer: capture the offending span + signal
             // breakdown + ML window attribution to a LOCAL-ONLY store so
@@ -456,7 +467,10 @@ private final class GatewayHandler: ChannelInboundHandler, RemovableChannelHandl
             entropyAnomaly: injection.findings.first?.entropyAnomaly ?? 0,
             fusedScore: injection.topScore,
             mlAvailable: injection.mlAvailable,
-            multimodal: nil
+            multimodal: nil,
+            categories: hitCategories,
+            severities: hitSeverities,
+            scanDurationSeconds: scanDurationSeconds
         ))
 
         // Prime the response-action monitor for this request. It watches
