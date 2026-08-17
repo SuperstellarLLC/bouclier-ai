@@ -74,6 +74,10 @@ struct UpstreamOverridesTests {
         #expect(UpstreamOverrides.parseTarget("http://127.0.0.1:9000") == nil)
         #expect(UpstreamOverrides.parseTarget("http://localhost") == nil)
         #expect(UpstreamOverrides.parseTarget("http://169.254.169.254") == nil)
+        // Unspecified/wildcard addresses route to loopback on macOS — must be
+        // rejected too, or they defeat the guard (credential exfil / self-loop).
+        #expect(UpstreamOverrides.parseTarget("http://0.0.0.0:9000") == nil)
+        #expect(UpstreamOverrides.parseTarget("http://0") == nil)
         #expect(UpstreamOverrides.parseTarget(nil) == nil)
         #expect(UpstreamOverrides.parseTarget("not a url") == nil)
     }

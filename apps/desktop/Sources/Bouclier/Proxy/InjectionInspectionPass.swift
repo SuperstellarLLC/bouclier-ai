@@ -402,7 +402,7 @@ enum InjectionInspectionPass {
     private static let untrustedPathFragments = [
         "/node_modules/", "/vendor/", "/.venv/", "/venv/", "/site-packages/",
         "/dist/", "/build/", "/.next/", "/.cache/", "/downloads/",
-        "/tmp/", "/private/tmp/", "/var/folders/", "/.git/",
+        "/tmp/", "/private/tmp/", "/var/tmp/", "/var/folders/", "/.git/",
     ]
 
     /// Provenance of a `tool_result`, from the tool that produced it.
@@ -414,7 +414,10 @@ enum InjectionInspectionPass {
     static func provenance(ofToolName name: String, input: [String: Any]?) -> Origin {
         guard authoredReadTools.contains(name) else { return .untrusted }
         let path = ((input?["file_path"] ?? input?["notebook_path"]) as? String)?.lowercased()
-        guard let path, !path.isEmpty else { return .untrusted }
+        // Only vouch for an ABSOLUTE path we can classify. A relative path
+        // (e.g. `node_modules/evil/x.md`) wouldn't contain the slash-delimited
+        // denylist fragments and would otherwise slip through as authored.
+        guard let path, path.hasPrefix("/") else { return .untrusted }
         if untrustedPathFragments.contains(where: path.contains) { return .untrusted }
         return .authored
     }

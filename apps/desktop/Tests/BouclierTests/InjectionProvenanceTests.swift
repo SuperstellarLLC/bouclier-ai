@@ -56,11 +56,22 @@ struct InjectionProvenanceTests {
             "/Users/x/dev/app/node_modules/evil/readme.md",
             "/Users/x/Downloads/thing.md",
             "/private/tmp/x.md",
+            "/var/tmp/x.md",
             "/Users/x/dev/app/vendor/lib.rb",
             "/Users/x/dev/app/.git/COMMIT_EDITMSG",
         ] {
             #expect(InjectionInspectionPass.provenance(ofToolName: "Read", input: ["file_path": p]) == .untrusted,
                     "\(p) must not be trusted")
+        }
+    }
+
+    @Test("Relative paths are never authored (only absolute paths can be vouched for)")
+    func relativePathsUntrusted() {
+        // A relative path wouldn't match the slash-delimited denylist fragments,
+        // so it must fail the absolute-path gate rather than slip through.
+        for p in ["node_modules/evil/readme.md", "docs/GUIDE.md", "CLAUDE.md", "../secrets.md"] {
+            #expect(InjectionInspectionPass.provenance(ofToolName: "Read", input: ["file_path": p]) == .untrusted,
+                    "relative \(p) must not be trusted")
         }
     }
 

@@ -60,6 +60,14 @@ enum CorporateProxy {
             || h.hasPrefix("127.")
             || h == "::1"
             || h == "[::1]"
+            // Unspecified / wildcard addresses route to loopback on macOS, so
+            // they must be rejected too — otherwise `http://0.0.0.0:<port>` in
+            // a `*_TARGET_API_URL` slips past this guard and repoints
+            // credential-bearing traffic at a local listener.
+            || h == "0.0.0.0"
+            || h == "0"
+            || h == "::"
+            || h == "[::]"
     }
 }
 

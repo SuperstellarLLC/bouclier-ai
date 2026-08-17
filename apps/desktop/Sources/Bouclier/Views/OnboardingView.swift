@@ -61,7 +61,7 @@ struct OnboardingView: View {
                     .foregroundStyle(.orange)
                     .accessibilityLabel("Beta release")
             }
-            Text("A local prompt-injection firewall for your AI agent. Bouclier inspects the tool results your agent reads — web pages, files, MCP output — and refuses the request when something in there is trying to give your model orders. Your own prompts are never touched. It can also keep managed API keys out of the model. Nothing ever leaves your machine.")
+            Text("A local prompt-injection firewall for your AI agent. Bouclier inspects the tool results your agent reads — web pages, files, MCP output — and refuses the request when something in there is trying to give your model orders. Your own prompts are never touched, and detection runs entirely on your Mac.")
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: 380)
