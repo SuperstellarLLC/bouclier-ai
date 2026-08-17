@@ -38,7 +38,6 @@ struct BouclierApp: App {
     @StateObject private var updater = AutoUpdater()
     @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
     @Environment(\.openWindow) private var openWindow
-    @Environment(\.openSettings) private var openSettings
 
     init() {
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
@@ -56,14 +55,6 @@ struct BouclierApp: App {
                     proxyManager.initializeStorage()
                     if !hasCompletedOnboarding {
                         openWindow(id: "onboarding")
-                    } else if ReleaseNotes.shouldShow() {
-                        // Advance the watermark at open time, not on the
-                        // dismiss callback — closing the window via the
-                        // red traffic-light button bypasses `onDismiss`,
-                        // and a "what's new" sheet that reappears every
-                        // launch is the worst kind of nag.
-                        ReleaseNotes.markSeen()
-                        openWindow(id: "release-notes")
                     }
                 }
         } label: {
@@ -79,22 +70,6 @@ struct BouclierApp: App {
 
         Window("Welcome to Bouclier.ai", id: "onboarding") {
             OnboardingView(proxyManager: proxyManager)
-        }
-        .windowResizability(.contentSize)
-        .defaultPosition(.center)
-
-        Window("What's new", id: "release-notes") {
-            ReleaseNotesModal(
-                version: ReleaseNotes.currentVersion,
-                onOpenSettings: {
-                    NSApp.activate(ignoringOtherApps: true)
-                    openSettings()
-                },
-                onDismiss: {
-                    ReleaseNotes.markSeen()
-                    NSApp.keyWindow?.close()
-                }
-            )
         }
         .windowResizability(.contentSize)
         .defaultPosition(.center)
