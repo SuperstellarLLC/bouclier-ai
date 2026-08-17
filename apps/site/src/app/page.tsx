@@ -2,7 +2,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { MobileNav } from "./mobile-nav";
 import { Playground } from "./playground";
-import { APP_VERSION, DOWNLOAD_URL } from "@/lib/constants";
+import { APP_VERSION, DOWNLOAD_URL, PATTERN_COUNT } from "@/lib/constants";
 
 export default function Home() {
   return (
@@ -102,10 +102,11 @@ export default function Home() {
 
             <p className="text-text-secondary mx-auto mt-6 max-w-2xl text-lg leading-relaxed">
               Bouclier.ai is a prompt-injection firewall that runs on your Mac, between your coding
-              agent and the model provider. It reads every tool result on its way into the model — a
-              fetched page, a README, an MCP response — and flags anything trying to reprogram your
-              agent. It monitors by default; flip on blocking and it refuses those requests
-              outright. Your own prompts are never touched. No certificate to install.
+              agent and the model provider. It reads the content your agent pulls in from the
+              outside — a fetched web page, a search result, an MCP response — and flags anything
+              trying to reprogram it. It monitors by default; flip on blocking and it refuses those
+              requests outright. Your own prompts, and the files you read from your own project, are
+              never touched. No certificate to install.
             </p>
 
             <div className="mx-auto mt-5 max-w-2xl rounded-xl border-2 border-amber-300 bg-amber-50 p-4 text-left">
@@ -147,9 +148,9 @@ export default function Home() {
             </div>
 
             <p className="text-text-secondary mt-5 text-sm">
-              <span className="text-text font-semibold">Local-only.</span> 161 detection patterns
-              and an on-device ML classifier run on your Mac. No cloud scanning, no telemetry, no
-              accounts.
+              <span className="text-text font-semibold">Local-only.</span> {PATTERN_COUNT} detection
+              patterns and an on-device ML classifier run on your Mac. No cloud scanning, no
+              telemetry, no accounts.
             </p>
           </div>
         </div>
@@ -192,10 +193,11 @@ export default function Home() {
                 <code className="rounded bg-white px-1 py-0.5 text-xs">search_result</code> blocks
                 and anything wrapped in the{" "}
                 <code className="rounded bg-white px-1 py-0.5 text-xs">&lt;document&gt;</code> RAG
-                convention, even inside a user turn. Content your agent fetched on its own. Nobody
-                in the session typed it, so an instruction in there is an attack by definition. By
-                default it&apos;s logged and forwarded (monitor mode); turn on blocking and the
-                request is refused with a 422 naming the pattern and the JSON path.
+                convention, even inside a user turn. Content your agent pulled from{" "}
+                <em>outside your workspace</em> — the web, a search, an external tool. Nobody in the
+                session wrote it, so an instruction in there is an attack by definition. By default
+                it&apos;s logged and forwarded (monitor mode); turn on blocking and the request is
+                refused with a 422 naming the pattern and the JSON path.
               </p>
             </div>
             <div className="border-border rounded-2xl border-2 bg-white p-6">
@@ -204,10 +206,15 @@ export default function Home() {
                 <h3 className="text-base font-semibold">Yours — never blocked</h3>
               </div>
               <p className="text-text-secondary mt-3 text-sm leading-relaxed">
-                Your prompt text and system prompt. Scanned so the activity log stays useful, then
-                forwarded byte-for-byte no matter what it says. You are the principal; you are
-                allowed to discuss attacks with your own model. Teams that want the stricter posture
-                can turn it on by MDM policy.
+                Your prompt and system prompt — you are the principal, allowed to discuss attacks
+                with your own model —{" "}
+                <strong>and the files your agent reads from your own project</strong>: your docs,
+                your <code className="rounded bg-white px-1 py-0.5 text-xs">CLAUDE.md</code>, your
+                research notes. A file read from a path you control is trusted like your own words:
+                scanned so the activity log stays useful, never blocked. Only content from outside
+                your workspace can be refused — and the fetch-then-read dodge is still caught,
+                because the fetch itself is inspected. Teams that want to police everything can turn
+                on the stricter posture by MDM policy.
               </p>
             </div>
           </div>
@@ -241,8 +248,9 @@ export default function Home() {
               </li>
               <li>
                 <strong>Injection the model reads by another path.</strong> Content in your own
-                prompt or system prompt is treated as yours and forwarded unchanged; very large tool
-                results are size-capped; today only Anthropic and OpenAI traffic is routed.
+                prompt, system prompt, or a file you read from your own project is treated as yours
+                and forwarded unchanged; very large tool results are size-capped; today only
+                Anthropic and OpenAI traffic is routed.
               </li>
               <li>
                 <strong>Damage from an action that already ran.</strong> Bouclier inspects the
@@ -263,10 +271,10 @@ export default function Home() {
               Real numbers, on data we didn&apos;t write.
             </h2>
             <p className="text-text-secondary mt-4 max-w-2xl">
-              We run the <em>shipped</em> pipeline — the 161 patterns, the false-positive dampeners,
-              and the on-device Prompt Guard 2 classifier — against third-party corpora, and publish
-              the harness so you can reproduce it. Each test string is scored as untrusted tool
-              output, exactly as the gateway would.
+              We run the <em>shipped</em> pipeline — the {PATTERN_COUNT} patterns, the
+              false-positive dampeners, and the on-device Prompt Guard 2 classifier — against
+              third-party corpora, and publish the harness so you can reproduce it. Each test string
+              is scored as untrusted tool output, exactly as the gateway would.
             </p>
           </div>
 
@@ -467,7 +475,7 @@ export default function Home() {
 
           <div className="reveal mt-12 grid gap-y-5">
             {[
-              "Detection runs entirely on your Mac — 161 patterns and the on-device ML classifier. Your traffic never leaves the machine to be inspected.",
+              `Detection runs entirely on your Mac — ${PATTERN_COUNT} patterns and the on-device ML classifier. Your traffic never leaves the machine to be inspected.`,
               "No cloud LLM, no analytics, no telemetry in the app.",
               "Scan logs never contain your prompts, responses, or API keys — only metadata.",
               "Bouclier installs no certificate — the gateway is a plaintext-loopback relay, not a TLS-terminating proxy.",
