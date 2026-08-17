@@ -59,6 +59,22 @@ enum FeatureFlags {
         resolve(key: "injectionStrict", default: false)
     }
 
+    /// Whether a `tool_result` that can be **positively attributed** to a
+    /// local read of the developer's own workspace (the `Read`/`NotebookRead`
+    /// tool, on a path outside vendored/download/temp dirs) is trusted like
+    /// principal text — scanned and flagged, but never blocked. Default:
+    /// **on**. This scopes enforcement to the external-content boundary
+    /// (web/search/shell/external tools, retrieved documents) instead of
+    /// treating the developer's own docs, research, and instructions to their
+    /// own agent as injection — the false positive that makes people disable
+    /// the firewall wholesale. Anything that can't be attributed to a trusted
+    /// local read stays untrusted, so the laundering path (web → file → read)
+    /// is still caught at web ingress. Turn off to police every tool_result
+    /// regardless of source. See `InjectionInspectionPass.provenance`.
+    static var injectionTrustAuthoredReads: Bool {
+        resolve(key: "injectionTrustAuthoredReads", default: true)
+    }
+
     /// Whether the upstream relay runs SSE streams through the
     /// `SSEStreamInspector`. Default: on. Turning this off restores
     /// pre-v0.2 behaviour of raw pass-through for streaming responses.
