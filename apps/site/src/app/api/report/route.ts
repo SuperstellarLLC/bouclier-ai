@@ -20,6 +20,7 @@ import { type NextRequest, NextResponse } from "next/server";
 
 import { env } from "@/env";
 import { DEFAULT_POW_BITS, verifyReportPow } from "@/lib/pow";
+import { claimPowStamp } from "@/lib/pow-nonce-store";
 import { normalizeReport, recordReport } from "@/lib/report-store";
 
 export const dynamic = "force-dynamic";
@@ -103,6 +104,17 @@ export async function POST(req: NextRequest) {
   if (!powCheck.ok) {
     return NextResponse.json(
       { ok: false, error: `proof of work required: ${powCheck.reason}` },
+      { status: 403, headers: NO_STORE },
+    );
+  }
+
+  // Single-use: a valid stamp is stateless and stays fresh for its whole
+  // window, so reject a replay of one we've already seen. Degrades open when
+  // Upstash is unconfigured — the global write cap still bounds abuse.
+  const claim = await claimPowStamp(Number(pow.timestamp), report.fingerprint, String(pow.nonce));
+  if (claim === "replay") {
+    return NextResponse.json(
+      { ok: false, error: "proof of work already used" },
       { status: 403, headers: NO_STORE },
     );
   }
