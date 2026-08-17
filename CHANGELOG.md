@@ -8,6 +8,21 @@ The `[VERSION]` section for each release is extracted verbatim by
 `apps/desktop/scripts/publish-update.sh` and injected into the Sparkle
 appcast. Write for end users, not for internal engineering notes.
 
+## [0.9.10] — 2026-08-17
+
+### Changed
+
+- **No more "what's new" pop-up.** Bouclier runs in the background; it no longer interrupts you on launch to announce a new version. First-run setup is unchanged.
+
+### Fixed
+
+- **Trust for your own files is now scoped to the project you're working in.** Since 0.9.9 Bouclier forwards — rather than blocks — injection-shaped text it reads from your own files (your docs, your instructions to the agent). It now grants that trust only to files under the session's working directory, so a file planted elsewhere on disk (a saved email attachment, an unrelated folder, a repo you aren't working in) is still inspected. This also closes cases where a vendored or temp path, or a relative path, could have been trusted by mistake.
+- **The first-run screen no longer overstates what Bouclier does.** It claimed Bouclier could "keep managed API keys out of the model" — a capability removed back in 0.9.2. Bouclier is a prompt-injection firewall; it forwards your credentials to the provider untouched, and the welcome screen now says so.
+
+### Security
+
+- **Upstream-redirect guard hardened.** A custom upstream target (`*_TARGET_API_URL`) pointed at `0.0.0.0` — which routes to loopback on macOS — is now rejected alongside the other loopback forms, closing a path by which a poisoned environment could repoint credential-bearing traffic at a local listener.
+
 ## [0.9.9] — 2026-08-17
 
 ### Added

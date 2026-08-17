@@ -6,30 +6,31 @@
     <description>Updates for Bouclier.ai — prompt injection firewall for macOS</description>
     <language>en</language>
     <item>
-      <title>Version 0.9.9</title>
-      <pubDate>Mon, 17 Aug 2026 15:13:06 +0200</pubDate>
-      <sparkle:version>0.9.9</sparkle:version>
-      <sparkle:shortVersionString>0.9.9</sparkle:shortVersionString>
+      <title>Version 0.9.10</title>
+      <pubDate>Mon, 17 Aug 2026 16:21:13 +0200</pubDate>
+      <sparkle:version>0.9.10</sparkle:version>
+      <sparkle:shortVersionString>0.9.10</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
       <description><![CDATA[
-<h2>Bouclier.ai v0.9.9</h2>
-<h4>Added</h4>
-<ul>
-<li><strong>Report a false positive in one click.</strong> When Bouclier blocks something it shouldn't, the block notification and the activity feed now offer "Report false positive" — it sends a small, redacted sample of exactly what tripped the detector to the maintainers so the patterns can be tuned. The sample is scrubbed of secrets and PII on your Mac and shown to you in full before anything is sent, and nothing leaves your machine unless you choose to send it. Opt-in, one report at a time — Bouclier still records nothing by default.</li>
-</ul>
+<h2>Bouclier.ai v0.9.10</h2>
 <h4>Changed</h4>
 <ul>
-<li><strong>Bouclier no longer treats your own files as a threat.</strong> Reading your own documentation, research notes, or agent instructions — a <code>CLAUDE.md</code>, a README that tells the agent what to do, a design brief — could trip the injection filter, because those files legitimately contain instructions aimed at the model, which is exactly what the detector looks for. Enforcement now follows provenance. Content a tool pulled from _outside_ your workspace — a web page, a search result, an external API or MCP tool, a shell command's output, a retrieved document — is still inspected and can be blocked. But a file the agent read from your own project (via its Read tool, outside vendored, download, and temp folders) is now trusted like your own prompt: scanned and logged, never blocked. The web→file→read bypass is still caught, because the fetch that pulled the content is itself inspected the moment it arrives. Strict enforcement of every tool result remains available for deployments that want it.</li>
+<li><strong>No more "what's new" pop-up.</strong> Bouclier runs in the background; it no longer interrupts you on launch to announce a new version. First-run setup is unchanged.</li>
 </ul>
 <h4>Fixed</h4>
 <ul>
-<li><strong>The diagnostics bundle now reports real numbers.</strong> The <code>metrics</code> section of an exported diagnostics bundle (Settings ▸ Diagnostics) was always zeros — request counts, bytes scanned, and the scan-latency histogram were never wired to live traffic, so a support bundle looked like the app had scanned nothing even while the daily stats showed thousands of requests. It now reflects real throughput, block counts, per-category and per-severity tallies, and scan latency. Blocked events in the bundle that were driven by the on-device classifier rather than a named pattern are now labelled as such and carry their scores, instead of appearing as empty rows.</li>
+<li><strong>Trust for your own files is now scoped to the project you're working in.</strong> Since 0.9.9 Bouclier forwards — rather than blocks — injection-shaped text it reads from your own files (your docs, your instructions to the agent). It now grants that trust only to files under the session's working directory, so a file planted elsewhere on disk (a saved email attachment, an unrelated folder, a repo you aren't working in) is still inspected. This also closes cases where a vendored or temp path, or a relative path, could have been trusted by mistake.</li>
+<li><strong>The first-run screen no longer overstates what Bouclier does.</strong> It claimed Bouclier could "keep managed API keys out of the model" — a capability removed back in 0.9.2. Bouclier is a prompt-injection firewall; it forwards your credentials to the provider untouched, and the welcome screen now says so.</li>
+</ul>
+<h4>Security</h4>
+<ul>
+<li><strong>Upstream-redirect guard hardened.</strong> A custom upstream target (<code>*_TARGET_API_URL</code>) pointed at <code>0.0.0.0</code> — which routes to loopback on macOS — is now rejected alongside the other loopback forms, closing a path by which a poisoned environment could repoint credential-bearing traffic at a local listener.</li>
 </ul>
 ]]></description>
       <enclosure
-        url="https://0tdi95zyjwsefpzx.public.blob.vercel-storage.com/download/Bouclier-ai-v0.9.9-macOS.dmg"
-        sparkle:edSignature="5akqIy0FIPqT8iFZugpwQ5nRzcUp8RkGzHmnDc2eiWLni4i+FBvWWyJsa0W5iwIgVuKtuwvlFc2U1EzAZBEYBQ=="
-        length="272216735"
+        url="https://0tdi95zyjwsefpzx.public.blob.vercel-storage.com/download/Bouclier-ai-v0.9.10-macOS.dmg"
+        sparkle:edSignature="j9qxD00CFM8dB3tCj/G4eZMZZ0LweKGfvhNLY2a6albsGffqgl49+fWy9YUfX4kpRY7bGgCQtR/vthrgoo0mDg=="
+        length="272202400"
         type="application/octet-stream"
       />
     </item>
