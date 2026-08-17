@@ -8,6 +8,20 @@ The `[VERSION]` section for each release is extracted verbatim by
 `apps/desktop/scripts/publish-update.sh` and injected into the Sparkle
 appcast. Write for end users, not for internal engineering notes.
 
+## [0.9.9] — 2026-08-17
+
+### Added
+
+- **Report a false positive in one click.** When Bouclier blocks something it shouldn't, the block notification and the activity feed now offer "Report false positive" — it sends a small, redacted sample of exactly what tripped the detector to the maintainers so the patterns can be tuned. The sample is scrubbed of secrets and PII on your Mac and shown to you in full before anything is sent, and nothing leaves your machine unless you choose to send it. Opt-in, one report at a time — Bouclier still records nothing by default.
+
+### Changed
+
+- **Bouclier no longer treats your own files as a threat.** Reading your own documentation, research notes, or agent instructions — a `CLAUDE.md`, a README that tells the agent what to do, a design brief — could trip the injection filter, because those files legitimately contain instructions aimed at the model, which is exactly what the detector looks for. Enforcement now follows provenance. Content a tool pulled from _outside_ your workspace — a web page, a search result, an external API or MCP tool, a shell command's output, a retrieved document — is still inspected and can be blocked. But a file the agent read from your own project (via its Read tool, outside vendored, download, and temp folders) is now trusted like your own prompt: scanned and logged, never blocked. The web→file→read bypass is still caught, because the fetch that pulled the content is itself inspected the moment it arrives. Strict enforcement of every tool result remains available for deployments that want it.
+
+### Fixed
+
+- **The diagnostics bundle now reports real numbers.** The `metrics` section of an exported diagnostics bundle (Settings ▸ Diagnostics) was always zeros — request counts, bytes scanned, and the scan-latency histogram were never wired to live traffic, so a support bundle looked like the app had scanned nothing even while the daily stats showed thousands of requests. It now reflects real throughput, block counts, per-category and per-severity tallies, and scan latency. Blocked events in the bundle that were driven by the on-device classifier rather than a named pattern are now labelled as such and carry their scores, instead of appearing as empty rows.
+
 ## [0.9.8] — 2026-08-13
 
 ### Changed

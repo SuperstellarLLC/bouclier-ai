@@ -6,23 +6,30 @@
     <description>Updates for Bouclier.ai — prompt injection firewall for macOS</description>
     <language>en</language>
     <item>
-      <title>Version 0.9.8</title>
-      <pubDate>Thu, 13 Aug 2026 14:41:02 +0200</pubDate>
-      <sparkle:version>0.9.8</sparkle:version>
-      <sparkle:shortVersionString>0.9.8</sparkle:shortVersionString>
+      <title>Version 0.9.9</title>
+      <pubDate>Mon, 17 Aug 2026 15:13:06 +0200</pubDate>
+      <sparkle:version>0.9.9</sparkle:version>
+      <sparkle:shortVersionString>0.9.9</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
       <description><![CDATA[
-<h2>Bouclier.ai v0.9.8</h2>
+<h2>Bouclier.ai v0.9.9</h2>
+<h4>Added</h4>
+<ul>
+<li><strong>Report a false positive in one click.</strong> When Bouclier blocks something it shouldn't, the block notification and the activity feed now offer "Report false positive" — it sends a small, redacted sample of exactly what tripped the detector to the maintainers so the patterns can be tuned. The sample is scrubbed of secrets and PII on your Mac and shown to you in full before anything is sent, and nothing leaves your machine unless you choose to send it. Opt-in, one report at a time — Bouclier still records nothing by default.</li>
+</ul>
 <h4>Changed</h4>
 <ul>
-<li><strong>Block notifications now tell you what tripped, and where.</strong> A block banner used to read "Blocked 1 injection → host" — enough to know something happened, not enough to act on. It now names the matched detection pattern and the exact location the content came from (e.g. "system-prompt-extraction in messages[2].tool_result → api.anthropic.com"), so you can judge a likely false positive and hit "Release this span" straight from the notification. By design the banner carries only that metadata: the offending text itself is never shown on a notification — a surface other apps and screen-readers can read — so the verbatim span stays in the opt-in, local-only block explainer.</li>
-<li><strong>A burst of blocks no longer floods you with banners.</strong> When a single agent session trips many blocks in a row — common when a false-positive pattern keeps matching repeated tool output — Bouclier shows the first few individually and then a single "N requests blocked in the last minute" summary (refreshed at most once a minute) instead of one banner per block.</li>
+<li><strong>Bouclier no longer treats your own files as a threat.</strong> Reading your own documentation, research notes, or agent instructions — a <code>CLAUDE.md</code>, a README that tells the agent what to do, a design brief — could trip the injection filter, because those files legitimately contain instructions aimed at the model, which is exactly what the detector looks for. Enforcement now follows provenance. Content a tool pulled from _outside_ your workspace — a web page, a search result, an external API or MCP tool, a shell command's output, a retrieved document — is still inspected and can be blocked. But a file the agent read from your own project (via its Read tool, outside vendored, download, and temp folders) is now trusted like your own prompt: scanned and logged, never blocked. The web→file→read bypass is still caught, because the fetch that pulled the content is itself inspected the moment it arrives. Strict enforcement of every tool result remains available for deployments that want it.</li>
+</ul>
+<h4>Fixed</h4>
+<ul>
+<li><strong>The diagnostics bundle now reports real numbers.</strong> The <code>metrics</code> section of an exported diagnostics bundle (Settings ▸ Diagnostics) was always zeros — request counts, bytes scanned, and the scan-latency histogram were never wired to live traffic, so a support bundle looked like the app had scanned nothing even while the daily stats showed thousands of requests. It now reflects real throughput, block counts, per-category and per-severity tallies, and scan latency. Blocked events in the bundle that were driven by the on-device classifier rather than a named pattern are now labelled as such and carry their scores, instead of appearing as empty rows.</li>
 </ul>
 ]]></description>
       <enclosure
-        url="https://0tdi95zyjwsefpzx.public.blob.vercel-storage.com/download/Bouclier-ai-v0.9.8-macOS.dmg"
-        sparkle:edSignature="rcCRm91Sd5FYp4N7DYeqPDfDoioK+H/3ALl37j+Z1/7YFCO7rCh2nA2DVmJ7usvfb12KWqsymhvDPf4leOpmDw=="
-        length="272142702"
+        url="https://0tdi95zyjwsefpzx.public.blob.vercel-storage.com/download/Bouclier-ai-v0.9.9-macOS.dmg"
+        sparkle:edSignature="5akqIy0FIPqT8iFZugpwQ5nRzcUp8RkGzHmnDc2eiWLni4i+FBvWWyJsa0W5iwIgVuKtuwvlFc2U1EzAZBEYBQ=="
+        length="272216735"
         type="application/octet-stream"
       />
     </item>
