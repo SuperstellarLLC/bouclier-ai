@@ -17,10 +17,16 @@ import type { NextRequest } from "next/server";
  */
 export function middleware(request: NextRequest) {
   // Next.js injects inline scripts for hydration that can't use nonces in RSC
-  // mode, so 'unsafe-inline' is required. Fonts loaded from Google Fonts.
+  // mode, so 'unsafe-inline' is required. 'unsafe-eval' is only needed by the
+  // dev server (HMR / React Refresh), so it's excluded from production — the
+  // deployed CSP has no eval escape hatch. Fonts loaded from Google Fonts.
+  const scriptSrc =
+    process.env.NODE_ENV === "development"
+      ? `script-src 'self' 'unsafe-inline' 'unsafe-eval'`
+      : `script-src 'self' 'unsafe-inline'`;
   const cspDirectives = [
     `default-src 'self'`,
-    `script-src 'self' 'unsafe-inline' 'unsafe-eval'`,
+    scriptSrc,
     `style-src 'self' 'unsafe-inline'`,
     `img-src 'self' data: blob:`,
     `font-src 'self' https://fonts.gstatic.com`,

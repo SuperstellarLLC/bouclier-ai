@@ -41,7 +41,7 @@ reachable from the live request path and stays out of scope — see
 │ Bouclier.ai menubar app (host)  │
 │  - GatewayServer (swift-nio) │   (127.0.0.1 bind; never 0.0.0.0)
 │  - InjectionInspectionPass   │   (untrusted-span detection, refuse-or-forward)
-│  - InjectionFilter / PatternManager │ (161 patterns + optional CoreML tier)
+│  - InjectionFilter / PatternManager │ (shipped pattern set + optional CoreML tier)
 │  - StorageManager (GRDB)     │   (app-support SQLite, WAL; metadata only)
 │  - AuditLogger               │   (os_log + optional webhook)
 │  - StatusPublisher           │   (read-only status.json for the CLI)
