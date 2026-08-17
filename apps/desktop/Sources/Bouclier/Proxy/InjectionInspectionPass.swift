@@ -312,6 +312,10 @@ enum InjectionInspectionPass {
             // attributed to the tool that produced it. When tiering is off
             // this stays empty and every tool_result stays `.untrusted`.
             let toolUses = trustAuthoredReads ? indexToolUses(messages) : [:]
+            // The session's workspace root(s), for the `.authored` allowlist.
+            // Read only from principal text (see `workspaceRoots`) so attacker
+            // tool content can't declare a trusted root.
+            let roots = trustAuthoredReads ? workspaceRoots(from: root) : []
             for (i, raw) in messages.enumerated() {
                 guard let msg = raw as? [String: Any] else { continue }
                 let role = msg["role"] as? String
@@ -336,7 +340,7 @@ enum InjectionInspectionPass {
                         // it's a trusted local read (see `toolResultOrigin`).
                         if type == "tool_result" {
                             appendText(block["content"],
-                                       origin: toolResultOrigin(block, toolUses: toolUses),
+                                       origin: toolResultOrigin(block, toolUses: toolUses, workspaceRoots: roots),
                                        locator: "\(base).tool_result", into: &spans)
                         } else if type == "document" || type == "search_result" {
                             // Attached/retrieved content is untrusted no
@@ -408,10 +412,14 @@ enum InjectionInspectionPass {
     /// Provenance of a `tool_result`, from the tool that produced it.
     /// Returns `.authored` ONLY when the content can be positively attributed
     /// to the developer's own workspace — a local read (`Read`/`NotebookRead`)
-    /// of a path outside the vendored/download/temp set. Web, search, shell,
-    /// external MCP, unknown tools, and unreadable inputs all stay
-    /// `.untrusted`: unattributable provenance is never trusted.
-    static func provenance(ofToolName name: String, input: [String: Any]?) -> Origin {
+    /// of an absolute path that is outside the vendored/download/temp denylist
+    /// AND (when the session's workspace root is known) *under* that root. Web,
+    /// search, shell, external MCP, unknown tools, unreadable inputs, and reads
+    /// outside the workspace all stay `.untrusted`: unattributable provenance
+    /// is never trusted.
+    static func provenance(
+        ofToolName name: String, input: [String: Any]?, workspaceRoots: [String] = []
+    ) -> Origin {
         guard authoredReadTools.contains(name) else { return .untrusted }
         let path = ((input?["file_path"] ?? input?["notebook_path"]) as? String)?.lowercased()
         // Only vouch for an ABSOLUTE path we can classify. A relative path
@@ -419,7 +427,16 @@ enum InjectionInspectionPass {
         // denylist fragments and would otherwise slip through as authored.
         guard let path, path.hasPrefix("/") else { return .untrusted }
         if untrustedPathFragments.contains(where: path.contains) { return .untrusted }
-        return .authored
+        // Allowlist: when the session's workspace root(s) are known, a read is
+        // trusted only if it lives UNDER one — so an attacker-planted file
+        // elsewhere on disk (a saved attachment, another project, a cloned
+        // hostile repo outside the workspace) is not trusted. When no root is
+        // declared (non-Claude clients, unusual requests) fall back to the
+        // denylist-only decision so the false-positive fix isn't lost; the root
+        // is read from principal text set by the honest client, so an attacker
+        // can neither add a root nor suppress detection to force this fallback.
+        if workspaceRoots.isEmpty { return .authored }
+        return workspaceRoots.contains { path.hasPrefix($0) } ? .authored : .untrusted
     }
 
     /// Attribute a `tool_result` block to its source tool via `tool_use_id`.
@@ -427,12 +444,48 @@ enum InjectionInspectionPass {
     /// missing, or the source isn't a trusted local read.
     private static func toolResultOrigin(
         _ block: [String: Any],
-        toolUses: [String: (name: String, input: [String: Any])]
+        toolUses: [String: (name: String, input: [String: Any])],
+        workspaceRoots: [String]
     ) -> Origin {
         guard let id = block["tool_use_id"] as? String,
               let src = toolUses[id] else { return .untrusted }
-        return provenance(ofToolName: src.name, input: src.input)
+        return provenance(ofToolName: src.name, input: src.input, workspaceRoots: workspaceRoots)
     }
+
+    /// Directories the `.authored` allowlist keys on — the session's own
+    /// working directory. Extracted ONLY from the request's `system` prompt
+    /// (unambiguously principal, authored by the client), so attacker-supplied
+    /// tool content can never declare a trusted root. Claude Code puts its cwd
+    /// in the system-prompt env block ("Working directory: /path"). Returned
+    /// lowercased with a trailing slash so prefix-matching can't leak into a
+    /// sibling directory. Empty when none is declared.
+    static func workspaceRoots(from root: [String: Any]) -> [String] {
+        var text: String
+        switch root["system"] {
+        case let s as String: text = s
+        case let arr as [Any]:
+            text = arr.compactMap { ($0 as? [String: Any])?["text"] as? String }.joined(separator: "\n")
+        default: return []
+        }
+        guard !text.isEmpty else { return [] }
+        if text.count > 16_384 { text = String(text.prefix(16_384)) }
+
+        var roots: Set<String> = []
+        let ns = text as NSString
+        for m in workingDirRegex.matches(in: text, range: NSRange(location: 0, length: ns.length))
+        where m.numberOfRanges > 1 {
+            var p = ns.substring(with: m.range(at: 1)).lowercased()
+            guard p.hasPrefix("/") else { continue }
+            if !p.hasSuffix("/") { p += "/" }
+            roots.insert(p)
+        }
+        return Array(roots)
+    }
+
+    private static let workingDirRegex = try! NSRegularExpression(
+        pattern: #"(?:working directory|cwd)\s*[:=]\s*(/[^\s"'<>]+)"#,
+        options: [.caseInsensitive]
+    )
 
     /// Index every `tool_use.id → (name, input)` in the request so a later
     /// `tool_result` can be attributed to the tool that produced it
