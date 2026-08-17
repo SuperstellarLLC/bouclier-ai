@@ -60,6 +60,13 @@ enum InjectionInspectionPass {
         case untrusted
         /// The operator's own prompt / system text.
         case principal
+        /// A `tool_result` positively attributed to a local read of the
+        /// developer's own workspace (the `Read`/`NotebookRead` tool on a
+        /// non-vendored path). Trusted like `principal` — scanned and
+        /// flagged, never blocked unless `strict`. Only assigned when
+        /// provenance tiering is on and the source tool + path clear the bar;
+        /// anything unattributable stays `.untrusted`.
+        case authored
     }
 
     /// A contiguous piece of request text with known provenance.
@@ -292,7 +299,7 @@ enum InjectionInspectionPass {
     /// Pull model-visible text out of an Anthropic or OpenAI request body,
     /// tagged by provenance. Unknown shapes yield no spans, which means
     /// "forward untouched" — we never guess at provenance.
-    static func extractSpans(body: Data) -> [Span] {
+    static func extractSpans(body: Data, trustAuthoredReads: Bool = false) -> [Span] {
         guard !body.isEmpty, body.count <= maxScanBytes,
               let root = try? JSONSerialization.jsonObject(with: body) as? [String: Any]
         else { return [] }
@@ -301,6 +308,10 @@ enum InjectionInspectionPass {
 
         // Anthropic Messages + OpenAI Chat Completions both use `messages`.
         if let messages = root["messages"] as? [Any] {
+            // Provenance tiering: map each tool_use so a tool_result can be
+            // attributed to the tool that produced it. When tiering is off
+            // this stays empty and every tool_result stays `.untrusted`.
+            let toolUses = trustAuthoredReads ? indexToolUses(messages) : [:]
             for (i, raw) in messages.enumerated() {
                 guard let msg = raw as? [String: Any] else { continue }
                 let role = msg["role"] as? String
@@ -321,9 +332,11 @@ enum InjectionInspectionPass {
                         guard let block = rawBlock as? [String: Any] else { continue }
                         let type = block["type"] as? String
                         let base = "messages[\(i)].content[\(j)]"
-                        // Anthropic: tool_result is the untrusted leg.
+                        // Anthropic: tool_result is the untrusted leg — unless
+                        // it's a trusted local read (see `toolResultOrigin`).
                         if type == "tool_result" {
-                            appendText(block["content"], origin: .untrusted,
+                            appendText(block["content"],
+                                       origin: toolResultOrigin(block, toolUses: toolUses),
                                        locator: "\(base).tool_result", into: &spans)
                         } else if type == "document" || type == "search_result" {
                             // Attached/retrieved content is untrusted no
@@ -376,6 +389,68 @@ enum InjectionInspectionPass {
         appendText(root["instructions"], origin: .principal, locator: "instructions", into: &spans)
 
         return spans
+    }
+
+    // MARK: - Provenance tiering
+
+    /// Tools whose output is a local read of the developer's own files.
+    static let authoredReadTools: Set<String> = ["Read", "NotebookRead"]
+
+    /// Path fragments where *external* content lands — never trusted even
+    /// through a local read: poisoned dependencies, downloads, temp dirs,
+    /// build output, VCS internals.
+    private static let untrustedPathFragments = [
+        "/node_modules/", "/vendor/", "/.venv/", "/venv/", "/site-packages/",
+        "/dist/", "/build/", "/.next/", "/.cache/", "/downloads/",
+        "/tmp/", "/private/tmp/", "/var/folders/", "/.git/",
+    ]
+
+    /// Provenance of a `tool_result`, from the tool that produced it.
+    /// Returns `.authored` ONLY when the content can be positively attributed
+    /// to the developer's own workspace — a local read (`Read`/`NotebookRead`)
+    /// of a path outside the vendored/download/temp set. Web, search, shell,
+    /// external MCP, unknown tools, and unreadable inputs all stay
+    /// `.untrusted`: unattributable provenance is never trusted.
+    static func provenance(ofToolName name: String, input: [String: Any]?) -> Origin {
+        guard authoredReadTools.contains(name) else { return .untrusted }
+        let path = ((input?["file_path"] ?? input?["notebook_path"]) as? String)?.lowercased()
+        guard let path, !path.isEmpty else { return .untrusted }
+        if untrustedPathFragments.contains(where: path.contains) { return .untrusted }
+        return .authored
+    }
+
+    /// Attribute a `tool_result` block to its source tool via `tool_use_id`.
+    /// `.untrusted` when tiering is off (`toolUses` empty), the link is
+    /// missing, or the source isn't a trusted local read.
+    private static func toolResultOrigin(
+        _ block: [String: Any],
+        toolUses: [String: (name: String, input: [String: Any])]
+    ) -> Origin {
+        guard let id = block["tool_use_id"] as? String,
+              let src = toolUses[id] else { return .untrusted }
+        return provenance(ofToolName: src.name, input: src.input)
+    }
+
+    /// Index every `tool_use.id → (name, input)` in the request so a later
+    /// `tool_result` can be attributed to the tool that produced it
+    /// (Anthropic wire shape: tool_use in an assistant turn, tool_result in
+    /// a following user turn).
+    private static func indexToolUses(
+        _ messages: [Any]
+    ) -> [String: (name: String, input: [String: Any])] {
+        var map: [String: (name: String, input: [String: Any])] = [:]
+        for raw in messages {
+            guard let msg = raw as? [String: Any],
+                  let blocks = msg["content"] as? [Any] else { continue }
+            for rb in blocks {
+                guard let b = rb as? [String: Any],
+                      b["type"] as? String == "tool_use",
+                      let id = b["id"] as? String,
+                      let name = b["name"] as? String else { continue }
+                map[id] = (name, b["input"] as? [String: Any] ?? [:])
+            }
+        }
+        return map
     }
 
     /// Append a value that may be a bare string or an array of content
@@ -481,9 +556,10 @@ enum InjectionInspectionPass {
         filter: InjectionFilter,
         strict: Bool = false,
         allowlisted: Set<String> = [],
-        salt: Data = Data()
+        salt: Data = Data(),
+        trustAuthoredReads: Bool = false
     ) -> Outcome {
-        let spans = extractSpans(body: body)
+        let spans = extractSpans(body: body, trustAuthoredReads: trustAuthoredReads)
         guard !spans.isEmpty else { return .clean }
 
         var findings: [Finding] = []
@@ -531,7 +607,10 @@ enum InjectionInspectionPass {
                 if wouldBlock, !isReleased {
                     block = true
                 }
-            case .principal:
+            case .principal, .authored:
+                // `.authored` is a trusted local read of the developer's own
+                // file — treated like principal: flagged, never blocked
+                // unless `strict` polices even trusted content.
                 if strict, result.shouldBlock { block = true }
             }
         }

@@ -340,7 +340,12 @@ private final class GatewayHandler: ChannelInboundHandler, RemovableChannelHandl
                     // whose fingerprint is here is forwarded anyway, so a
                     // persistent false positive can't block a session forever.
                     allowlisted: SpanAllowlist.snapshot(),
-                    salt: SpanAllowlist.salt()
+                    salt: SpanAllowlist.salt(),
+                    // Trust a tool_result attributed to a local read of the
+                    // developer's own file (their docs/research/instructions
+                    // to the agent), so enforcement stays on the external
+                    // content boundary. External/unattributable stays blocked.
+                    trustAuthoredReads: FeatureFlags.injectionTrustAuthoredReads
                 )
             }
         }
