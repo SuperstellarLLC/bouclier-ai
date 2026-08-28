@@ -3,15 +3,23 @@ import Foundation
 
 /// Publishes a read-only `status.json` snapshot the CLI reads so
 /// an agent can answer "is Bouclier running/healthy?" without the app being
-/// interactively involved. Written on a 5s heartbeat (so `writtenAt` stays
-/// fresh and readers can detect a crash) and removed on clean shutdown.
+/// interactively involved. Written immediately on meaningful state changes
+/// and on a 5s heartbeat (so `writtenAt` stays fresh and readers can detect a
+/// crash), then removed on clean shutdown.
 ///
 @MainActor
 final class StatusPublisher {
     private var timer: Timer?
     private let snapshot: () -> BouclierStatus
+    private let statusFile: URL
 
-    init(snapshot: @escaping () -> BouclierStatus) { self.snapshot = snapshot }
+    init(
+        statusFile: URL = BouclierPaths.statusFile,
+        snapshot: @escaping () -> BouclierStatus
+    ) {
+        self.statusFile = statusFile
+        self.snapshot = snapshot
+    }
 
     func start() {
         write()
@@ -25,7 +33,7 @@ final class StatusPublisher {
     func stop() {
         timer?.invalidate()
         timer = nil
-        try? FileManager.default.removeItem(at: BouclierPaths.statusFile)
+        try? FileManager.default.removeItem(at: statusFile)
     }
 
     /// Force an immediate refresh (call on a state change for low latency).
@@ -33,6 +41,6 @@ final class StatusPublisher {
 
     private func write() {
         guard let data = try? JSONEncoder().encode(snapshot()) else { return }
-        try? AtomicFile.write(data, to: BouclierPaths.statusFile)
+        try? AtomicFile.write(data, to: statusFile)
     }
 }

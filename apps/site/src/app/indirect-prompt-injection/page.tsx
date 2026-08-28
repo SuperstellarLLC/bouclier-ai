@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Image from "next/image";
 import Link from "next/link";
 
-import { APP_URL } from "@/lib/constants";
+import { APP_URL, PATTERN_COUNT } from "@/lib/constants";
 
 // SEO/GEO answer page targeting "indirect prompt injection" and "can a website
 // hijack an AI agent". Answer-first, FAQ + Article JSON-LD so AI answer engines
@@ -51,7 +51,7 @@ function articleJsonLd() {
     author: { "@type": "Organization", name: "Bouclier.ai", url: APP_URL },
     publisher: { "@type": "Organization", name: "Bouclier.ai", url: APP_URL },
     datePublished: "2026-06-22",
-    dateModified: "2026-06-22",
+    dateModified: "2026-08-28",
   };
 }
 
@@ -86,7 +86,7 @@ export default function IndirectPromptInjectionPage() {
       />
 
       {/* Nav */}
-      <nav className="border-border border-b">
+      <nav className="border-border border-b" aria-label="Primary">
         <div className="mx-auto flex max-w-3xl items-center justify-between px-6 py-4">
           <Link href="/" className="text-text flex items-center gap-2 text-sm font-semibold">
             <Image
@@ -105,6 +105,9 @@ export default function IndirectPromptInjectionPage() {
             <Link href="/privacy" className="hover:text-text transition-colors">
               Privacy
             </Link>
+            <Link href="/terms" className="hover:text-text transition-colors">
+              Terms
+            </Link>
           </div>
         </div>
       </nav>
@@ -121,9 +124,15 @@ export default function IndirectPromptInjectionPage() {
           Indirect prompt injection is an attack where instructions hidden inside content an AI
           reads, a web page, a PDF, an email, get treated as commands by the model. The user never
           types anything malicious. The agent picks up the payload on its own while doing the task
-          you gave it. OWASP ranks it as the top risk for LLM applications, and as agents start to
-          browse and act on real sites, it has gone from a lab demo to the most practical way to
-          take one over.
+          you gave it. OWASP lists Prompt Injection as{" "}
+          <a
+            href="https://genai.owasp.org/llmrisk/llm01-prompt-injection/"
+            className="text-bouclier underline decoration-1 underline-offset-2"
+          >
+            LLM01 in its 2025 Top 10 for LLM Applications
+          </a>
+          , and as agents start to browse and act on real sites, it has gone from a lab demo to a
+          practical security risk for deployed agents.
         </p>
 
         <section className="mt-12">
@@ -153,16 +162,9 @@ export default function IndirectPromptInjectionPage() {
               For a while this stayed mostly theoretical, because models read text a person handed
               them directly. That has changed. Agents now open browsers, read pages, fill forms, and
               finish tasks on live sites for a user. The same shift that lets an agent find a
-              product and check out for you, the thing tools like{" "}
-              <a
-                href="https://www.serge.ai"
-                className="text-bouclier underline decoration-1 underline-offset-2"
-              >
-                Serge
-              </a>{" "}
-              measure by running real agents through purchase tasks on real stores, also means the
-              agent swallows whatever those pages contain, including anything an attacker planted.
-              Once an agent browses, every page it reads becomes part of its prompt.
+              product and check out for you also means it ingests whatever those pages contain,
+              including anything an attacker planted. Once an agent browses, every page it reads
+              becomes part of its prompt.
             </p>
           </div>
         </section>
@@ -185,7 +187,9 @@ export default function IndirectPromptInjectionPage() {
           <div className="text-text-secondary mt-4 space-y-4 leading-relaxed">
             <p>The defenses that hold up are structural, not hopeful.</p>
             <ul className="list-disc space-y-2 pl-5">
-              <li>Treat every byte the model reads as untrusted input, never as instructions.</li>
+              <li>
+                Treat every external byte the model reads as untrusted input, never as instructions.
+              </li>
               <li>
                 Constrain what the agent can do, so a hijack cannot escalate. Scope tools tightly
                 and require explicit confirmation for anything that moves money or data.
@@ -198,13 +202,13 @@ export default function IndirectPromptInjectionPage() {
             <p>
               The first layer is what <strong className="text-text">Bouclier</strong> was built for.
               It sits between your agent&apos;s AI SDK calls and the provider on your Mac, and
-              inspects every request for injection hidden in <em>untrusted</em> content — tool
-              results, fetched pages, retrieved documents — before it reaches the model. When it
-              spots an instruction in text nobody in your session typed, it flags it (and, with
-              blocking on, refuses the request outright). It runs entirely on-device: 161 detection
-              patterns plus an on-device ML classifier, no traffic leaving your machine. It is
-              defence in depth on the untrusted leg, not a complete solution — pair it with the
-              structural controls above.
+              inspects supported untrusted-content shapes in eligible routed requests — tool
+              results, fetched pages, retrieved documents — before they reach the model. When its
+              scoring finds suspicious instructions in that content, it flags them; with blocking
+              enabled, a request over the refusal threshold is stopped. It runs entirely on-device:{" "}
+              {PATTERN_COUNT} detection patterns plus an on-device ML classifier, with no traffic
+              sent elsewhere for inspection. It is defence in depth on the untrusted leg, not a
+              complete solution — pair it with the structural controls above.
             </p>
           </div>
         </section>
@@ -241,6 +245,9 @@ export default function IndirectPromptInjectionPage() {
             </Link>
             <Link href="/privacy" className="hover:text-text transition-colors">
               Privacy
+            </Link>
+            <Link href="/terms" className="hover:text-text transition-colors">
+              Terms
             </Link>
           </div>
         </div>

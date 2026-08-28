@@ -73,12 +73,13 @@ final class MLClassifier: @unchecked Sendable {
         // result in Application Support (not Caches, which the OS
         // can wipe mid-session).
         //
-        // Resources live in the SPM-generated module bundle
-        // (`Bouclier_Bouclier.bundle`), not at `Bundle.main`'s root.
+        // Release resources live in the SPM-generated bundle embedded under
+        // the app's Contents/Resources directory. Use the release-safe
+        // resolver rather than SwiftPM's absolute build-path fallback.
         let modelURL: URL
-        if let compiled = Bundle.module.url(forResource: "PromptGuard2", withExtension: "mlmodelc") {
+        if let compiled = BouclierResources.url(forResource: "PromptGuard2", withExtension: "mlmodelc") {
             modelURL = compiled
-        } else if let raw = Bundle.module.url(forResource: "PromptGuard2", withExtension: "mlpackage") {
+        } else if let raw = BouclierResources.url(forResource: "PromptGuard2", withExtension: "mlpackage") {
             modelURL = try Self.compiledCopy(of: raw)
         } else {
             throw ClassifierError.modelNotFound
@@ -95,7 +96,7 @@ final class MLClassifier: @unchecked Sendable {
         // Load the tokenizer from a bundled folder containing
         // tokenizer.json + tokenizer_config.json + special_tokens_map.json,
         // populated by the convert-promptguard.py script.
-        guard let tokenizerDir = Bundle.module.url(
+        guard let tokenizerDir = BouclierResources.url(
             forResource: "PromptGuardTokenizer",
             withExtension: nil
         ) else {
@@ -106,29 +107,14 @@ final class MLClassifier: @unchecked Sendable {
 
     /// Compile a raw `.mlpackage` to `.mlmodelc` and cache the result in
     /// Application Support so subsequent launches skip the ~1-2s compile.
-    /// Invalidated by filename — if the bundled .mlpackage is replaced
-    /// (new release), the cached compiled copy is rebuilt.
+    /// The shared key guarantees release/OS invalidation and uses a bounded
+    /// package fingerprint as best-effort detection for same-version
+    /// development replacements.
     private static func compiledCopy(of rawPackage: URL) throws -> URL {
-        let supportDir = try FileManager.default.url(
-            for: .applicationSupportDirectory, in: .userDomainMask,
-            appropriateFor: nil, create: true
-        ).appendingPathComponent("ai.bouclier.app/compiled-models", isDirectory: true)
-        try FileManager.default.createDirectory(at: supportDir, withIntermediateDirectories: true)
-
-        let cachedURL = supportDir.appendingPathComponent("PromptGuard2.mlmodelc", isDirectory: true)
-        if FileManager.default.fileExists(atPath: cachedURL.path) {
-            return cachedURL
-        }
-
-        let freshCompiled = try MLModel.compileModel(at: rawPackage)
-        // compileModel drops the output in a temp dir under Caches. Move
-        // it into Application Support so the next launch can reuse it
-        // without paying the compile cost again.
-        if FileManager.default.fileExists(atPath: cachedURL.path) {
-            try FileManager.default.removeItem(at: cachedURL)
-        }
-        try FileManager.default.moveItem(at: freshCompiled, to: cachedURL)
-        return cachedURL
+        try CompiledModelCache.compiledCopy(
+            of: rawPackage,
+            modelName: "PromptGuard2"
+        )
     }
 
     // MARK: - Inference

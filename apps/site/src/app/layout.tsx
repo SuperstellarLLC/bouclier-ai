@@ -1,11 +1,10 @@
 import type { Metadata, Viewport } from "next";
 
-import { APP_NAME, APP_URL } from "@/lib/constants";
+import { APP_DESCRIPTION, APP_NAME, APP_URL } from "@/lib/constants";
 
 import "./globals.css";
 
-const DESCRIPTION =
-  "A prompt-injection firewall for your AI coding agent. Local-only macOS app — inspects every tool result for instructions trying to reprogram your agent, on-device. No certificate required. Experimental beta — not for production.";
+const DESCRIPTION = `${APP_DESCRIPTION} Experimental beta — not for production.`;
 
 export const metadata: Metadata = {
   title: {
@@ -14,12 +13,21 @@ export const metadata: Metadata = {
   },
   description: DESCRIPTION,
   metadataBase: new URL(APP_URL),
+  alternates: {
+    canonical: "/",
+  },
   openGraph: {
     title: `${APP_NAME} (Beta) — A prompt-injection firewall for your AI agent`,
     description: DESCRIPTION,
     siteName: APP_NAME,
+    url: APP_URL,
     locale: "en_US",
     type: "website",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: `${APP_NAME} (Beta) — A prompt-injection firewall for your AI agent`,
+    description: DESCRIPTION,
   },
   robots: {
     index: true,

@@ -28,13 +28,15 @@ A useful bug report contains:
 
 - Bouclier.ai version, macOS version, CPU architecture.
 - Install source (DMG / source build).
-- The AI client you were using when the issue happened
-  (ChatGPT desktop app, Cursor, raw `curl`, ...).
+- The compatible AI client you were using when the issue happened
+  (Claude Code, an OpenAI/Anthropic SDK, raw `curl`, ...), including how
+  its base URL was configured.
 - Steps to reproduce, ideally with a synthetic payload.
-- Relevant log lines from
-  `~/Library/Application Support/ai.bouclier.app/logs/` or
-  `Console.app` filtered by `ai.bouclier`. **Redact request content
-  before pasting** — the audit log already strips it, but verify.
+- A diagnostics export from the menu-bar app, or relevant lines from
+  `Console.app` filtered by `ai.bouclier`. **Review the export before
+  sharing it.** Routine audit records contain metadata rather than request
+  bodies; the optional block-sample capture is the only local feature that
+  records flagged content.
 
 ## Response expectations
 

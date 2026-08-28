@@ -54,7 +54,8 @@ actor Metrics {
         rewritten: Bool,
         oversized: Bool,
         categories: [String],
-        severities: [String]
+        severities: [String],
+        inspectionPerformed: Bool = true
     ) {
         requestsTotal += 1
         bytesScanned += UInt64(max(0, bodySize))
@@ -73,7 +74,9 @@ actor Metrics {
             hitsBySeverity[sev, default: 0] += 1
         }
 
-        recordLatency(scanDurationSeconds)
+        if inspectionPerformed {
+            recordLatency(scanDurationSeconds)
+        }
     }
 
     func recordSSEFrame(blocked: Bool) {
@@ -151,24 +154,26 @@ extension Metrics {
         let oversized: Bool
         let categories: [String]
         let severities: [String]
+        let inspectionPerformed: Bool
     }
 
     /// Map a finished scan record to its metric contribution.
     static func sample(for log: RequestLog) -> RequestSample {
         RequestSample(
             host: log.targetHost,
-            bodySize: log.bodySize,
+            // Bytes scanned means bytes the injection gate/engine actually
+            // inspected, not all bytes merely relayed by the gateway.
+            bodySize: log.inspectionPerformed ? log.bodySize : 0,
             scanDurationSeconds: log.scanDurationSeconds,
             detected: log.detected,
-            // The gateway relays the request byte-for-byte on the injection
-            // path — only the multimodal path rewrites (stripped/redacted
+            // The injection path preserves model-visible request-body bytes;
+            // only the multimodal path rewrites (stripped/redacted
             // attachments), so a rewrite means multimodal findings existed.
             rewritten: !(log.multimodal?.findings.isEmpty ?? true),
-            // The oversize-reject path never reaches this funnel, so it is
-            // counted elsewhere; a scanned request is never "oversized" here.
-            oversized: false,
+            oversized: log.scanSkippedReason == .oversized,
             categories: log.categories,
-            severities: log.severities
+            severities: log.severities,
+            inspectionPerformed: log.inspectionPerformed
         )
     }
 
@@ -182,7 +187,8 @@ extension Metrics {
             rewritten: sample.rewritten,
             oversized: sample.oversized,
             categories: sample.categories,
-            severities: sample.severities
+            severities: sample.severities,
+            inspectionPerformed: sample.inspectionPerformed
         )
     }
 }
@@ -215,12 +221,16 @@ struct LatencySnapshot: Codable, Sendable {
     var p99Ms: Double? { percentile(0.99) }
 
     private func percentile(_ p: Double) -> Double? {
-        guard count > 0 else { return nil }
-        let target = Double(count) * p
-        var running: UInt64 = 0
-        for (i, c) in counts.enumerated() {
-            running += c
-            if Double(running) >= target { return bucketsMs[i] }
+        guard count > 0, !bucketsMs.isEmpty, bucketsMs.count == counts.count else { return nil }
+        // `recordLatency` stores a Prometheus-style *cumulative*
+        // histogram: each count already includes every observation in
+        // all lower buckets. Summing the counts here a second time makes
+        // percentiles collapse toward the first few buckets (for example,
+        // p50 of 0.5…2,000 ms was reported as 10 ms). Select the first
+        // cumulative bucket that has reached the requested rank instead.
+        let target = max(1, UInt64(ceil(Double(count) * p)))
+        for (i, cumulativeCount) in counts.enumerated() {
+            if cumulativeCount >= target { return bucketsMs[i] }
         }
         return bucketsMs.last
     }

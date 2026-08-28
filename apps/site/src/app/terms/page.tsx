@@ -2,14 +2,27 @@ import type { Metadata } from "next";
 import Image from "next/image";
 import Link from "next/link";
 
+import { APP_URL, STATUS_MCP_AVAILABLE } from "@/lib/constants";
+
+const DESCRIPTION =
+  "Terms for evaluating the Bouclier.ai research prototype, including its intended use, limitations, and open-source licensing.";
+
 export const metadata: Metadata = {
   title: "Terms of Use",
+  description: DESCRIPTION,
+  alternates: { canonical: `${APP_URL}/terms` },
+  openGraph: {
+    title: "Bouclier.ai Terms of Use",
+    description: DESCRIPTION,
+    url: `${APP_URL}/terms`,
+    type: "article",
+  },
 };
 
 export default function TermsPage() {
   return (
     <main className="min-h-screen bg-white">
-      <nav className="border-border border-b">
+      <nav className="border-border border-b" aria-label="Primary">
         <div className="mx-auto flex max-w-3xl items-center justify-between px-6 py-4">
           <Link href="/" className="text-text flex items-center gap-2 text-sm font-semibold">
             <Image
@@ -37,7 +50,7 @@ export default function TermsPage() {
 
       <article className="mx-auto max-w-3xl px-6 py-16">
         <h1 className="text-3xl font-bold tracking-tight">Terms of Use</h1>
-        <p className="text-text-secondary mt-2 text-sm">Last updated: 3 August 2026</p>
+        <p className="text-text-secondary mt-2 text-sm">Last updated: 28 August 2026</p>
 
         {/* Loud prototype banner — anyone evaluating the software must see this first. */}
         <div className="mt-10 rounded-xl border-2 border-amber-300 bg-amber-50 p-6">
@@ -47,7 +60,7 @@ export default function TermsPage() {
           <p className="mt-2 text-sm text-amber-900">
             The Software is published for evaluation, security research, academic study, and
             personal experimentation only. It is <strong>not</strong> a commercial product, is{" "}
-            <strong>not</strong> sold, distributed, or offered for production use, and is{" "}
+            <strong>not</strong> sold, licensed for a fee, or offered for production use, and is{" "}
             <strong>not</strong> intended for regulated workloads, safety-critical systems,
             healthcare, financial services, payment processing, identity verification, fraud
             prevention, or any environment in which a detection failure could cause harm, financial
@@ -64,20 +77,20 @@ export default function TermsPage() {
             accessing the website at bouclier.ai (the &quot;Site&quot;), you agree to these Terms of
             Use. If you do not agree, do not install or use the Software, and do not access the
             Site. These terms apply to all components of the Software including the macOS
-            application, the bundled MCP wrapper, the local proxy, the regex pattern library, the
-            on-device classifiers, the Site, and any related artifacts, documentation, or sample
-            data.
+            application, the local proxy, the read-only CLI
+            {STATUS_MCP_AVAILABLE ? ", the bundled read-only MCP status server" : ""}, the regex
+            pattern library, the on-device classifiers, the Site, and any related artifacts,
+            documentation, or sample data.
           </p>
         </Section>
 
         <Section title="2. Research prototype — not a commercial product">
           <p>
             The Software is a research prototype published as the output of independent security and
-            machine-learning research. It is not a commercial product. We do not market, sell,
-            licence for a fee, or commercially distribute the Software, make no representations
-            regarding its fitness for any operational purpose, and offer no service-level agreement,
-            paid support tier, professional services, uptime commitment, or commercial obligation of
-            any kind.
+            machine-learning research. It is not a commercial product. We do not sell or licence the
+            Software for a fee, make no representations regarding its fitness for any operational
+            purpose, and offer no service-level agreement, paid support tier, professional services,
+            uptime commitment, or commercial obligation of any kind.
           </p>
           <p className="mt-3">
             The Software is published under the Apache License, Version 2.0; you are welcome to
@@ -138,22 +151,28 @@ export default function TermsPage() {
               succeed. A clean pass is not evidence of safety.
             </li>
             <li>
-              <strong>Monitor by default.</strong> Out of the box the Software inspects and logs but
-              does not block; it forwards every request. Blocking (refusing a flagged request) is
-              opt-in, per install or via MDM. A monitor-mode install detects but does not stop
-              anything.
+              <strong>Monitor by default.</strong> Out of the box the Software scores supported
+              untrusted-content shapes within its inspection limit and logs findings but does not
+              refuse them. Principal-only requests bypass injection scoring in normal mode. Blocking
+              (refusing a request that crosses the refusal threshold) is opt-in, per install or via
+              MDM. Monitor mode does not enforce detector findings, although the gateway can still
+              reject malformed requests or bodies above its separate transport limit.
             </li>
             <li>
-              <strong>Body size cap.</strong> Requests above a configured size threshold are
-              forwarded without inspection, so that large payloads (e.g. file uploads) are not
-              slowed or blocked.
+              <strong>Body size cap.</strong> Requests above a configured size threshold are not
+              fully inspected. For a valid supported envelope, the Software scores an evenly
+              distributed sample of at most 24 untrusted-content windows. A finding in that sample
+              can be refused when Blocking is enabled; a clean or inconclusive sample is forwarded
+              with a visible partial-coverage warning in either mode. Independently, the gateway
+              rejects any body above its 64 MiB transport limit with 413.
             </li>
           </ul>
           <p className="mt-3 text-sm">
-            The Software never modifies a request: a flagged request is refused locally with a 422,
-            never rewritten, and your own prompts are always forwarded unchanged. The attachment-PII
-            detection engine described in earlier versions of these Terms is not on any live request
-            path.
+            The Software never modifies a model-visible request body: a request selected for refusal
+            is stopped locally with a 422, and its body is never rewritten. Your own prompts are
+            forwarded unchanged and cannot trigger a refusal in normal mode; a managed strict
+            posture can change that principal policy. The attachment-PII detection engine described
+            in earlier versions of these Terms is not on any live request path.
           </p>
         </Section>
 
@@ -234,43 +253,47 @@ export default function TermsPage() {
           </p>
         </Section>
 
-        <Section title="9. Local-only processing; no data collection">
+        <Section title="9. Local detection and limited data flows">
           <p>
-            The Software is designed to process detection locally on your device. We do not operate
-            servers that receive prompt content, attachment content, audit logs, or user telemetry.
-            The only outbound network calls initiated by the Software are described in the{" "}
+            The Software performs detection locally on your device. It does not automatically send
+            prompt content, attachment content, or audit logs to Bouclier.ai, and it has no passive
+            app analytics or crash reporting. Allowed requests are still forwarded to the AI
+            provider you configured. If you explicitly submit a false-positive report, its
+            best-effort-redacted excerpt and detection metadata are sent to Bouclier.ai after you
+            review the payload. Site requests, update checks, optional reports, and all other
+            outbound connections are described in the{" "}
             <Link href="/privacy" className="text-bouclier hover:underline">
               Privacy Policy
             </Link>
-            . You acknowledge that we therefore have no ability to recover, restore, undo, or audit
-            content processed by the Software on your behalf, and that we cannot intervene in any
-            interaction between the Software, your computer, and the third-party AI providers you
-            send traffic to.
+            . We cannot recover or restore content kept only on your device, undo provider actions,
+            or intervene in interactions between your computer and those providers.
           </p>
         </Section>
 
         <Section title="10. Third-party providers">
           <p>
             The Software re-issues requests you route through its gateway to third-party AI
-            providers. Text prompt bodies and HTTP request headers are forwarded byte-for-byte; the
-            Software never modifies an outbound request — it forwards it unchanged or, when
-            injection is detected and blocking is enabled, refuses it locally as described in
-            Section 4. We have no control over those providers, their terms, their data handling,
-            their availability, or their pricing. Your use of those providers is governed by your
-            agreement with each of them. Content delivered to each provider is governed by that
-            provider&apos;s own terms.
+            providers. Model-visible body bytes and end-to-end headers such as Authorization are
+            preserved. As a correct HTTP proxy, the Software rewrites Host and Content-Length and
+            strips hop-by-hop and Proxy-Authorization headers. It does not rewrite the prompt body:
+            that body is forwarded unchanged or, when injection is detected and blocking is enabled,
+            its request is refused locally as described in Section 4. We have no control over those
+            providers, their terms, their data handling, their availability, or their pricing. Your
+            use of those providers is governed by your agreement with each of them. Content
+            delivered to each provider is governed by that provider&apos;s own terms.
           </p>
         </Section>
 
-        <Section title="11. Open-source components">
+        <Section title="11. Third-party and open-source components">
           <p>
-            The Software incorporates open-source components, including (without limitation) the
-            Meta Llama Prompt Guard 2 integration (governed by the Llama 4 Community License; the
-            model weights are not bundled — the optional on-device ML tier is inactive unless a
-            model is supplied locally), Microsoft Presidio recognition patterns derived from public
-            references, and the Swift, NIO, GRDB, and CryptoKit ecosystems. The corresponding
-            notices are bundled with the Software and reproduced in the project&apos;s LICENSE and
-            NOTICE files. These components remain governed by their respective licences.
+            The Software incorporates third-party and open-source components, including (without
+            limitation) the Built with Llama: the Meta Llama Prompt Guard 2 integration (governed by
+            the Llama 4 Community License; the release build bundles the model and runs inference
+            locally through CoreML), Microsoft Presidio recognition patterns derived from public
+            references, and the Swift, NIO, GRDB, and CryptoKit ecosystems. If the model cannot
+            load, detection continues with the local pattern tier. The corresponding notices are
+            bundled with the Software and reproduced in the project&apos;s LICENSE and NOTICE files.
+            These components remain governed by their respective licences.
           </p>
         </Section>
 
@@ -329,7 +352,12 @@ export default function TermsPage() {
         </Section>
 
         <Section title="16. Contact">
-          <p>Contact: apps@superstellar.io</p>
+          <p>
+            Contact:{" "}
+            <a href="mailto:apps@superstellar.io" className="text-bouclier hover:underline">
+              apps@superstellar.io
+            </a>
+          </p>
           <p className="mt-3 text-sm">
             If anything in these Terms is unclear, contact us before you install or use the
             Software. We will not interpret your continued use as acceptance of any clause you have

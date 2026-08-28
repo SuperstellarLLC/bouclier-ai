@@ -15,8 +15,11 @@
 
 import { createHash } from "node:crypto";
 
-/** Freshness window: a stamp's timestamp must be within this of the server clock. */
+/** Maximum age of a stamp according to the server clock. */
 export const POW_WINDOW_MS = 2 * 60_000;
+
+/** Small allowance for a reporter whose local clock runs ahead of the server. */
+export const POW_FUTURE_SKEW_MS = 30_000;
 
 /** Default difficulty (leading zero bits) when REPORT_POW_BITS is unset:
  * ~2^20 ≈ 1M hashes, sub-second on the reporter's Mac, real cost to flood. */
@@ -70,13 +73,14 @@ export function verifyReportPow(params: {
 }): { ok: boolean; reason?: string } {
   const { timestamp, nonce, fingerprint, bits, now } = params;
   if (bits <= 0) return { ok: true };
-  if (typeof timestamp !== "number" || !Number.isFinite(timestamp)) {
+  if (typeof timestamp !== "number" || !Number.isSafeInteger(timestamp)) {
     return { ok: false, reason: "missing or invalid pow.timestamp" };
   }
-  if (typeof nonce !== "string" || nonce.length === 0 || nonce.length > 64) {
+  if (typeof nonce !== "string" || !/^[a-z0-9]{1,64}$/i.test(nonce)) {
     return { ok: false, reason: "missing or invalid pow.nonce" };
   }
-  if (Math.abs(now - timestamp) > POW_WINDOW_MS) {
+  const age = now - timestamp;
+  if (age < -POW_FUTURE_SKEW_MS || age > POW_WINDOW_MS) {
     return { ok: false, reason: "pow.timestamp outside the freshness window" };
   }
   if (!verifyPow(powMaterial(timestamp, fingerprint), nonce, bits)) {

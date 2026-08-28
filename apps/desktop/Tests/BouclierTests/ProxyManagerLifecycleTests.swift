@@ -13,6 +13,146 @@ import Testing
 @Suite("ProxyManager lifecycle", .serialized)
 @MainActor
 struct ProxyManagerLifecycleTests {
+    @Test("Detector health requires protection and the detector feature")
+    func effectiveDetectorHealth() {
+        for gatewayRunning in [false, true] {
+            for protectionEnabled in [false, true] {
+                for featureEnabled in [false, true] {
+                    #expect(ProxyManager.effectiveDetectorEnabled(
+                        gatewayRunning: gatewayRunning,
+                        protectionEnabled: protectionEnabled,
+                        featureEnabled: featureEnabled
+                    ) == (gatewayRunning && protectionEnabled && featureEnabled))
+                }
+            }
+        }
+    }
+
+    @Test("Managed termination is vetoed only while protection is active")
+    func managedTerminationPolicy() {
+        #expect(
+            AppDelegate.terminationReply(preventDisable: true, protectionActive: true)
+                == .terminateCancel
+        )
+        #expect(
+            AppDelegate.terminationReply(preventDisable: true, protectionActive: false)
+                == .terminateNow
+        )
+        #expect(
+            AppDelegate.terminationReply(preventDisable: false, protectionActive: true)
+                == .terminateNow
+        )
+    }
+
+    @Test("Managed active protection locks capture and login continuity controls")
+    func managedContinuityPolicy() {
+        #expect(ProxyManager.managedContinuityLocked(
+            preventDisable: true, protectionActive: true
+        ))
+        #expect(!ProxyManager.managedContinuityLocked(
+            preventDisable: true, protectionActive: false
+        ))
+        #expect(!ProxyManager.managedContinuityLocked(
+            preventDisable: false, protectionActive: true
+        ))
+    }
+
+    @Test("Explicit cleanup and automatic migration both lock configuration mutation")
+    func cleanupMutationLock() {
+        #expect(!ProxyManager.configurationMutationLocked(
+            cleanupInProgress: false, migrationInProgress: false
+        ))
+        #expect(ProxyManager.configurationMutationLocked(
+            cleanupInProgress: true, migrationInProgress: false
+        ))
+        #expect(ProxyManager.configurationMutationLocked(
+            cleanupInProgress: false, migrationInProgress: true
+        ))
+        #expect(ProxyManager.configurationMutationLocked(
+            cleanupInProgress: true, migrationInProgress: true
+        ))
+    }
+
+    @Test("Configuration cleanup reports success only when every artifact is verified absent")
+    func configurationCleanupReportIsAllOrNothing() {
+        let components: [ConfigurationCleanupComponent] = [
+            .launchAtLogin,
+            .shellRouting,
+            .legacyPAC,
+            .legacyCertificate,
+            .legacyExtension,
+            .systemProxy,
+        ]
+        let complete = ConfigurationCleanupReport(components.map { ($0, true) })
+        #expect(complete.isComplete)
+        #expect(complete.failed.isEmpty)
+
+        for failedComponent in components {
+            let report = ConfigurationCleanupReport(
+                components.map { ($0, $0 != failedComponent) }
+            )
+            #expect(!report.isComplete)
+            #expect(report.failed == [failedComponent])
+            let message = report.partialFailureMessage(action: "Configuration removal")
+            #expect(message.contains(failedComponent.rawValue))
+            #expect(message.contains("safe to retry"))
+            #expect(!message.contains("configuration removed"))
+        }
+    }
+
+    @Test("Cleanup retries every exact port Bouclier may have owned")
+    func cleanupCandidatePortsAreValidatedAndDeduplicated() {
+        #expect(ProxyManager.cleanupCandidatePorts(
+            boundPort: 9000,
+            managedPort: 9443,
+            preferredPort: 8484,
+            lastAppliedPort: 9000
+        ) == [9000, 9443, 8484])
+
+        #expect(ProxyManager.cleanupCandidatePorts(
+            boundPort: 80,
+            managedPort: 0,
+            preferredPort: 65_536,
+            lastAppliedPort: nil
+        ) == [8484], "invalid or privileged ports must never become cleanup ownership evidence")
+    }
+
+    @Test("Configuration notices distinguish verified success from partial failure")
+    func configurationNoticeKinds() {
+        let success = ConfigurationNotice(
+            kind: .success, title: "Removed", message: "Verified absent"
+        )
+        let attention = ConfigurationNotice(
+            kind: .attention, title: "Incomplete", message: "Retry"
+        )
+        #expect(success.kind == .success)
+        #expect(attention.kind == .attention)
+        #expect(success != attention)
+    }
+
+    @Test("Legacy CA PEM parsing rejects missing envelopes and invalid DER")
+    func legacyCAPEMParsingRejectsInvalidIdentity() {
+        let der = Data([0x30, 0x01, 0x00])
+        let pem = """
+        -----BEGIN CERTIFICATE-----
+        \(der.base64EncodedString())
+        -----END CERTIFICATE-----
+        """
+        #expect(CertificateAuthority.certificateDER(fromPEM: pem) == nil)
+        #expect(CertificateAuthority.certificateDER(fromPEM: der.base64EncodedString()) == nil)
+        #expect(CertificateAuthority.certificateDER(
+            fromPEM: "-----BEGIN CERTIFICATE-----\n!not-base64!\n-----END CERTIFICATE-----"
+        ) == nil)
+    }
+
+    @Test("Login-item removal verifies registration state")
+    func loginItemRemovalPostcondition() {
+        #expect(ProxyManager.launchAtLoginRegistrationIsAbsent(.notRegistered))
+        #expect(ProxyManager.launchAtLoginRegistrationIsAbsent(.notFound))
+        #expect(!ProxyManager.launchAtLoginRegistrationIsAbsent(.enabled))
+        #expect(!ProxyManager.launchAtLoginRegistrationIsAbsent(.requiresApproval))
+    }
+
     @Test("initializeStorage runs at construction, not deferred to first menu open")
     func initRanAtConstruction() {
         let pm = ProxyManager()
@@ -108,8 +248,8 @@ struct ProxyManagerLifecycleTests {
         let pmRegex = ProxyManager()
         let initialBlocked = pmRegex.stats.injectionsBlocked
         pmRegex.handleRequestLog(regexLog)
-        #expect(pmRegex.stats.injectionsBlocked == initialBlocked + 2,
-                "Regex-driven block must increment injectionsBlocked by matchCount")
+        #expect(pmRegex.stats.injectionsBlocked == initialBlocked + 1,
+                "One refused request must increment the request-level block counter once")
         let regexEntry = pmRegex.logs.first
         #expect(regexEntry != nil)
         #expect(regexEntry?.blocked == true,
@@ -158,6 +298,100 @@ struct ProxyManagerLifecycleTests {
                 "ML-only message must carry the fused score for triage")
         #expect(mlEntry?.message.contains("Blocked 0") == false,
                 "The original bug: 'Blocked 0 injection(s)' must never appear in the log feed")
+    }
+
+    @Test("Monitor findings are visible and skipped traffic is not counted as inspected")
+    func flaggedAndSkippedRequestsStayHonest() {
+        let previousNotifications = UserDefaults.standard.object(forKey: "showNotifications")
+        UserDefaults.standard.set(false, forKey: "showNotifications")
+        defer {
+            if let previousNotifications {
+                UserDefaults.standard.set(previousNotifications, forKey: "showNotifications")
+            } else {
+                UserDefaults.standard.removeObject(forKey: "showNotifications")
+            }
+        }
+        let pm = ProxyManager()
+        let initial = pm.stats
+
+        pm.handleRequestLog(RequestLog(
+            timestamp: Date(),
+            targetHost: "api.anthropic.com",
+            detected: false,
+            matchCount: 2,
+            patternNames: ["ROLE_HIJACK", "INSTRUCTION_OVERRIDE"],
+            bodySize: 512,
+            mlScore: nil,
+            entropyAnomaly: 0,
+            fusedScore: 0.81,
+            mlAvailable: false,
+            injectionFlagged: true,
+            inspectionPerformed: true
+        ))
+        pm.handleRequestLog(RequestLog(
+            timestamp: Date(),
+            targetHost: "api.openai.com",
+            detected: false,
+            matchCount: 0,
+            patternNames: [],
+            bodySize: InjectionInspectionPass.maxScanBytes + 1,
+            mlScore: nil,
+            entropyAnomaly: 0,
+            fusedScore: 0,
+            mlAvailable: false,
+            inspectionPerformed: false,
+            scanSkippedReason: .oversized
+        ))
+        pm.handleRequestLog(RequestLog(
+            timestamp: Date(),
+            targetHost: "api.openai.com",
+            detected: false,
+            matchCount: 0,
+            patternNames: [],
+            bodySize: 128,
+            mlScore: nil,
+            entropyAnomaly: 0,
+            fusedScore: 0,
+            mlAvailable: false,
+            inspectionPerformed: false,
+            scanSkippedReason: .unsupportedContentEncoding
+        ))
+        pm.handleRequestLog(RequestLog(
+            timestamp: Date(),
+            targetHost: "api.openai.com",
+            detected: true,
+            matchCount: 0,
+            patternNames: [],
+            bodySize: 128,
+            mlScore: nil,
+            entropyAnomaly: 0,
+            fusedScore: 0,
+            mlAvailable: false,
+            inspectionPerformed: false,
+            scanSkippedReason: .unsupportedContentEncoding
+        ))
+
+        #expect(pm.stats.requestsScanned == initial.requestsScanned + 1)
+        #expect(pm.stats.requestsSkippedInspection == initial.requestsSkippedInspection + 3)
+        #expect(pm.stats.injectionFindingsFlagged == initial.injectionFindingsFlagged + 1)
+        #expect(pm.stats.injectionsBlocked == initial.injectionsBlocked,
+                "monitor findings must never inflate the blocked count")
+        #expect(pm.stats.requestsBlockedByInspectionLimit == initial.requestsBlockedByInspectionLimit + 1)
+        #expect(pm.logs.contains {
+            !$0.blocked && $0.message.contains("allowed for forwarding, not blocked")
+        })
+        #expect(pm.logs.contains {
+            !$0.blocked && $0.message.contains("Inspection skipped") && $0.message.contains("allowed for forwarding")
+        })
+        #expect(pm.logs.contains {
+            $0.blocked && $0.message.contains("no injection verdict was produced")
+        })
+        #expect(pm.logs.contains {
+            !$0.blocked && $0.message.contains("compressed request bodies are unsupported")
+        })
+        #expect(pm.logs.contains {
+            $0.blocked && $0.message.contains("compressed body could not be inspected")
+        })
     }
 
     /// Pins the new (v0.6) wiring: with the text-PII path gone, every

@@ -1,0 +1,11 @@
+# Reviewed outputs for meta-llama/Llama-Prompt-Guard-2-86M at revision
+# a8ded8e697ce7c355e395a0df51f94adb4a2fd27, converted with
+# requirements-promptguard.lock. Paths are relative to the desktop Resources
+# directory. Hugging Face `.cache` contents are intentionally excluded.
+4f08fef9163fdccb64a4a1b6ae00eb2cc6b3270c3eaee466bc7eae6a328e32eb  PromptGuard2.mlpackage/Data/com.apple.CoreML/model.mlmodel
+492546e3ee277d125c0155db8726dd28092ce5a247c08e379ff7936fde461a62  PromptGuard2.mlpackage/Data/com.apple.CoreML/weights/weight.bin
+06cd18015443e4afa7dd02579434c4eded0d59888e1c7936e89fb09785cb7a83  PromptGuard2.mlpackage/Manifest.json
+cd54ac39a1f2c3c5146bd5295b34038f8b4d9069e2f844450da014a523bb7653  PromptGuardTokenizer/config.json
+9463f61e1b109a8eb4688b829260d7c6b1e6dff04c98ff7269bb89e2b92369b9  PromptGuardTokenizer/special_tokens_map.json
+3e7e96867c2acdd575f0862c74822e05d1d15b93d9d9a4a2144b1ce83ae3339f  PromptGuardTokenizer/tokenizer.json
+9d0de4d749021d505ff11cad38a9a432ae3a47df335df11b18929b712692ce71  PromptGuardTokenizer/tokenizer_config.json

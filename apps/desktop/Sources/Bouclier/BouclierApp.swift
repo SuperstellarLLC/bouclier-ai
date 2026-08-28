@@ -1,9 +1,8 @@
 import AppKit
 import SwiftUI
-import UserNotifications
 
 /// Process entry point. Before the SwiftUI app spins up, check for the
-/// headless `--relay <port>` mode: when the app hands the loopback port to
+/// headless `--relay <port> <token>` mode: when the app hands the loopback port to
 /// a transient passthrough relay on quit, it re-spawns *this same binary*
 /// with that flag, and we run the relay instead of the menu-bar UI. See
 /// `RelaySupport` for the full lifecycle (and why there's no daemon).
@@ -11,8 +10,11 @@ import UserNotifications
 enum AppEntry {
     static func main() {
         let args = CommandLine.arguments
-        if let i = args.firstIndex(of: "--relay"), i + 1 < args.count, let port = Int(args[i + 1]) {
-            RelayMode.run(port: port) // never returns
+        if let i = args.firstIndex(of: "--relay"), i + 1 < args.count,
+           let port = Int(args[i + 1]), (1...65535).contains(port),
+           let tokenIndex = args.firstIndex(of: "--relay-token"), tokenIndex + 1 < args.count,
+           UUID(uuidString: args[tokenIndex + 1]) != nil {
+            RelayMode.run(port: port, token: args[tokenIndex + 1].lowercased()) // never returns
         }
         BouclierApp.main()
     }
@@ -22,6 +24,30 @@ enum AppEntry {
 /// it matters: hand the port off on quit, and (via `ProxyManager`) reclaim
 /// it on launch.
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    /// Enforce the managed quit lock at AppKit's process boundary. Disabling
+    /// the visible menu item alone would still leave Command-Q, SIGTERM, and
+    /// other normal termination requests able to bypass the policy.
+    ///
+    /// This can only veto cooperative AppKit termination. macOS deliberately
+    /// offers no in-process way to survive SIGKILL, administrator deletion,
+    /// or a crash; fleet policy must monitor and relaunch the app.
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        Self.terminationReply(
+            preventDisable: ManagedConfig.preventDisable,
+            protectionActive: ProxyManager.effectiveProtectionEnabled
+                && ProxyManager.liveGatewayPort != nil
+        )
+    }
+
+    /// Pure policy seam so lifecycle behavior remains testable without
+    /// constructing or terminating the shared NSApplication test host.
+    static func terminationReply(
+        preventDisable: Bool,
+        protectionActive: Bool
+    ) -> NSApplication.TerminateReply {
+        preventDisable && protectionActive ? .terminateCancel : .terminateNow
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
         // If a gateway is up (protecting or in passthrough), keep the port
         // alive for any running agent session by handing it to a relay.
@@ -37,10 +63,10 @@ struct BouclierApp: App {
     @StateObject private var proxyManager = ProxyManager()
     @StateObject private var updater = AutoUpdater()
     @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
+    @AppStorage("injectionBlockEnabled") private var userBlockingEnabled = false
     @Environment(\.openWindow) private var openWindow
 
     init() {
-        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
         // One-shot scrub of UserDefaults keys orphaned by the v0.6
         // scope cut (pre-v0.6 text-PII toggles, pause TTLs, per-host
         // policy lists). Self-gates on a sentinel so subsequent
@@ -58,9 +84,9 @@ struct BouclierApp: App {
                     }
                 }
         } label: {
-            Image(systemName: proxyManager.isRunning ? "shield.checkered" : "shield.slash")
+            Image(systemName: menuBarIcon)
                 .symbolRenderingMode(.hierarchical)
-                .accessibilityLabel(proxyManager.isRunning ? "Bouclier.ai — protection active" : "Bouclier.ai — protection inactive")
+                .accessibilityLabel(menuBarAccessibilityLabel)
         }
         .menuBarExtraStyle(.window)
 
@@ -73,5 +99,33 @@ struct BouclierApp: App {
         }
         .windowResizability(.contentSize)
         .defaultPosition(.center)
+    }
+
+    private var blockingEnabled: Bool {
+        FeatureFlags.managedInjectionBlock ?? userBlockingEnabled
+    }
+
+    private var protectionState: DesktopProtectionState {
+        .resolve(
+            protectionActive: proxyManager.protectionActive,
+            gatewayRunning: proxyManager.isRunning,
+            detectionEngineDegraded: proxyManager.detectionEngineDegraded
+        )
+    }
+
+    private var menuBarPresentation: DesktopMenuBarPresentation {
+        .resolve(
+            state: protectionState,
+            blockingEnabled: blockingEnabled,
+            errorMessage: proxyManager.errorMessage
+        )
+    }
+
+    private var menuBarIcon: String {
+        menuBarPresentation.iconName
+    }
+
+    private var menuBarAccessibilityLabel: String {
+        menuBarPresentation.accessibilityLabel
     }
 }

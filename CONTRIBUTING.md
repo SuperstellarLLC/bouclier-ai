@@ -33,8 +33,7 @@ docs/              Threat model
 
 Prerequisites:
 
-- macOS 15 (Sequoia) or later for the desktop app. macOS 14 also builds
-  but is not the supported release target.
+- Apple silicon Mac running macOS 15 (Sequoia) or later for the desktop app.
 - Xcode 16 + Command Line Tools.
 - Node 22 (`.nvmrc` in repo root) and `pnpm` 9.
 - `swift --version` must report 6.0 or later.
@@ -71,13 +70,13 @@ xcodegen
 open Bouclier.xcodeproj
 ```
 
-The CoreML models for the dormant detection engine (see "Adding a
-detection pattern" below) are no longer bundled — the shipped app
-doesn't need them, and `swift build`/`swift test` don't either;
-`MLClassifier`/`PIIClassifier` degrade gracefully when the resource is
-absent. If you're specifically working on that dormant engine and want
-to exercise the classifiers locally, the generation scripts are still
-available (too large for git, so not fetched by default):
+The regex detection engine ships in the app. Generated CoreML weights are
+not checked into git, and `swift build`/`swift test` do not need them;
+`MLClassifier`/`PIIClassifier` degrade gracefully when the resources are
+absent. The release pipeline generates and bundles Prompt Guard 2. If you
+are working on that classifier tier locally, the model-generation scripts
+remain available (the generated artifacts are too large for git and are not
+fetched by default):
 
 ```bash
 apps/desktop/scripts/ensure-model.sh         # downloads + compiles PromptGuard 2
@@ -102,15 +101,13 @@ apps/desktop/scripts/convert-piiranha.py     # Piiranha → CoreML
 A maintainer will respond within a few business days. PRs that come with
 a regression test are reviewed first.
 
-## Adding a detection pattern (dormant subsystem)
+## Adding a detection pattern
 
-Patterns live in `packages/patterns/src/`. This detection engine isn't
-currently invoked by the shipped app — it was wired only into extreme
-mode's TLS-intercepting proxy, which has been removed (see
-`ARCHITECTURE.md`). Contributions here still compile, still get exercised
-by the pattern package's own test suite, and remain valuable if detection
-is ever wired into the gateway as a deliberate follow-up, but don't
-expect a pattern PR to change the shipped app's behaviour today.
+Patterns live in `packages/patterns/src/` and are part of the shipped
+gateway detector. The TypeScript source is compiled and synchronized into
+the desktop bundle; CI rejects drift between the two copies. A pattern change
+therefore changes live Monitor/Blocking behavior and needs false-positive as
+well as attack coverage.
 
 Each pattern must include:
 
@@ -121,7 +118,9 @@ Each pattern must include:
 - A short comment describing the attack class and any
   community / paper / CVE reference, when applicable.
 
-Run `pnpm --filter @bouclier-ai/patterns test` to validate.
+Run `pnpm --filter @bouclier-ai/patterns test`, then
+`apps/desktop/scripts/sync-patterns.sh` and `pnpm check` to validate the
+shared package and regenerated desktop bundle.
 
 ## Coding style
 
@@ -136,10 +135,12 @@ when ...")` rather than `testForward()`).
 
 ## Privacy invariants
 
-Bouclier.ai must not log, persist, or transmit cleartext request
-content. The audit log records type + offsets + a hash prefix — never
-the value. Any PR that adds logging, telemetry, or persistence is held
-to that bar in review.
+Routine scan and audit paths must not log, persist, or transmit cleartext
+request content. They record bounded metadata and hash prefixes, never the
+value. A content-bearing feature requires a narrow, explicit user action,
+clear disclosure, review before transmission, strict size/retention limits,
+and tests that keep it off the routine path. Today the only such paths are
+the opt-in local block sample and the user-confirmed false-positive report.
 
 ## Release process
 
@@ -147,4 +148,10 @@ Releases are cut by maintainers using
 `apps/desktop/scripts/release.sh`, which builds, signs, notarises, and
 publishes the appcast. Contributors do not need to run this. The
 release script documents its own steps; environment variables are
-described in the script header.
+described in the script header. After the signed artifacts, version files,
+appcast, and matching `CHANGELOG.md` section are committed and pushed, verify
+that commit on the remote, tag that exact commit as `vX.Y.Z`, and push the tag.
+The tag workflow independently checks all product versions plus both Sparkle
+version fields before opening a draft GitHub release. Production site builds
+also refuse to deploy copy for a newer runtime until `APP_VERSION` has reached
+the declared minimum; preview builds stay available for release QA.

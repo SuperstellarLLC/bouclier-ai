@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { normalize, deobfuscateLeet } from "../normalize.js";
+import {
+  deobfuscateLeet,
+  deobfuscateLeetWithSourceMap,
+  normalize,
+  normalizeWithSourceMap,
+} from "../normalize.js";
 
 describe("normalize", () => {
   it("strips zero-width characters", () => {
@@ -28,6 +33,14 @@ describe("normalize", () => {
     const result = normalize("\uFF48\uFF45\uFF4C\uFF4C\uFF4F");
     expect(result).toBe("hello");
   });
+
+  it("maps compatibility expansions and collapsed words back to their source spans", () => {
+    const source = "x ﬃ, i g n o r e";
+    const mapped = normalizeWithSourceMap(source);
+    expect(mapped.text).toBe("x ffi, ignore");
+    expect(source.slice(mapped.sourceStarts[2], mapped.sourceEnds[4])).toBe("ﬃ");
+    expect(source.slice(mapped.sourceStarts[7], mapped.sourceEnds[12])).toBe("i g n o r e");
+  });
 });
 
 describe("deobfuscateLeet", () => {
@@ -44,5 +57,12 @@ describe("deobfuscateLeet", () => {
   it("converts @ to a when adjacent to alpha", () => {
     const result = deobfuscateLeet("s@fety");
     expect(result).toBe("safety");
+  });
+
+  it("preserves the source map while replacing leetspeak", () => {
+    const normalized = normalizeWithSourceMap("xx 1gn0r3");
+    const mapped = deobfuscateLeetWithSourceMap(normalized);
+    expect(mapped.text).toBe("xx ignore");
+    expect(mapped.sourceStarts.slice(3)).toEqual([3, 4, 5, 6, 7, 8]);
   });
 });

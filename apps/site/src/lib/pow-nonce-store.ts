@@ -1,4 +1,5 @@
 import { env } from "@/env";
+import { normalizeSafeHttpsBaseUrl } from "@/lib/safe-base-url";
 
 /**
  * Single-use enforcement for a proof-of-work stamp.
@@ -18,9 +19,10 @@ import { env } from "@/env";
  * a missing replay-cache weakens the per-solve cost but never blocks reporting.
  */
 
-// Must exceed POW_WINDOW_MS (120 s) so a seen stamp can't be reused while it is
-// still within its freshness window.
+// Must exceed POW_WINDOW_MS + permitted future skew (150 s) so a seen stamp
+// cannot be reused while it is still within its freshness window.
 const CLAIM_TTL_SECONDS = 180;
+const CLAIM_TIMEOUT_MS = 3_000;
 
 export type PowClaim = "claimed" | "replay" | "unavailable";
 
@@ -32,11 +34,13 @@ export async function claimPowStamp(
   if (!env.UPSTASH_REDIS_REST_URL || !env.UPSTASH_REDIS_REST_TOKEN) {
     return "unavailable";
   }
+  const redisBase = normalizeSafeHttpsBaseUrl(env.UPSTASH_REDIS_REST_URL);
+  if (!redisBase) return "unavailable";
   // Fully identifies one solved stamp; `:` is safe — none of the parts contain it.
   const key = `pow:${timestamp}:${fingerprint}:${nonce}`;
   try {
     // SET key 1 NX EX 180 → "OK" on the first claim, null once it already exists.
-    const res = await fetch(env.UPSTASH_REDIS_REST_URL, {
+    const res = await fetch(redisBase, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${env.UPSTASH_REDIS_REST_TOKEN}`,
@@ -44,10 +48,13 @@ export async function claimPowStamp(
       },
       body: JSON.stringify(["SET", key, "1", "NX", "EX", String(CLAIM_TTL_SECONDS)]),
       cache: "no-store",
+      signal: AbortSignal.timeout(CLAIM_TIMEOUT_MS),
     });
     if (!res.ok) return "unavailable";
     const body = (await res.json()) as { result?: unknown };
-    return body.result === "OK" ? "claimed" : "replay";
+    if (body.result === "OK") return "claimed";
+    if (body.result === null) return "replay";
+    return "unavailable";
   } catch {
     return "unavailable";
   }

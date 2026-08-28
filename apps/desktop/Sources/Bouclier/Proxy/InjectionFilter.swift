@@ -22,8 +22,20 @@ import Foundation
 /// they read `InjectionFilter.active.current()`, which `PatternManager`
 /// keeps pointed at the newest engine. See `ActiveInjectionFilterRegistry`.
 final class InjectionFilter: @unchecked Sendable {
+    private typealias PatternMatch = (
+        range: NSRange,
+        name: String,
+        category: String,
+        severity: String
+    )
+
     /// The process-wide active filter. Mirrors `PIIScanner.active`.
     static let active = ActiveInjectionFilterRegistry()
+
+    /// Reviewed detector count for this release. Packaging/tests pin the
+    /// exact JSON set; UI uses this threshold to distinguish the complete
+    /// signed tier from the six-pattern emergency fallback.
+    static let expectedBundledPatternCount = 186
 
     private let patterns: [FilterPattern]
     private let dampeners: [CompiledDampener]
@@ -70,8 +82,31 @@ final class InjectionFilter: @unchecked Sendable {
         "\u{0440}": "p", "\u{0441}": "c", "\u{0443}": "y",
         "\u{0445}": "x", "\u{0410}": "A", "\u{0415}": "E",
         "\u{041E}": "O", "\u{0420}": "P", "\u{0421}": "C",
+        "\u{0422}": "T", "\u{041D}": "H", "\u{0412}": "B", "\u{041C}": "M",
         "\u{03B1}": "a", "\u{03B5}": "e", "\u{03BF}": "o", "\u{03C1}": "p",
+        "\u{0391}": "A", "\u{0395}": "E", "\u{039F}": "O", "\u{03A1}": "P",
+        // NFKC already folds these fullwidth forms, but keeping the entries
+        // mirrors the browser engine and protects a future normalization
+        // refactor from quietly losing them.
+        "\u{FF41}": "a", "\u{FF42}": "b", "\u{FF43}": "c", "\u{FF44}": "d",
+        "\u{FF45}": "e", "\u{FF49}": "i", "\u{FF4F}": "o", "\u{FF50}": "p",
+        "\u{FF53}": "s", "\u{FF54}": "t",
     ]
+
+    /// Contextual leetspeak substitutions shared with the TypeScript
+    /// playground. A substitution is made only beside an ASCII letter, so
+    /// ordinary numeric values do not turn into detector input.
+    private static let leetMap: [UnicodeScalar: UnicodeScalar] = [
+        "0": "o", "1": "i", "3": "e", "4": "a", "5": "s",
+        "7": "t", "8": "b", "@": "a", "$": "s",
+    ]
+
+    private static let zeroWidthRegex = try! NSRegularExpression(
+        pattern: "[\\u200B\\u200C\\u200D\\uFEFF\\u2060\\u00AD]"
+    )
+    private static let splitWordRegex = try! NSRegularExpression(
+        pattern: #"\b([a-zA-Z])\s([a-zA-Z])\s([a-zA-Z])\s([a-zA-Z])(?:\s([a-zA-Z]))*"#
+    )
 
     /// Load patterns from bundled resource or fallback. The classifier
     /// can be attached later via `PatternManager` once it finishes
@@ -121,30 +156,13 @@ final class InjectionFilter: @unchecked Sendable {
 
     /// Scan content for prompt injections using fused regex + ML +
     /// entropy signals.
-    func scan(_ content: String) -> FilterResult {
+    func scan(_ content: String, includeML: Bool = true) -> FilterResult {
         guard !content.isEmpty else {
             return FilterResult.empty(content: content)
         }
 
         // ─── Signal 1: Regex over normalized + leetspeak variants ───
-        let normalized = Self.normalize(content)
-        let variants = content == normalized ? [content] : [content, normalized]
-
-        var allMatches: [(range: NSRange, name: String, category: String, severity: String)] = []
-        for variant in variants {
-            let nsContent = variant as NSString
-            for pattern in patterns where pattern.enabled {
-                let regexMatches = pattern.regex.matches(
-                    in: variant,
-                    range: NSRange(location: 0, length: nsContent.length)
-                )
-                for match in regexMatches {
-                    allMatches.append((match.range, pattern.name, pattern.category, pattern.severity))
-                }
-            }
-        }
-
-        allMatches.sort { $0.range.location < $1.range.location }
+        let allMatches = collectPatternMatches(in: content)
         let deduped = deduplicateOverlaps(allMatches)
         // Dampeners are found on the ORIGINAL content; a match near a
         // benign-context marker (OWASP/CVE, "tutorial", fenced code, a
@@ -159,7 +177,7 @@ final class InjectionFilter: @unchecked Sendable {
         // to make a meaningful decision and the latency cost is wasted.
         var mlScore: Float? = nil
         var mlAvailable = false
-        if let classifier, content.count >= 16 {
+        if includeML, let classifier, content.count >= 16 {
             do {
                 let result = try classifier.classify(content)
                 mlScore = result.maliciousScore
@@ -210,8 +228,13 @@ final class InjectionFilter: @unchecked Sendable {
         let sanitized: String
         if !deduped.isEmpty {
             var s = content
-            for match in deduped.reversed() {
-                guard let swiftRange = Range(match.range, in: s) else { continue }
+            // Metadata/scoring keeps one deterministic representative from
+            // each overlap component, but sanitization must cover the union
+            // of every original, normalized, and leetspeak match. Otherwise
+            // a shorter high-severity pattern could leave the tail of a
+            // longer overlapping match visible.
+            for range in Self.mergedRanges(allMatches.map(\.range)).reversed() {
+                guard let swiftRange = Range(range, in: s) else { continue }
                 s.replaceSubrange(swiftRange, with: Self.redactionMessage)
             }
             sanitized = s
@@ -221,9 +244,9 @@ final class InjectionFilter: @unchecked Sendable {
             sanitized = content
         }
 
-        let patternNames = Array(Set(deduped.map(\.name)))
-        let categories = Array(Set(deduped.map(\.category)))
-        let severities = Array(Set(deduped.map(\.severity)))
+        let patternNames = Array(Set(deduped.map(\.name))).sorted()
+        let categories = Array(Set(deduped.map(\.category))).sorted()
+        let severities = Array(Set(deduped.map(\.severity))).sorted()
 
         return FilterResult(
             matchCount: deduped.count,
@@ -244,7 +267,7 @@ final class InjectionFilter: @unchecked Sendable {
     /// per-match dampening applied. Single (undampened) critical → 1.0;
     /// a critical inside an OWASP/tutorial/quoted context → far lower.
     private static func computeRegexSignal(
-        _ matches: [(range: NSRange, name: String, category: String, severity: String)],
+        _ matches: [PatternMatch],
         dampenerRanges: [DampenerRange]
     ) -> Double {
         var sum = 0.0
@@ -351,24 +374,13 @@ final class InjectionFilter: @unchecked Sendable {
     /// matched in a tool call's arguments.
     func scanRegexOnly(_ content: String) -> (matchCount: Int, patternNames: [String], categories: [String]) {
         guard !content.isEmpty else { return (0, [], []) }
-        let normalized = Self.normalize(content)
-        let variants = content == normalized ? [content] : [content, normalized]
-
-        var allMatches: [(range: NSRange, name: String, category: String, severity: String)] = []
-        for variant in variants {
-            let nsContent = variant as NSString
-            for pattern in patterns where pattern.enabled {
-                let matches = pattern.regex.matches(
-                    in: variant, range: NSRange(location: 0, length: nsContent.length)
-                )
-                for match in matches {
-                    allMatches.append((match.range, pattern.name, pattern.category, pattern.severity))
-                }
-            }
-        }
-        allMatches.sort { $0.range.location < $1.range.location }
+        let allMatches = collectPatternMatches(in: content)
         let deduped = deduplicateOverlaps(allMatches)
-        return (deduped.count, Array(Set(deduped.map(\.name))), Array(Set(deduped.map(\.category))))
+        return (
+            deduped.count,
+            Array(Set(deduped.map(\.name))).sorted(),
+            Array(Set(deduped.map(\.category))).sorted()
+        )
     }
 
     // MARK: - Explainability (block-explainer, off the hot path)
@@ -422,38 +434,326 @@ final class InjectionFilter: @unchecked Sendable {
     }
 
     private static func normalize(_ content: String) -> String {
-        // NFKC normalization (fullwidth chars, compatibility decompositions)
+        collapseSplitWords(in: baseNormalize(content))
+    }
+
+    /// NFKC + homoglyph folding + invisible-character removal, in the same
+    /// order as `packages/patterns/src/normalize.ts`.
+    private static func baseNormalize(_ content: String) -> String {
         var result = content.precomposedStringWithCompatibilityMapping
-
-        result = result.replacingOccurrences(
-            of: "[\\u200B\\u200C\\u200D\\uFEFF\\u2060\\u00AD]",
-            with: "",
-            options: .regularExpression
+        result = String(result.map { homoglyphMap[$0] ?? $0 })
+        let range = NSRange(location: 0, length: (result as NSString).length)
+        return zeroWidthRegex.stringByReplacingMatches(
+            in: result, range: range, withTemplate: ""
         )
+    }
 
-        // Single-pass homoglyph replacement
-        var chars: [Character] = []
-        chars.reserveCapacity(result.count)
-        for c in result {
-            chars.append(homoglyphMap[c] ?? c)
+    /// Collapse sequences such as `i g n o r e` to `ignore`. Four letters
+    /// are required before the transform activates, matching the browser
+    /// scanner and avoiding ordinary initials/prose.
+    private static func collapseSplitWords(in text: String) -> String {
+        let ns = text as NSString
+        let full = NSRange(location: 0, length: ns.length)
+        let matches = splitWordRegex.matches(in: text, range: full)
+        guard !matches.isEmpty else { return text }
+
+        let out = NSMutableString(string: text)
+        for match in matches.reversed() {
+            let piece = ns.substring(with: match.range)
+            let collapsed = piece.unicodeScalars.filter {
+                !CharacterSet.whitespacesAndNewlines.contains($0)
+            }
+            out.replaceCharacters(in: match.range, with: String(String.UnicodeScalarView(collapsed)))
         }
-        result = String(chars)
+        return out as String
+    }
 
-        return result
+    /// A normalized view plus a UTF-16 source map back to the original
+    /// request. Regex ranges from the normalized variant must never be used
+    /// directly against the original string: compatibility folding can
+    /// expand characters and zero-width stripping can contract it, shifting
+    /// both redaction and benign-context proximity calculations.
+    private struct NormalizedView {
+        let text: String
+        /// One original-character range for each UTF-16 code unit in `text`.
+        /// Nil only for an exotic normalization whose cross-grapheme result
+        /// differs from the whole-string ICU result; that rare case safely
+        /// maps a hit to the full source span rather than inventing an offset.
+        let sourceRanges: [NSRange]?
+
+        func originalRange(for normalizedRange: NSRange, originalLength: Int) -> NSRange {
+            guard normalizedRange.location != NSNotFound,
+                  normalizedRange.length > 0,
+                  normalizedRange.location >= 0,
+                  normalizedRange.location + normalizedRange.length <= (sourceRanges?.count ?? -1),
+                  let sourceRanges
+            else {
+                return NSRange(location: 0, length: originalLength)
+            }
+            let covered = sourceRanges[
+                normalizedRange.location..<(normalizedRange.location + normalizedRange.length)
+            ]
+            let start = covered.map(\.location).min() ?? 0
+            let end = covered.map { $0.location + $0.length }.max() ?? originalLength
+            return NSRange(location: start, length: max(0, end - start))
+        }
+    }
+
+    private static func normalizedView(of content: String) -> NormalizedView {
+        let expectedBase = baseNormalize(content)
+        var mappedText = ""
+        var sourceRanges: [NSRange] = []
+        sourceRanges.reserveCapacity((expectedBase as NSString).length)
+
+        var originalOffset = 0
+        for character in content {
+            let originalPiece = String(character)
+            let originalLength = (originalPiece as NSString).length
+            let originalRange = NSRange(location: originalOffset, length: originalLength)
+
+            var normalizedPiece = originalPiece.precomposedStringWithCompatibilityMapping
+            normalizedPiece = String(normalizedPiece.map { homoglyphMap[$0] ?? $0 })
+            normalizedPiece = zeroWidthRegex.stringByReplacingMatches(
+                in: normalizedPiece,
+                range: NSRange(location: 0, length: (normalizedPiece as NSString).length),
+                withTemplate: ""
+            )
+
+            mappedText += normalizedPiece
+            sourceRanges.append(
+                contentsOf: repeatElement(originalRange, count: (normalizedPiece as NSString).length)
+            )
+            originalOffset += originalLength
+        }
+
+        // Whole-string normalization is the detection source of truth. The
+        // per-grapheme construction normally matches exactly and gives us a
+        // precise map. If Unicode composition ever crosses a grapheme
+        // boundary, retain detection and use the conservative full-span map.
+        let base: NormalizedView
+        if mappedText == expectedBase {
+            base = NormalizedView(text: mappedText, sourceRanges: sourceRanges)
+        } else {
+            base = NormalizedView(text: expectedBase, sourceRanges: nil)
+        }
+        let collapsed = collapseSplitWords(in: base)
+        let expected = normalize(content)
+        guard collapsed.text == expected else {
+            return NormalizedView(text: expected, sourceRanges: nil)
+        }
+        return collapsed
+    }
+
+    /// Source-mapped form of `collapseSplitWords(in:)`.
+    private static func collapseSplitWords(in view: NormalizedView) -> NormalizedView {
+        let ns = view.text as NSString
+        let matches = splitWordRegex.matches(
+            in: view.text, range: NSRange(location: 0, length: ns.length)
+        )
+        guard !matches.isEmpty else { return view }
+
+        var text = ""
+        var ranges: [NSRange] = []
+        let hasMap = view.sourceRanges != nil
+        var cursor = 0
+
+        func append(_ range: NSRange) {
+            guard range.length > 0 else { return }
+            text += ns.substring(with: range)
+            if let sourceRanges = view.sourceRanges {
+                ranges.append(contentsOf: sourceRanges[range.location..<(range.location + range.length)])
+            }
+        }
+
+        for match in matches {
+            append(NSRange(location: cursor, length: match.range.location - cursor))
+            let end = match.range.location + match.range.length
+            for offset in match.range.location..<end {
+                let unit = ns.character(at: offset)
+                guard let scalar = UnicodeScalar(unit),
+                      CharacterSet.whitespacesAndNewlines.contains(scalar)
+                else {
+                    append(NSRange(location: offset, length: 1))
+                    continue
+                }
+            }
+            cursor = end
+        }
+        append(NSRange(location: cursor, length: ns.length - cursor))
+        return NormalizedView(text: text, sourceRanges: hasMap ? ranges : nil)
+    }
+
+    /// Contextual leetspeak transform with the same original UTF-16 mapping
+    /// as the normalized view it derives from.
+    private static func deobfuscatedLeetView(of view: NormalizedView) -> NormalizedView {
+        // JavaScript's `[...text]` iterates Unicode code points, not grapheme
+        // clusters. UnicodeScalar iteration preserves that neighbor behavior
+        // for combining marks while UTF-16 offsets keep regex/source mapping
+        // in Foundation's coordinate system.
+        let scalars = Array(view.text.unicodeScalars)
+        guard !scalars.isEmpty else { return view }
+
+        var text = ""
+        var ranges: [NSRange] = []
+        let hasMap = view.sourceRanges != nil
+        var utf16Offset = 0
+        var changed = false
+
+        for index in scalars.indices {
+            let scalar = scalars[index]
+            let scalarLength = (String(scalar) as NSString).length
+            let previousIsAlpha = index > scalars.startIndex
+                && isASCIIAlpha(scalars[scalars.index(before: index)])
+            let nextIndex = scalars.index(after: index)
+            let nextIsAlpha = nextIndex < scalars.endIndex && isASCIIAlpha(scalars[nextIndex])
+            let replacement = leetMap[scalar]
+            let shouldReplace = replacement != nil && (previousIsAlpha || nextIsAlpha)
+
+            if shouldReplace, let replacement {
+                text += String(replacement)
+                changed = true
+                if let sourceRanges = view.sourceRanges {
+                    let covered = sourceRanges[utf16Offset..<(utf16Offset + scalarLength)]
+                    let start = covered.map(\.location).min() ?? 0
+                    let end = covered.map { $0.location + $0.length }.max() ?? start
+                    ranges.append(NSRange(location: start, length: max(0, end - start)))
+                }
+            } else {
+                text += String(scalar)
+                if let sourceRanges = view.sourceRanges {
+                    ranges.append(
+                        contentsOf: sourceRanges[utf16Offset..<(utf16Offset + scalarLength)]
+                    )
+                }
+            }
+            utf16Offset += scalarLength
+        }
+
+        guard changed else { return view }
+        return NormalizedView(text: text, sourceRanges: hasMap ? ranges : nil)
+    }
+
+    private static func isASCIIAlpha(_ scalar: UnicodeScalar) -> Bool {
+        (scalar.value >= 65 && scalar.value <= 90)
+            || (scalar.value >= 97 && scalar.value <= 122)
+    }
+
+    /// Collect original and normalized-variant matches, expressing every
+    /// range in the original request's UTF-16 coordinate space.
+    private func collectPatternMatches(in content: String) -> [PatternMatch] {
+        let originalLength = (content as NSString).length
+        var matches: [PatternMatch] = []
+
+        func scan(_ text: String, mapRange: (NSRange) -> NSRange) {
+            let length = (text as NSString).length
+            for pattern in patterns where pattern.enabled {
+                for match in pattern.regex.matches(
+                    in: text,
+                    range: NSRange(location: 0, length: length)
+                ) where match.range.length > 0 {
+                    matches.append((
+                        mapRange(match.range),
+                        pattern.name,
+                        pattern.category,
+                        pattern.severity
+                    ))
+                }
+            }
+        }
+
+        scan(content) { $0 }
+
+        let normalized = Self.normalizedView(of: content)
+        if normalized.text != content {
+            scan(normalized.text) {
+                normalized.originalRange(for: $0, originalLength: originalLength)
+            }
+        }
+
+        // TypeScript scans this third view even when NFKC/homoglyph
+        // normalization itself made no change. It is intentionally derived
+        // from the normalized view so a mixed evasion (for example a
+        // Cyrillic homoglyph plus `1gn0r3`) is decoded in one pass.
+        let leet = Self.deobfuscatedLeetView(of: normalized)
+        if leet.text != normalized.text, leet.text != content {
+            scan(leet.text) {
+                leet.originalRange(for: $0, originalLength: originalLength)
+            }
+        }
+        return matches
+    }
+
+    /// Merge overlapping UTF-16 source ranges for complete, stable
+    /// right-to-left redaction. Adjacent ranges remain separate, matching
+    /// the TypeScript scanner's `mergeOverlaps` behavior.
+    private static func mergedRanges(_ ranges: [NSRange]) -> [NSRange] {
+        let ordered = ranges
+            .filter { $0.location != NSNotFound && $0.length > 0 }
+            .sorted {
+                if $0.location != $1.location { return $0.location < $1.location }
+                return $0.length > $1.length
+            }
+        guard var current = ordered.first else { return [] }
+
+        var merged: [NSRange] = []
+        for range in ordered.dropFirst() {
+            let currentEnd = current.location + current.length
+            let rangeEnd = range.location + range.length
+            if range.location < currentEnd {
+                current.length = max(currentEnd, rangeEnd) - current.location
+            } else {
+                merged.append(current)
+                current = range
+            }
+        }
+        merged.append(current)
+        return merged
     }
 
     private func deduplicateOverlaps(
-        _ matches: [(range: NSRange, name: String, category: String, severity: String)]
-    ) -> [(range: NSRange, name: String, category: String, severity: String)] {
-        var result: [(range: NSRange, name: String, category: String, severity: String)] = []
-        var lastEnd = 0
-        for match in matches {
-            if match.range.location >= lastEnd {
-                result.append(match)
-                lastEnd = match.range.location + match.range.length
+        _ matches: [PatternMatch]
+    ) -> [PatternMatch] {
+        guard !matches.isEmpty else { return [] }
+        let ordered = matches.sorted { lhs, rhs in
+            if lhs.range.location != rhs.range.location {
+                return lhs.range.location < rhs.range.location
+            }
+            let lhsEnd = lhs.range.location + lhs.range.length
+            let rhsEnd = rhs.range.location + rhs.range.length
+            if lhsEnd != rhsEnd { return lhsEnd > rhsEnd }
+            return Self.preferredMatch(lhs, over: rhs)
+        }
+
+        var result: [PatternMatch] = []
+        var best = ordered[0]
+        var componentEnd = best.range.location + best.range.length
+
+        for match in ordered.dropFirst() {
+            // Resolve a whole transitive overlap component, not just the last
+            // retained interval. Within it, keep the highest-severity signal;
+            // pattern-file order must never let a low match erase a critical
+            // one covering the same content.
+            if match.range.location < componentEnd {
+                componentEnd = max(componentEnd, match.range.location + match.range.length)
+                if Self.preferredMatch(match, over: best) { best = match }
+            } else {
+                result.append(best)
+                best = match
+                componentEnd = match.range.location + match.range.length
             }
         }
+        result.append(best)
         return result
+    }
+
+    private static func preferredMatch(_ lhs: PatternMatch, over rhs: PatternMatch) -> Bool {
+        let lhsWeight = severityWeights[lhs.severity] ?? 0
+        let rhsWeight = severityWeights[rhs.severity] ?? 0
+        if lhsWeight != rhsWeight { return lhsWeight > rhsWeight }
+        if lhs.range.length != rhs.range.length { return lhs.range.length > rhs.range.length }
+        if lhs.name != rhs.name { return lhs.name < rhs.name }
+        if lhs.category != rhs.category { return lhs.category < rhs.category }
+        return lhs.severity < rhs.severity
     }
 
     /// Compile a `[DampenerJSON]` into runnable dampeners, dropping any
@@ -470,7 +770,7 @@ final class InjectionFilter: @unchecked Sendable {
     }
 
     private static func loadBundledSet() -> (patterns: [FilterPattern], dampeners: [CompiledDampener]) {
-        guard let url = Bundle.main.url(forResource: "patterns", withExtension: "json"),
+        guard let url = BouclierResources.url(forResource: "patterns", withExtension: "json"),
               let data = try? Data(contentsOf: url)
         else {
             print("[bouclier.ai] patterns.json not found, using fallback patterns")

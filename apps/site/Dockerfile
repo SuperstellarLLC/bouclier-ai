@@ -24,6 +24,10 @@ COPY . .
 
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV SKIP_ENV_VALIDATION=true
+# Docker images are production artifacts even when built outside Vercel. This
+# enables the same signed-desktop/appcast alignment gate as VERCEL_ENV does,
+# while ordinary local `pnpm build` and Vercel previews remain available for QA.
+ENV BOUCLIER_DEPLOYMENT_ENV=production
 
 RUN pnpm --filter @bouclier-ai/patterns build
 RUN pnpm --filter site build
@@ -34,11 +38,12 @@ WORKDIR /app
 
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
+ENV BOUCLIER_DEPLOYMENT_ENV=production
 
 RUN addgroup --system --gid 1001 nodejs && \
     adduser --system --uid 1001 nextjs
 
-COPY --from=builder /app/apps/site/public ./public
+COPY --from=builder /app/apps/site/public ./apps/site/public
 COPY --from=builder --chown=nextjs:nodejs /app/apps/site/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/apps/site/.next/static ./apps/site/.next/static
 

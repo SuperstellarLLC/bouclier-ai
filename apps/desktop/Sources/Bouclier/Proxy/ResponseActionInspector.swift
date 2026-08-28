@@ -48,22 +48,31 @@ final class ResponseActionInspector {
     /// `tool_calls[].index`.
     private var anthropicTools: [Int: PendingCall] = [:]
     private var openAITools: [Int: PendingCall] = [:]
+    /// Aggregate retained argument bytes across both provider shapes. This is
+    /// maintained incrementally so a stream of tiny deltas cannot turn the
+    /// accounting itself into quadratic work.
+    private(set) var pendingArgumentBytes = 0
+    private(set) var isDisabledByResourceLimit = false
+
+    var pendingToolCallCount: Int {
+        anthropicTools.count + openAITools.count
+    }
 
     private(set) var findings: [Finding] = []
-    private var reportedUpTo = 0
-
-    /// Findings appended since the last call — lets the relay report as the
-    /// stream flows without re-reporting the whole list each chunk.
+    /// Drain findings appended since the previous call. Removing reported
+    /// entries bounds memory and the lifetime of the (truncated but still
+    /// sensitive) argument excerpts on long-running streams.
     func takeNewFindings() -> [Finding] {
-        guard reportedUpTo < findings.count else { return [] }
-        let new = Array(findings[reportedUpTo...])
-        reportedUpTo = findings.count
+        guard !findings.isEmpty else { return [] }
+        let new = findings
+        findings.removeAll(keepingCapacity: true)
         return new
     }
 
     private struct PendingCall {
         var name: String
         var args: String
+        var argumentBytes: Int
     }
 
     /// Categories whose presence in a tool call's *arguments* means the
@@ -75,6 +84,12 @@ final class ResponseActionInspector {
     ]
     static let maxArgExcerpt = 2048
     static let maxBufferBytes = 1 * 1024 * 1024
+    /// This monitor is observe-only, so exceeding a resource bound disables
+    /// observation for the response while the byte-faithful relay continues.
+    /// The bounds cover aggregate state, not merely each individual tool ID.
+    static let maxPendingToolCalls = 64
+    static let maxPendingArgumentBytes = 1 * 1024 * 1024
+    static let maxToolNameBytes = 1024
 
     /// Cheap markers that a response stream carries tool calls at all. Until
     /// one appears we don't parse frames — a plain text answer pays almost
@@ -95,6 +110,8 @@ final class ResponseActionInspector {
         buffer.removeAll(keepingCapacity: true)
         anthropicTools.removeAll(keepingCapacity: true)
         openAITools.removeAll(keepingCapacity: true)
+        pendingArgumentBytes = 0
+        isDisabledByResourceLimit = false
         engaged = false
         self.requestHadUntrusted = requestHadUntrusted
     }
@@ -103,6 +120,16 @@ final class ResponseActionInspector {
     /// alters the stream. Best-effort: any parse failure is swallowed so a
     /// malformed frame can never affect forwarding.
     func ingest(_ chunk: String) {
+        guard !isDisabledByResourceLimit else { return }
+        // Refuse the allocation before concatenating. Checking only after
+        // `buffer += chunk` let one unusually large socket read transiently
+        // allocate well beyond the monitor's advertised 1 MiB bound.
+        let chunkBytes = chunk.utf8.count
+        let bufferedBytes = buffer.utf8.count
+        guard chunkBytes <= Self.maxBufferBytes - bufferedBytes else {
+            disableForResourceLimit()
+            return
+        }
         buffer += chunk
 
         if !engaged {
@@ -120,27 +147,24 @@ final class ResponseActionInspector {
             }
         }
 
-        if buffer.utf8.count > Self.maxBufferBytes {
-            // Runaway upstream: stop accumulating, keep any findings so far.
-            buffer.removeAll(keepingCapacity: false)
-            return
-        }
-
         while let sep = buffer.range(of: "\n\n") ?? buffer.range(of: "\r\n\r\n") {
             let frame = String(buffer[..<sep.lowerBound])
             buffer.removeSubrange(buffer.startIndex..<sep.upperBound)
             processFrame(frame)
+            if isDisabledByResourceLimit { return }
         }
     }
 
     /// Stream end — finalize any tool call still open (e.g. a provider that
     /// closes on `[DONE]` without an explicit stop event).
     func finish() {
+        guard !isDisabledByResourceLimit else { return }
         if !buffer.isEmpty {
             let tail = buffer
             buffer.removeAll()
             processFrame(tail)
         }
+        guard !isDisabledByResourceLimit else { return }
         finalizePending()
     }
 
@@ -148,6 +172,7 @@ final class ResponseActionInspector {
 
     private func processFrame(_ frame: String) {
         for line in frame.split(separator: "\n", omittingEmptySubsequences: true) {
+            guard !isDisabledByResourceLimit else { return }
             guard line.hasPrefix("data:") else { continue }
             let payload = line.dropFirst(5).trimmingCharacters(in: .whitespaces)
             if payload.isEmpty || payload == "[DONE]" { continue }
@@ -155,6 +180,7 @@ final class ResponseActionInspector {
                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
             else { continue }
             routeAnthropic(json)
+            guard !isDisabledByResourceLimit else { return }
             routeOpenAI(json)
         }
     }
@@ -171,17 +197,29 @@ final class ResponseActionInspector {
                   block["type"] as? String == "tool_use"
             else { return }
             let name = block["name"] as? String ?? ""
-            anthropicTools[index] = PendingCall(name: name, args: "")
+            if let replaced = anthropicTools.removeValue(forKey: index) {
+                releaseArgumentBytes(replaced.argumentBytes)
+            }
+            guard admitNewToolID(), admitToolName(name) else { return }
+            anthropicTools[index] = PendingCall(name: name, args: "", argumentBytes: 0)
         case "content_block_delta":
             guard let index = json["index"] as? Int,
                   let delta = json["delta"] as? [String: Any],
                   delta["type"] as? String == "input_json_delta",
                   let partial = delta["partial_json"] as? String
             else { return }
-            anthropicTools[index]?.args += partial
+            guard var call = anthropicTools[index],
+                  let addedBytes = admitArgumentFragment(partial)
+            else { return }
+            call.args += partial
+            call.argumentBytes += addedBytes
+            pendingArgumentBytes += addedBytes
+            anthropicTools[index] = call
         case "content_block_stop":
-            guard let index = json["index"] as? Int, let call = anthropicTools[index] else { return }
-            anthropicTools[index] = nil
+            guard let index = json["index"] as? Int,
+                  let call = anthropicTools.removeValue(forKey: index)
+            else { return }
+            releaseArgumentBytes(call.argumentBytes)
             evaluate(call)
         default:
             break
@@ -197,11 +235,26 @@ final class ResponseActionInspector {
         if let delta = first["delta"] as? [String: Any],
            let toolCalls = delta["tool_calls"] as? [[String: Any]] {
             for tc in toolCalls {
+                guard !isDisabledByResourceLimit else { return }
                 let index = tc["index"] as? Int ?? 0
-                var call = openAITools[index] ?? PendingCall(name: "", args: "")
+                var call: PendingCall
+                if let pending = openAITools[index] {
+                    call = pending
+                } else {
+                    guard admitNewToolID() else { return }
+                    call = PendingCall(name: "", args: "", argumentBytes: 0)
+                }
                 if let fn = tc["function"] as? [String: Any] {
-                    if let name = fn["name"] as? String, !name.isEmpty { call.name = name }
-                    if let args = fn["arguments"] as? String { call.args += args }
+                    if let name = fn["name"] as? String, !name.isEmpty {
+                        guard admitToolName(name) else { return }
+                        call.name = name
+                    }
+                    if let args = fn["arguments"] as? String {
+                        guard let addedBytes = admitArgumentFragment(args) else { return }
+                        call.args += args
+                        call.argumentBytes += addedBytes
+                        pendingArgumentBytes += addedBytes
+                    }
                 }
                 openAITools[index] = call
             }
@@ -213,16 +266,58 @@ final class ResponseActionInspector {
     }
 
     private func finalizeOpenAI() {
-        let calls = openAITools.values
+        let calls = Array(openAITools.values)
         openAITools.removeAll(keepingCapacity: true)
+        releaseArgumentBytes(calls.reduce(0) { $0 + $1.argumentBytes })
         for call in calls { evaluate(call) }
     }
 
     private func finalizePending() {
-        let anthro = anthropicTools.values
+        let anthro = Array(anthropicTools.values)
         anthropicTools.removeAll(keepingCapacity: true)
+        releaseArgumentBytes(anthro.reduce(0) { $0 + $1.argumentBytes })
         for call in anthro { evaluate(call) }
         finalizeOpenAI()
+    }
+
+    // MARK: - Resource admission
+
+    private func admitNewToolID() -> Bool {
+        guard pendingToolCallCount < Self.maxPendingToolCalls else {
+            disableForResourceLimit()
+            return false
+        }
+        return true
+    }
+
+    private func admitToolName(_ name: String) -> Bool {
+        guard name.utf8.count <= Self.maxToolNameBytes else {
+            disableForResourceLimit()
+            return false
+        }
+        return true
+    }
+
+    private func admitArgumentFragment(_ fragment: String) -> Int? {
+        let addedBytes = fragment.utf8.count
+        guard addedBytes <= Self.maxPendingArgumentBytes - pendingArgumentBytes else {
+            disableForResourceLimit()
+            return nil
+        }
+        return addedBytes
+    }
+
+    private func releaseArgumentBytes(_ count: Int) {
+        pendingArgumentBytes = max(0, pendingArgumentBytes - count)
+    }
+
+    private func disableForResourceLimit() {
+        isDisabledByResourceLimit = true
+        buffer.removeAll(keepingCapacity: false)
+        anthropicTools.removeAll(keepingCapacity: false)
+        openAITools.removeAll(keepingCapacity: false)
+        pendingArgumentBytes = 0
+        engaged = false
     }
 
     // MARK: - Evaluation

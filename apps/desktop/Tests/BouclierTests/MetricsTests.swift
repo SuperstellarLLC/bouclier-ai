@@ -87,9 +87,12 @@ struct MetricsTests {
         }
         let snap = await metrics.snapshot()
         #expect(snap.latency.count == UInt64(durations.count))
-        #expect(snap.latency.p50Ms != nil)
-        #expect(snap.latency.p95Ms != nil)
-        #expect(snap.latency.p99Ms != nil)
+        // Counts are cumulative. Ranks 4, 8 and 8 land in the 25 ms and
+        // +Inf buckets respectively; summing cumulative counts again used
+        // to produce the wildly wrong 10/25/25 ms answers.
+        #expect(snap.latency.p50Ms == 25)
+        #expect(snap.latency.p95Ms == .greatestFiniteMagnitude)
+        #expect(snap.latency.p99Ms == .greatestFiniteMagnitude)
         // sum ≈ 2807.5 ms (0.5 + 4 + 9 + 24 + 50 + 120 + 600 + 2000)
         #expect(snap.latency.sumMs > 2800 && snap.latency.sumMs < 2810)
     }
@@ -170,5 +173,35 @@ struct MetricsTests {
         #expect(snap.hitsByCategory["role-hijack"] == 1)
         #expect(snap.hitsBySeverity["high"] == 1)
         #expect(snap.latency.count == 1)
+    }
+
+    @Test("Uninspected oversized requests do not inflate bytes scanned")
+    func mapsSkippedRequestHonestly() async {
+        let log = RequestLog(
+            timestamp: Date(),
+            targetHost: "api.anthropic.com",
+            detected: false,
+            matchCount: 0,
+            patternNames: [],
+            bodySize: InjectionInspectionPass.maxScanBytes + 123,
+            mlScore: nil,
+            entropyAnomaly: 0,
+            fusedScore: 0,
+            mlAvailable: false,
+            inspectionPerformed: false,
+            scanSkippedReason: .oversized
+        )
+        let sample = Metrics.sample(for: log)
+        #expect(sample.bodySize == 0)
+        #expect(sample.oversized)
+
+        let metrics = Metrics()
+        await metrics.record(sample)
+        let snapshot = await metrics.snapshot()
+        #expect(snapshot.requestsTotal == 1)
+        #expect(snapshot.requestsOversized == 1)
+        #expect(snapshot.bytesScanned == 0)
+        #expect(snapshot.latency.count == 0,
+                "uninspected traffic must not inject synthetic 0 ms samples into scan latency")
     }
 }

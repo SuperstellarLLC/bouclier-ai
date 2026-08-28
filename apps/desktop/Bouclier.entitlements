@@ -6,6 +6,8 @@
     <string>U86PR842AK.ai.bouclier.app</string>
     <key>com.apple.developer.team-identifier</key>
     <string>U86PR842AK</string>
+    <key>com.apple.developer.system-extension.install</key>
+    <true/>
     <key>com.apple.security.network.server</key>
     <true/>
     <key>com.apple.security.network.client</key>

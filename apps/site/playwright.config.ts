@@ -1,5 +1,8 @@
 import { defineConfig, devices } from "@playwright/test";
 
+const testHost = "127.0.0.1";
+const testPort = 4173;
+
 export default defineConfig({
   testDir: "./e2e",
   fullyParallel: true,
@@ -10,7 +13,7 @@ export default defineConfig({
   timeout: 30_000,
 
   use: {
-    baseURL: "http://localhost:3000",
+    baseURL: `http://${testHost}:${testPort}`,
     trace: "on-first-retry",
     screenshot: "only-on-failure",
   },
@@ -39,11 +42,16 @@ export default defineConfig({
   ],
 
   webServer: {
-    command: "npm run build && npm run start",
-    port: 3000,
-    reuseExistingServer: !process.env.CI,
+    command: "pnpm build && pnpm start",
+    port: testPort,
+    // Reusing an arbitrary listener can silently run the suite against a
+    // different local product. A dedicated port plus a fresh server keeps the
+    // browser evidence tied to this checkout in both local and CI runs.
+    reuseExistingServer: false,
     timeout: 120_000,
     env: {
+      HOSTNAME: testHost,
+      PORT: String(testPort),
       SKIP_ENV_VALIDATION: "true",
     },
   },

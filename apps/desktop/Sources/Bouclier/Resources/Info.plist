@@ -24,8 +24,6 @@
     <true/>
     <key>NSHumanReadableCopyright</key>
     <string>Copyright 2026 Bouclier.ai</string>
-    <key>NSSpeechRecognitionUsageDescription</key>
-    <string>Bouclier.ai uses on-device speech recognition to inspect audio clips you send to AI providers for PII. Audio never leaves your Mac.</string>
     <key>SUPublicEDKey</key>
     <string>QNMtWO7H9Z9Hv1J9bAsunleicPvJVP2bMJQezjV3vmM=</string>
     <key>SUFeedURL</key>

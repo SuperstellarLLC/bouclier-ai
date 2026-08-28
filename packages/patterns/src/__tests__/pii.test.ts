@@ -23,6 +23,8 @@ describe("PII validators", () => {
     expect(luhn("378282246310005")).toBe(true); // Amex test
     expect(luhn("4242424242424241")).toBe(false); // last digit off by 1
     expect(luhn("1234567890123")).toBe(false);
+    expect(luhn("0000 0000 0000 0000")).toBe(false);
+    expect(luhn("1111 1111 1111 1111")).toBe(false);
   });
 
   it("ibanMod97 accepts canonical examples and rejects mutations", () => {
@@ -70,12 +72,14 @@ describe("PII validators", () => {
     expect(isPlausibleSIREN("732829320")).toBe(true);
     expect(isPlausibleSIREN("732 829 321")).toBe(false);
     expect(isPlausibleSIREN("12345678")).toBe(false); // 8 digits
+    expect(isPlausibleSIREN("000 000 000")).toBe(false);
   });
 
   it("isPlausibleSIRET accepts TotalEnergies HQ SIRET, rejects mutations", () => {
     expect(isPlausibleSIRET("732 829 320 00074")).toBe(true);
     expect(isPlausibleSIRET("73282932000074")).toBe(true);
     expect(isPlausibleSIRET("73282932000075")).toBe(false);
+    expect(isPlausibleSIRET("00000000000000")).toBe(false);
   });
 
   it("isPlausibleNIR accepts a constructed-then-keyed NIR", () => {
@@ -97,6 +101,7 @@ describe("PII validators", () => {
     expect(isPlausibleNHS("943 476 5919")).toBe(true);
     expect(isPlausibleNHS("9434765919")).toBe(true);
     expect(isPlausibleNHS("9434765918")).toBe(false);
+    expect(isPlausibleNHS("000 000 0000")).toBe(false);
   });
 
   it("isPlausibleNINO accepts canonical, rejects banned prefixes and reserved pairs", () => {
@@ -382,6 +387,18 @@ MIIEpAIBAAKCAQEA1234567890abcdefghijklmnopqrstuvwxyz1234567890==
     expect(hits.find((h) => h.type === "IPV6")).toBeDefined();
   });
 
+  it("IPV6 detects valid addresses compressed from the leading groups", () => {
+    const hits = scanPII("peer ::abcd:1 connected");
+    expect(hits.find((h) => h.type === "IPV6")?.value).toBe("::abcd:1");
+  });
+
+  it("detector priority wins even when a lower-priority overlap starts earlier", () => {
+    const specific = { type: "JWT" as const, regex: /secret/g };
+    const broad = { type: "GENERIC_API_KEY" as const, regex: /a-secret-value/g };
+    const hits = scanPII("x a-secret-value y", { detectors: [specific, broad] });
+    expect(hits).toEqual([{ type: "JWT", start: 4, end: 10, value: "secret" }]);
+  });
+
   // R1 regression: scanner.ts:45 used to be `b.d.end - b.d.end === 0 ? 0
   // : b.d.end - a.d.end`, which is identically zero. The fix matters
   // whenever two detectors of the same rank produce overlapping spans
@@ -443,6 +460,12 @@ describe("applyRedactions", () => {
 
   it("is a no-op when no detections were found", () => {
     expect(applyRedactions("hello world", [], () => "X")).toBe("hello world");
+  });
+
+  it("fails closed on stale or overlapping caller-supplied offsets", () => {
+    expect(() =>
+      applyRedactions("abc", [{ type: "EMAIL", start: 1, end: 3, value: "wrong" }], () => "X"),
+    ).toThrow(RangeError);
   });
 });
 

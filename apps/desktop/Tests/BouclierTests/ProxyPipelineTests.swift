@@ -1,3 +1,4 @@
+import Foundation
 import NIOCore
 import NIOEmbedded
 import NIOHTTP1
@@ -176,6 +177,92 @@ struct ProxyPipelineTests {
         #expect(SystemProxy.builtinDomains.contains("api.anthropic.com"))
         #expect(!SystemProxy.builtinDomains.contains("example.com"))
         #expect(!SystemProxy.builtinDomains.contains("169.254.169.254"))
+    }
+
+    @Test("Legacy migration recognizes only Bouclier-owned PAC URLs")
+    func legacyPACOwnershipIsNarrow() {
+        let expected = URL(fileURLWithPath:
+            "/Users/example/Library/Application Support/ai.bouclier.app/proxy.pac"
+        )
+        #expect(SystemProxy.isOwnedLegacyPACURL(
+            "file:///Users/example/Library/Application Support/ai.bouclier.app/proxy.pac",
+            expectedPACFileURL: expected
+        ))
+        #expect(SystemProxy.isOwnedLegacyPACURL(
+            "file:///Users/example/Library/Application%20Support/ai.bouclier.app/proxy.pac",
+            expectedPACFileURL: expected
+        ))
+        #expect(!SystemProxy.isOwnedLegacyPACURL(
+            "http://127.0.0.1:8484/proxy.pac",
+            expectedPACFileURL: expected
+        ))
+        #expect(!SystemProxy.isOwnedLegacyPACURL(
+            "http://localhost:8484/bouclier.pac",
+            expectedPACFileURL: expected
+        ))
+        #expect(!SystemProxy.isOwnedLegacyPACURL(
+            "file://localhost/Users/example/Library/Application%20Support/ai.bouclier.app/proxy.pac",
+            expectedPACFileURL: expected
+        ))
+        #expect(!SystemProxy.isOwnedLegacyPACURL(
+            "file://127.0.0.1/Users/example/Library/Application%20Support/ai.bouclier.app/proxy.pac",
+            expectedPACFileURL: expected
+        ))
+        #expect(!SystemProxy.isOwnedLegacyPACURL(
+            "file://user@/Users/example/Library/Application%20Support/ai.bouclier.app/proxy.pac",
+            expectedPACFileURL: expected
+        ))
+        #expect(!SystemProxy.isOwnedLegacyPACURL(
+            "file://user:password@/Users/example/Library/Application%20Support/ai.bouclier.app/proxy.pac",
+            expectedPACFileURL: expected
+        ))
+        #expect(!SystemProxy.isOwnedLegacyPACURL(
+            "file:///Users/example/Library/Application%20Support/ai.bouclier.app/proxy.pac?mode=corp",
+            expectedPACFileURL: expected
+        ))
+        #expect(!SystemProxy.isOwnedLegacyPACURL(
+            "file:///Users/example/Library/Application%20Support/ai.bouclier.app/proxy.pac#corp",
+            expectedPACFileURL: expected
+        ))
+        #expect(!SystemProxy.isOwnedLegacyPACURL(
+            "file:///Users/example/Library/Application%20Support/ai.bouclier.app/bouclier.pac",
+            expectedPACFileURL: expected
+        ))
+        #expect(!SystemProxy.isOwnedLegacyPACURL(
+            "file:///Users/example/Library/Application%20Support/ai.bouclier.app/../proxy.pac",
+            expectedPACFileURL: expected
+        ))
+        #expect(!SystemProxy.isOwnedLegacyPACURL(
+            "file:///Users/other/Library/Application%20Support/ai.bouclier.app/proxy.pac",
+            expectedPACFileURL: expected
+        ))
+    }
+
+    @Test("networksetup PAC output parser ignores missing URLs")
+    func legacyPACOutputParsing() {
+        #expect(SystemProxy.autoProxyURL(from:
+            "URL: file:///Users/example/Library/Application Support/ai.bouclier.app/proxy.pac\nEnabled: Yes"
+        ) == "file:///Users/example/Library/Application Support/ai.bouclier.app/proxy.pac")
+        #expect(SystemProxy.autoProxyURL(from: "URL: (null)\nEnabled: No") == nil)
+        #expect(SystemProxy.autoProxyURL(from: "Enabled: No") == nil)
+        #expect(SystemProxy.settingEnabled(from: "Enabled: Yes\nServer: 127.0.0.1") == true)
+        #expect(SystemProxy.settingEnabled(from: "Enabled: No\nURL: (null)") == false)
+        #expect(SystemProxy.settingEnabled(from: "Enabled: Maybe") == nil)
+        #expect(SystemProxy.settingEnabled(from: "URL: http://example.test/proxy.pac") == nil)
+    }
+
+    @Test("networksetup service parser preserves names and removes status markers")
+    func networkServiceOutputParsing() {
+        let output = """
+        An asterisk (*) denotes that a network service is disabled.
+        Wi-Fi
+        *USB 10/100/1000 LAN
+        Corporate VPN
+
+        """
+        #expect(SystemProxy.networkServices(from: output) == [
+            "Wi-Fi", "USB 10/100/1000 LAN", "Corporate VPN",
+        ])
     }
 
     @Test("Query string injection is caught via URI scan")

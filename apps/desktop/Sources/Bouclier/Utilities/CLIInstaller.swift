@@ -20,6 +20,10 @@ enum CLIInstaller {
     static var cliBinaryPath: String { binaryPath(named: "bouclier-cli") }
     static var mcpBinaryPath: String { binaryPath(named: "bouclier-ai-mcp-wrapper") }
 
+    static func mcpRegistrationCommand(mcpPath: String = mcpBinaryPath) -> String {
+        "claude mcp add bouclier -- \(shellQuoted(mcpPath))"
+    }
+
     /// What the symlink currently resolves to, or nil if it doesn't exist
     /// (or isn't a symlink at all).
     static func installedTarget(at path: String = symlinkPath) -> String? {

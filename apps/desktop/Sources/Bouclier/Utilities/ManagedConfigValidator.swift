@@ -20,6 +20,13 @@ enum ManagedConfigValidator {
         return v
     }
 
+    static func validatedEnforcementPolicy(_ value: String?) -> String? {
+        guard let policy = value?.lowercased(), ["block", "monitor", "warn", "log"].contains(policy) else {
+            return nil
+        }
+        return policy
+    }
+
     // MARK: - Hostnames
 
     /// Validate a hostname string. Matches RFC 1123: letters, digits,
@@ -50,7 +57,7 @@ enum ManagedConfigValidator {
         raw.compactMap { validatedHostname($0) }
     }
 
-    // MARK: - Webhooks and upstream proxies
+    // MARK: - Webhooks
 
     /// Validate a webhook URL. Only HTTPS is accepted — never `file://`,
     /// `javascript:`, `http://`, or any custom scheme. The URL must have
@@ -64,17 +71,4 @@ enum ManagedConfigValidator {
         return url
     }
 
-    /// Validate an upstream HTTP/HTTPS proxy URL pulled from env vars.
-    /// Both `http://` and `https://` are allowed because corporate
-    /// proxies commonly expose plain-HTTP CONNECT endpoints. The URL
-    /// must have a hostname and a valid port.
-    static func validatedProxyURL(_ raw: String?) -> URL? {
-        guard let s = raw, let url = URL(string: s) else { return nil }
-        guard let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" else {
-            return nil
-        }
-        guard let host = url.host, validatedHostname(host) != nil else { return nil }
-        if let port = url.port, !validPortRange.contains(port) { return nil }
-        return url
-    }
 }

@@ -2,6 +2,8 @@ import { ImageResponse } from "next/og";
 import { readFileSync } from "fs";
 import { join } from "path";
 
+import { PATTERN_COUNT, STATUS_MCP_AVAILABLE } from "@/lib/constants";
+
 export const runtime = "nodejs";
 export const alt = "Bouclier.ai — A prompt-injection firewall for your AI agent";
 export const size = { width: 1200, height: 630 };
@@ -58,9 +60,11 @@ export default function OGImage() {
         }}
       >
         {[
-          { value: "161", label: "Detection patterns" },
+          { value: String(PATTERN_COUNT), label: "Detection patterns" },
           { value: "0", label: "Certificates installed" },
-          { value: "MCP", label: "Native agent support" },
+          STATUS_MCP_AVAILABLE
+            ? { value: "MCP", label: "Read-only status" }
+            : { value: "CLI", label: "Agent-readable status" },
         ].map((m) => (
           <div
             key={m.label}

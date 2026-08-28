@@ -6,11 +6,10 @@ import Foundation
 /// 1. MDM profile via `ManagedConfig` — enterprise IT owns the final say
 /// 2. Compile-time defaults — what ships in the public DMG
 ///
-/// Flags are **read-only at runtime**. There is deliberately no
-/// user-facing toggle: a power-user flipping a detection off in the
-/// UI would defeat the point of an enterprise firewall. Anything the
-/// user can change lives in Settings; anything that affects detection
-/// fidelity lives here and is MDM-controlled.
+/// Detection-fidelity flags are read-only at runtime and MDM-controlled.
+/// `injectionBlock` is the deliberate exception: on unmanaged Macs the
+/// operator can choose Monitor or Block in Settings because refusing a
+/// false positive is a material availability tradeoff. MDM still wins.
 ///
 /// The flag keys match the MDM dictionary keys so IT can ship:
 /// ```xml
@@ -27,10 +26,10 @@ enum FeatureFlags {
     /// documents, MCP tool output. Default: **on**. This is Bouclier's
     /// primary protection; turning it off leaves a bare relay.
     ///
-    /// Distinct from `injectionStrict`: with this on and strict off, a
-    /// detection inside tool output blocks the request, while the same
-    /// text typed by the operator is only logged. See
-    /// `InjectionInspectionPass` for why provenance decides the action.
+    /// Distinct from `injectionBlock`: detection decides whether content is
+    /// flagged; the separate Monitor/Block action decides whether an
+    /// untrusted finding is refused. `injectionStrict` can additionally make
+    /// operator-authored text enforceable under managed policy.
     static var injectionDetection: Bool {
         resolve(key: "injectionDetection", default: true)
     }
@@ -44,9 +43,32 @@ enum FeatureFlags {
     /// can't tell a quoted payload from a live one, so block-by-default
     /// breaks normal agent work. Prevention is a deliberate opt-in; the
     /// default observes and records without ever breaking traffic. Enable
-    /// via MDM or `defaults write ai.bouclier.app injectionBlockEnabled -bool true`.
+    /// in Settings ▸ Protection, via MDM, or with
+    /// `defaults write ai.bouclier.app injectionBlockEnabled -bool true`.
     static var injectionBlock: Bool {
-        resolve(key: "injectionBlock", default: false)
+        if let override = testOverrides["injectionBlock"] { return override }
+        if let managedInjectionBlock { return managedInjectionBlock }
+        let userKey = "injectionBlockEnabled"
+        if UserDefaults.standard.object(forKey: userKey) != nil {
+            return UserDefaults.standard.bool(forKey: userKey)
+        }
+        return false
+    }
+
+    /// Effective MDM value, kept separate so Settings can both display the
+    /// enforced state and disable the control. The featureFlags dictionary
+    /// is preferred; `enforcementPolicy` remains supported for older fleet
+    /// profiles documented by the app.
+    static var managedInjectionBlock: Bool? {
+        if let dict = ManagedConfig.featureFlagsDict,
+           let value = dict["injectionBlock"] as? Bool {
+            return value
+        }
+        switch ManagedConfig.enforcementPolicy {
+        case "block": return true
+        case "monitor", "warn", "log": return false
+        default: return nil
+        }
     }
 
     /// Whether a detection on the operator's **own** prompt also blocks.
@@ -60,17 +82,26 @@ enum FeatureFlags {
     }
 
     /// Whether a `tool_result` that can be **positively attributed** to a
-    /// local read of the developer's own workspace (the `Read`/`NotebookRead`
-    /// tool, on a path outside vendored/download/temp dirs) is trusted like
+    /// local read under a known canonical workspace root (the
+    /// `Read`/`NotebookRead` tool, on a path outside vendored/download/temp
+    /// dirs) is trusted like
     /// principal text — scanned and flagged, but never blocked. Default:
     /// **on**. This scopes enforcement to the external-content boundary
     /// (web/search/shell/external tools, retrieved documents) instead of
     /// treating the developer's own docs, research, and instructions to their
     /// own agent as injection — the false positive that makes people disable
-    /// the firewall wholesale. Anything that can't be attributed to a trusted
-    /// local read stays untrusted, so the laundering path (web → file → read)
-    /// is still caught at web ingress. Turn off to police every tool_result
-    /// regardless of source. See `InjectionInspectionPass.provenance`.
+    /// the firewall wholesale. Anything that cannot be attributed to an
+    /// eligible local read stays untrusted.
+    ///
+    /// This is a request-local attribution heuristic, not file-origin proof:
+    /// Bouclier does not track file taint or write history across requests. If
+    /// external content is silently written into an otherwise eligible
+    /// workspace path and later returned by a linked `Read`/`NotebookRead`,
+    /// that later result can be classified `.authored`. An earlier fetch is
+    /// inspected only if its output itself appeared as supported untrusted
+    /// content in a routed model request. Turn this flag off (or enable strict
+    /// mode) to police every tool result regardless of source. See
+    /// `InjectionInspectionPass.provenance`.
     static var injectionTrustAuthoredReads: Bool {
         resolve(key: "injectionTrustAuthoredReads", default: true)
     }
@@ -88,15 +119,14 @@ enum FeatureFlags {
         resolve(key: "uriScanning", default: true)
     }
 
-    /// Whether the gateway watches the model's *response* stream for an
-    /// injected outbound action — a tool call whose arguments carry an
-    /// exfiltration signature — and flags the lethal-trifecta completion
-    /// when the request also carried untrusted content. Default: on.
-    /// Monitor-only: it never alters the byte-faithful response stream, so
-    /// this is pure defence-in-depth telemetry on the leg the input
-    /// classifier can't see. Turn off to restore raw response pass-through.
+    /// Dormant experimental response-action monitor. The production upstream
+    /// path is a raw, byte-faithful HTTP/1.1 relay; without a non-consuming
+    /// dechunk/content-decoding observation parser, feeding arbitrary network
+    /// chunks into the SSE inspector can miss or misparse valid frames. Keep
+    /// this hard-off in production until that parser has end-to-end coverage.
+    /// Tests exercise `ResponseActionInspector` directly.
     static var responseActionMonitoring: Bool {
-        resolve(key: "responseActionMonitoring", default: true)
+        testOverrides["responseActionMonitoring"] ?? false
     }
 
     /// Whether Bouclier records in-process metrics at all. Privacy-
@@ -116,12 +146,12 @@ enum FeatureFlags {
         #endif
     }
 
-    /// Whether outbound multimodal *attachments* (images, PDFs,
-    /// audio) get inspected for PII via Vision + PDFKit + Speech and
-    /// have flagged media replaced with a descriptive text placeholder
-    /// before forwarding. This is the only PII rewrite path Bouclier
-    /// runs — text prompts are forwarded unchanged. Off by default;
-    /// users opt in via Settings → Privacy or MDM.
+    /// Dormant compatibility flag for the removed TLS-interception PII path.
+    /// The live certificate-free gateway never calls
+    /// `HTTPRequestInspector.applyMultimodalInspection`, and there is no
+    /// user-facing setting or supported MDM promise for this feature. Kept
+    /// only so the isolated attachment pipeline remains testable while a
+    /// future byte-fidelity-preserving design is evaluated.
     static var multimodalInspection: Bool {
         resolve(key: "multimodalInspection", default: false)
     }
@@ -147,21 +177,19 @@ enum FeatureFlags {
         //      without mutating shared state.
         //   2. MDM-managed value — enterprise IT has the final say
         //      because compliance configs must be enforceable.
-        //   3. User-set value via @AppStorage("<key>Enabled") — lets
-        //      a power user opt in to the feature on a non-managed
-        //      Mac without the Settings UI being purely cosmetic.
-        //      AppStorage writes to standard UserDefaults under the
-        //      key `<flag>Enabled` (e.g. `multimodalInspectionEnabled`).
-        //   4. Compile-time default — the conservative posture that
+        //   3. Compile-time default — the conservative posture that
         //      ships in the public DMG.
+        //
+        // Detection fidelity is intentionally not read from the writable
+        // standard preferences domain. A Bash-capable agent can invoke
+        // `defaults write`; accepting `<key>Enabled` here let it turn the
+        // primary detector off while the shield continued to look active.
+        // `injectionBlock` has its own explicit user setting because it is an
+        // action/availability choice, not detector integrity.
         if let override = testOverrides[key] { return override }
         if let dict = ManagedConfig.featureFlagsDict,
            let value = dict[key] as? Bool
         { return value }
-        let userKey = key + "Enabled"
-        if UserDefaults.standard.object(forKey: userKey) != nil {
-            return UserDefaults.standard.bool(forKey: userKey)
-        }
         return fallback
     }
 }

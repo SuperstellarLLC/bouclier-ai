@@ -3,13 +3,17 @@ import type { Category, Dampener, ScanMatch, Severity, ThreatScore } from "./typ
 import { SEVERITY_WEIGHTS } from "./types.js";
 
 /**
- * Default thresholds — tuned on the built-in benchmark (442 attacks,
- * 240 benign). At these values a single critical-severity hit on a
- * short input blocks, while typical academic / code / support text
- * stays below the warn line. See src/__tests__/benchmark.test.ts.
+ * Default thresholds — tuned on the built-in benchmark suite. At these
+ * values a single critical-severity hit on a short input blocks, while
+ * typical academic / code / support text stays below the warn line.
+ * See src/__tests__/benchmark.test.ts.
  */
 const BLOCK_THRESHOLD = 0.6;
 const WARN_THRESHOLD = 0.25;
+
+function validThreshold(value: number, fallback: number): number {
+  return Number.isFinite(value) ? Math.min(1, Math.max(0, value)) : fallback;
+}
 
 /**
  * Compute a per-match severity multiplier from dampener hits. A match gets
@@ -43,10 +47,12 @@ export function findDampenerRanges(
 ): Array<{ start: number; end: number; dampen: number }> {
   const ranges: Array<{ start: number; end: number; dampen: number }> = [];
   for (const d of dampeners) {
-    let regex = dampenerRegexCache.get(d.id);
+    const flags = [...new Set(`g${d.flags}`)].join("");
+    const cacheKey = `${d.regex}\0${flags}`;
+    let regex = dampenerRegexCache.get(cacheKey);
     if (!regex) {
-      regex = new RegExp(d.regex, `g${d.flags}`);
-      dampenerRegexCache.set(d.id, regex);
+      regex = new RegExp(d.regex, flags);
+      dampenerRegexCache.set(cacheKey, regex);
     }
     regex.lastIndex = 0;
     let m: RegExpExecArray | null;
@@ -98,7 +104,7 @@ export function computeScore(
   const categoryScore = Math.min(1.0, categories.size / 3); // 3+ categories = max
 
   // Factor 3: Match density (total matched chars / content length)
-  const matchedChars = matches.reduce((sum, m) => sum + m.length, 0);
+  const matchedChars = coveredCharacters(matches);
   const densityRatio = contentLength > 0 ? matchedChars / contentLength : 0;
   const densityScore = Math.min(1.0, densityRatio * 10); // 10%+ matched = max
 
@@ -114,6 +120,8 @@ export function computeScore(
     1.0,
     severityScore * 0.6 + categoryScore * 0.2 + densityScore * 0.15 + clusterScore * 0.05,
   );
+  const effectiveBlockThreshold = validThreshold(blockThreshold, BLOCK_THRESHOLD);
+  const effectiveWarnThreshold = validThreshold(warnThreshold, WARN_THRESHOLD);
 
   // Determine highest severity
   const severityOrder: Severity[] = ["low", "medium", "high", "critical"];
@@ -125,8 +133,8 @@ export function computeScore(
 
   return {
     total: Math.round(total * 1000) / 1000, // 3 decimal precision
-    shouldBlock: total >= blockThreshold,
-    shouldWarn: total >= warnThreshold && total < blockThreshold,
+    shouldBlock: total >= effectiveBlockThreshold,
+    shouldWarn: total >= effectiveWarnThreshold && total < effectiveBlockThreshold,
     categoryCount: categories.size,
     highestSeverity,
   };
@@ -138,10 +146,12 @@ export function computeScore(
 function computeClusterScore(matches: ScanMatch[], contentLength: number): number {
   if (matches.length < 2 || contentLength === 0) return 0;
 
+  const sorted = [...matches].sort((a, b) => a.offset - b.offset);
+
   // Calculate average gap between consecutive matches
   let totalGap = 0;
-  for (let i = 1; i < matches.length; i++) {
-    const gap = matches[i]!.offset - (matches[i - 1]!.offset + matches[i - 1]!.length);
+  for (let i = 1; i < sorted.length; i++) {
+    const gap = sorted[i]!.offset - (sorted[i - 1]!.offset + sorted[i - 1]!.length);
     totalGap += Math.max(0, gap);
   }
   const avgGap = totalGap / (matches.length - 1);
@@ -149,4 +159,23 @@ function computeClusterScore(matches: ScanMatch[], contentLength: number): numbe
   // Small gaps relative to content = high clustering
   const relativeGap = avgGap / contentLength;
   return Math.max(0, 1.0 - relativeGap * 5);
+}
+
+/** Count the union of matched spans so overlapping patterns do not inflate density. */
+function coveredCharacters(matches: ScanMatch[]): number {
+  const sorted = [...matches].sort((a, b) => a.offset - b.offset);
+  let total = 0;
+  let start = sorted[0]!.offset;
+  let end = start + sorted[0]!.length;
+  for (let i = 1; i < sorted.length; i++) {
+    const match = sorted[i]!;
+    if (match.offset >= end) {
+      total += Math.max(0, end - start);
+      start = match.offset;
+      end = match.offset + match.length;
+    } else {
+      end = Math.max(end, match.offset + match.length);
+    }
+  }
+  return total + Math.max(0, end - start);
 }

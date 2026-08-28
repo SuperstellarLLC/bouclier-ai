@@ -3,12 +3,15 @@ import Foundation
 
 /// Manages pattern loading with hot-reload support.
 ///
-/// Load priority:
+/// Load priority in development/hot-reload builds:
 /// 1. User override: ~/Library/Application Support/ai.bouclier.app/patterns.json
 /// 2. Bundled resource: patterns.json in app bundle
 /// 3. Compiled fallback: hardcoded critical patterns
 ///
-/// Watches the user override directory for changes and swaps the active InjectionFilter.
+/// Production builds use only the signed bundle (then the compiled fallback)
+/// and do not watch the user-writable override path. Otherwise any process
+/// running as the user—including the agent Bouclier is meant to observe—could
+/// replace the detector while the menu bar continued to show protection on.
 ///
 /// On startup also kicks off an async load of the bundled CoreML
 /// classifier (Meta Prompt Guard 2). The classifier takes ~200-500ms
@@ -79,8 +82,12 @@ final class PatternManager: @unchecked Sendable {
     init(onChange: (() -> Void)? = nil, loadPIITier: Bool = true) {
         self.onChange = onChange
 
-        // Load best available patterns
-        if let userPatterns = Self.loadPatternsFromPath(Self.userPatternsPath) {
+        // User-writable overrides are a developer convenience, never a
+        // production trust source. FeatureFlags defaults this on only under
+        // DEBUG; a managed build can opt in deliberately for evaluation.
+        let allowUserPatterns = FeatureFlags.hotReloadPatterns
+        if allowUserPatterns,
+           let userPatterns = Self.loadPatternsFromPath(Self.userPatternsPath) {
             _patterns = userPatterns
         } else {
             _patterns = Self.bundledOrFallbackPatterns()
@@ -93,7 +100,7 @@ final class PatternManager: @unchecked Sendable {
         // v0.7.0, may be never).
         InjectionFilter.active.install(_filter)
 
-        startWatching()
+        if allowUserPatterns { startWatching() }
         Task.detached(priority: .utility) { [weak self] in
             await self?.loadClassifierAsync()
         }

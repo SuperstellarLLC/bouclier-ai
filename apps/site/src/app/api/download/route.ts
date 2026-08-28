@@ -2,11 +2,11 @@
  * Download redirect + anonymous timestamp tracker.
  *
  * Flow:
- *   GET /api/download?v=0.3.0&c=site
- *     1. Validate `v` against a strict version regex (we never echo
- *        arbitrary user input back as a redirect target).
+ *   GET /api/download?v=0.9.10&c=site
+ *     1. Require the currently published app version (we never echo
+ *        arbitrary user input back as a redirect target or stats key).
  *     2. Record `{ts, version, channel}` to Upstash if configured,
- *        else log to stdout.
+ *        otherwise skip tracking.
  *     3. 302 redirect to DOWNLOAD_REDIRECT_BASE/Bouclier-ai-v<version>-macOS.dmg
  *
  * What we DO NOT record:
@@ -22,46 +22,66 @@
  * is using the product. This is disclosed in /privacy.
  */
 
-import { type NextRequest, NextResponse } from "next/server";
+import { after, type NextRequest, NextResponse } from "next/server";
 
 import { env } from "@/env";
+import { APP_VERSION } from "@/lib/constants";
 import { recordDownload } from "@/lib/download-tracker";
+import { normalizeSafeHttpsBaseUrl } from "@/lib/safe-base-url";
 
 // Tight version regex: digits dot digits dot digits, optional pre-release
 // suffix like "-rc1". Anything else 400s — we never let the client paint
 // the redirect URL.
 const VERSION_RE = /^\d+\.\d+\.\d+(?:-[a-z0-9]+)?$/i;
 const CHANNEL_RE = /^[a-z]{1,16}$/i;
+const NO_STORE = { "Cache-Control": "no-store" } as const;
 
 export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
   const url = new URL(req.url);
   const version = url.searchParams.get("v") ?? "";
-  const channel = url.searchParams.get("c") ?? "site";
+  const rawChannel = url.searchParams.get("c") ?? "site";
 
   if (!VERSION_RE.test(version)) {
-    return NextResponse.json({ error: "invalid version" }, { status: 400 });
+    return NextResponse.json({ error: "invalid version" }, { status: 400, headers: NO_STORE });
   }
-  if (!CHANNEL_RE.test(channel)) {
-    return NextResponse.json({ error: "invalid channel" }, { status: 400 });
+  if (version !== APP_VERSION) {
+    return NextResponse.json({ error: "version unavailable" }, { status: 404, headers: NO_STORE });
   }
+  if (!CHANNEL_RE.test(rawChannel)) {
+    return NextResponse.json({ error: "invalid channel" }, { status: 400, headers: NO_STORE });
+  }
+  const channel = rawChannel.toLowerCase();
 
-  // Fire-and-forget the record. We deliberately don't `await` so the
-  // redirect happens immediately even if Upstash is slow; record errors
-  // never block a download.
-  void recordDownload({
-    ts: new Date().toISOString(),
-    version,
-    channel,
-  });
-
-  const base = env.DOWNLOAD_REDIRECT_BASE ?? process.env.NEXT_PUBLIC_DOWNLOAD_URL ?? "";
+  const base = env.DOWNLOAD_REDIRECT_BASE ?? "";
 
   if (!base) {
-    return NextResponse.json({ error: "download base not configured" }, { status: 503 });
+    return NextResponse.json(
+      { error: "download base not configured" },
+      { status: 503, headers: NO_STORE },
+    );
   }
 
-  const target = `${base.replace(/\/$/, "")}/Bouclier-ai-v${version}-macOS.dmg`;
-  return NextResponse.redirect(target, { status: 302 });
+  let target: URL;
+  try {
+    const safeBase = normalizeSafeHttpsBaseUrl(base);
+    if (!safeBase) throw new Error("unsafe download base");
+    const baseUrl = new URL(safeBase);
+    baseUrl.pathname = `${baseUrl.pathname.replace(/\/$/, "")}/Bouclier-ai-v${version}-macOS.dmg`;
+    target = baseUrl;
+  } catch {
+    return NextResponse.json(
+      { error: "download base misconfigured" },
+      { status: 503, headers: NO_STORE },
+    );
+  }
+
+  // `after` is backed by the platform's waitUntil primitive, so the redirect
+  // stays immediate while a serverless invocation remains alive long enough
+  // for the anonymous counter write to finish.
+  const event = { ts: new Date().toISOString(), version, channel };
+  after(() => recordDownload(event));
+
+  return NextResponse.redirect(target, { status: 302, headers: NO_STORE });
 }

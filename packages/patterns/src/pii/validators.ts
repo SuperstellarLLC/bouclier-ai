@@ -36,10 +36,17 @@ function luhnCore(digits: string): boolean {
   return sum % 10 === 0;
 }
 
+function hasVariedDigits(digits: string): boolean {
+  return !/^(\d)\1+$/.test(digits);
+}
+
 /** Luhn checksum used by most card networks (Visa/MC/Amex/Discover). */
 export function luhn(digits: string): boolean {
   const clean = digits.replace(/[\s-]/g, "");
   if (!/^\d{12,19}$/.test(clean)) return false;
+  // Checksums accept all-zero/repeated-digit placeholders mathematically,
+  // but those are documentation fixtures, not plausible account numbers.
+  if (!hasVariedDigits(clean)) return false;
   return luhnCore(clean);
 }
 
@@ -141,6 +148,7 @@ export function isPlausibleIPv4(ip: string): boolean {
 export function isPlausibleSIREN(siren: string): boolean {
   const clean = siren.replace(/\s+/g, "");
   if (!/^\d{9}$/.test(clean)) return false;
+  if (!hasVariedDigits(clean)) return false;
   return luhnCore(clean);
 }
 
@@ -153,6 +161,7 @@ export function isPlausibleSIREN(siren: string): boolean {
 export function isPlausibleSIRET(siret: string): boolean {
   const clean = siret.replace(/\s+/g, "");
   if (!/^\d{14}$/.test(clean)) return false;
+  if (!hasVariedDigits(clean)) return false;
   if (clean.startsWith("356000000")) {
     let sum = 0;
     for (const ch of clean) sum += ch.charCodeAt(0) - 48;
@@ -193,6 +202,7 @@ export function isPlausibleNIR(nir: string): boolean {
 export function isPlausibleNHS(nhs: string): boolean {
   const clean = nhs.replace(/[\s-]/g, "");
   if (!/^\d{10}$/.test(clean)) return false;
+  if (!hasVariedDigits(clean)) return false;
   let sum = 0;
   for (let i = 0; i < 9; i++) sum += (clean.charCodeAt(i) - 48) * (10 - i);
   const remainder = sum % 11;
@@ -235,6 +245,7 @@ export function isPlausibleUKPostcode(pc: string): boolean {
 export function isPlausibleNPI(npi: string): boolean {
   const clean = npi.replace(/\s+/g, "");
   if (!/^\d{10}$/.test(clean)) return false;
+  if (!hasVariedDigits(clean)) return false;
   return luhnCore("80840" + clean);
 }
 

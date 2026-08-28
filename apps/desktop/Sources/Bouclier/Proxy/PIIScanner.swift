@@ -102,7 +102,7 @@ final class PIIScanner: @unchecked Sendable {
         let nativeRank = detectors.count
         var all = raw
         all.append(contentsOf: native.map { Raw(d: $0, rank: nativeRank) })
-        return resolveOverlaps(all)
+        return Self.resolveOverlaps(all)
     }
 
     /// Async scan that includes the ML classifier when loaded. Falls
@@ -128,12 +128,12 @@ final class PIIScanner: @unchecked Sendable {
                 // sees the same redacted body it would have without ML.
             }
         }
-        return resolveOverlaps(all)
+        return Self.resolveOverlaps(all)
     }
 
     // MARK: - Internals
 
-    private struct Raw {
+    struct Raw {
         let d: Detection
         let rank: Int
     }
@@ -162,23 +162,29 @@ final class PIIScanner: @unchecked Sendable {
         return raw
     }
 
-    /// Sort + dedupe overlapping spans. Ordering rule: earliest start
-    /// wins; on ties, lower rank wins; on further ties, longer span
-    /// wins so we never leave a PII residue in the tail.
-    private func resolveOverlaps(_ raw: [Raw]) -> [Detection] {
+    /// Resolve overlap by detector priority first. The detector array is
+    /// intentionally ordered from specific/high-precision to broad fallback;
+    /// a later broad match must not swallow a more specific credential merely
+    /// because it starts a few characters earlier.
+    static func resolveOverlaps(_ raw: [Raw]) -> [Detection] {
         var raw = raw
         raw.sort { a, b in
-            if a.d.start != b.d.start { return a.d.start < b.d.start }
             if a.rank != b.rank { return a.rank < b.rank }
+            if a.d.start != b.d.start { return a.d.start < b.d.start }
             return a.d.end > b.d.end
         }
-        var out: [Detection] = []
-        var lastEnd = -1
-        for item in raw where item.d.start >= lastEnd {
-            out.append(item.d)
-            lastEnd = item.d.end
+
+        var selected: [Detection] = []
+        for item in raw {
+            let overlapsSelected = selected.contains {
+                item.d.start < $0.end && $0.start < item.d.end
+            }
+            if !overlapsSelected { selected.append(item.d) }
         }
-        return out
+        return selected.sorted {
+            if $0.start != $1.start { return $0.start < $1.start }
+            return $0.end < $1.end
+        }
     }
 
     // MARK: - Detector list (mirrors PII_DETECTORS in TS)
@@ -356,7 +362,7 @@ final class PIIScanner: @unchecked Sendable {
             Detector(
                 type: "IPV6",
                 regex: re(
-                    #"\b(?:[A-Fa-f0-9]{1,4}:){7}[A-Fa-f0-9]{1,4}\b|\b(?:[A-Fa-f0-9]{1,4}:){1,7}:(?:[A-Fa-f0-9]{1,4}:){0,6}[A-Fa-f0-9]{0,4}\b"#
+                    #"\b(?:[A-Fa-f0-9]{1,4}:){7}[A-Fa-f0-9]{1,4}\b|\b(?:[A-Fa-f0-9]{1,4}:){1,7}:(?:[A-Fa-f0-9]{1,4}:){0,6}[A-Fa-f0-9]{0,4}\b|(?<![A-Fa-f0-9:])::(?:[A-Fa-f0-9]{1,4}:){0,6}[A-Fa-f0-9]{1,4}\b"#
                 ),
                 validate: PIIValidators.isPlausibleIPv6,
                 contextOk: nil

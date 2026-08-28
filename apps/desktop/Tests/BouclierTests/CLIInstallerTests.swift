@@ -32,6 +32,14 @@ struct CLIInstallerTests {
         #expect(cmd.contains("'/tmp/o'\\''brien/bouclier-cli'"))
     }
 
+    @Test("MCP registration command safely quotes the bundled helper path")
+    func mcpCommandQuotesPath() {
+        let cmd = CLIInstaller.mcpRegistrationCommand(
+            mcpPath: "/Applications/Bouclier AI's.app/Contents/MacOS/bouclier-ai-mcp-wrapper"
+        )
+        #expect(cmd == "claude mcp add bouclier -- '/Applications/Bouclier AI'\\''s.app/Contents/MacOS/bouclier-ai-mcp-wrapper'")
+    }
+
     @Test("installedTarget is nil when no symlink exists")
     func installedTargetMissing() {
         let path = FileManager.default.temporaryDirectory

@@ -18,12 +18,11 @@ import Foundation
 /// any PII is found — the model gets a text placeholder explaining
 /// what was caught.
 ///
-/// **Authorisation.** Speech recognition requires the user to grant
-/// permission once (via `SFSpeechRecognizer.requestAuthorization`).
-/// `NSSpeechRecognitionUsageDescription` must be in `Info.plist`. We
-/// degrade to "unscannable" with reason `.notAuthorised` rather than
-/// silently bypassing — the proxy's job is to never let an
-/// un-inspected attachment through.
+/// **Authorisation.** This pipeline is dormant and is not reachable from
+/// the shipping gateway, so the public app does not request Speech access or
+/// ship `NSSpeechRecognitionUsageDescription`. A future product path would
+/// need to add a disclosed permission flow first. In isolation we degrade to
+/// "unscannable" with reason `.notAuthorised` rather than silently bypassing.
 ///
 /// **Test injection.** The class accepts a `recogniserFactory` closure
 /// at init so tests can stub the recogniser without touching the

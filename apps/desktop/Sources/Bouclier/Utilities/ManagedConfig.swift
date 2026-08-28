@@ -10,7 +10,6 @@ import Foundation
 ///   <key>proxyPort</key><integer>8484</integer>
 ///   <key>enforcementPolicy</key><string>block</string>
 ///   <key>additionalDomains</key><array><string>api.custom.ai</string></array>
-///   <key>syslogEnabled</key><true/>
 ///   <key>webhookURL</key><string>https://siem.corp.com/bouclier</string>
 ///   <key>preventUninstall</key><true/>
 ///   <key>preventDisable</key><true/>
@@ -31,22 +30,25 @@ enum ManagedConfig {
         ManagedConfigValidator.validatedPort(managedDefaults?.object(forKey: "proxyPort") as? Int)
     }
 
-    /// Enforcement policy: "block" (default), "warn", or "log"
-    static var enforcementPolicy: String {
-        (managedDefaults?.string(forKey: "enforcementPolicy")) ?? "block"
+    /// Optional legacy finding-action policy. `block` refuses findings;
+    /// `monitor`, `warn`, and `log` keep an already-enabled gateway
+    /// monitor-only. This key chooses an action but does not enable capture
+    /// or start the gateway on a fresh/disabled install. Invalid or absent
+    /// values are ignored rather than silently turning blocking on.
+    static var enforcementPolicy: String? {
+        ManagedConfigValidator.validatedEnforcementPolicy(
+            managedDefaults?.string(forKey: "enforcementPolicy")
+        )
     }
 
-    /// Additional AI domains to intercept (beyond the built-in list).
+    /// Additional hosts whose names may remain visible in a diagnostics
+    /// export. This is a legacy compatibility key: it does not configure
+    /// gateway routing or cause Bouclier to intercept those domains.
     /// Malformed hostnames (wildcards, paths, whitespace, CR/LF) are
     /// silently dropped so a typoed profile never weakens the allowlist.
     static var additionalDomains: [String] {
         let raw = (managedDefaults?.array(forKey: "additionalDomains") as? [String]) ?? []
         return ManagedConfigValidator.validatedHostnames(raw)
-    }
-
-    /// Whether syslog (os_log) output is enabled.
-    static var syslogEnabled: Bool {
-        managedDefaults?.bool(forKey: "syslogEnabled") ?? false
     }
 
     /// Optional webhook URL for SIEM forwarding. Only HTTPS is accepted;
@@ -58,11 +60,20 @@ enum ManagedConfig {
         return ManagedConfigValidator.validatedWebhookURL(raw)?.absoluteString
     }
 
-    /// Whether users are prevented from uninstalling/disabling protection.
-    static var preventUninstall: Bool {
+    /// Whether Bouclier's explicit configuration-removal control is locked.
+    /// The profile key keeps its historical `preventUninstall` spelling for
+    /// deployment compatibility, but it does not stop app deletion, proxy
+    /// recovery, or process termination. Use `preventDisable` for the normal
+    /// disable/reset/quit controls, and MDM installation policy for the app.
+    static var preventConfigurationRemoval: Bool {
         managedDefaults?.bool(forKey: "preventUninstall") ?? false
     }
 
+    /// Whether the app's normal disable, reset, and quit controls are locked
+    /// while protection is active. This does not activate protection itself.
+    /// This is an in-app policy guard, not an OS-level process-availability
+    /// guarantee: an administrator can still delete the app or send SIGKILL.
+    /// Fleet tooling should monitor availability and relaunch the app.
     static var preventDisable: Bool {
         managedDefaults?.bool(forKey: "preventDisable") ?? false
     }

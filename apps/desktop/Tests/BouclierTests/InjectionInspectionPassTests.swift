@@ -72,18 +72,32 @@ struct InjectionInspectionPassTests {
         // resource bundle: the bug this guards against is the *committed*
         // patterns.json drifting from packages/patterns, which is exactly
         // what happened between 2026-04-04 and today (35 patterns stale in
-        // the tree while the TS source had grown to 161).
+        // the tree while the TypeScript source had grown substantially).
         let data = try Data(contentsOf: Self.patternsURL)
         let set = try JSONDecoder().decode(PatternSetJSON.self, from: data)
 
         // The TS source is authored against JS RegExp; NSRegularExpression
         // is ICU. Anything that fails to compile silently disappears from
         // the shipped engine, which is how the app once ran on 35 of its
-        // advertised 161 patterns without anyone noticing.
+        // advertised a larger pattern set without anyone noticing.
         let compiled = set.patterns.compactMap { FilterPattern(from: $0) }
         #expect(compiled.count == set.patterns.count,
                 "\(set.patterns.count - compiled.count) pattern(s) failed to compile under ICU")
-        #expect(set.patterns.count >= 161, "pattern set regressed to \(set.patterns.count)")
+        #expect(
+            set.patterns.count == InjectionFilter.expectedBundledPatternCount,
+            "review every advertised pattern-count change"
+        )
+    }
+
+    @Test("The live default filter resolves the complete packaged pattern set")
+    func liveFilterLoadsPackagedPatterns() throws {
+        let data = try Data(contentsOf: Self.patternsURL)
+        let set = try JSONDecoder().decode(PatternSetJSON.self, from: data)
+        let live = InjectionFilter()
+        #expect(
+            live.patternCount == set.patterns.count,
+            "the runtime loaded \(live.patternCount) of \(set.patterns.count) packaged patterns"
+        )
     }
 
     // MARK: - Trigger gate
@@ -101,6 +115,11 @@ struct InjectionInspectionPassTests {
         #"{"messages":[{"role":"user","content":[{"type":"tool_result","content":"x"}]}]}"#,
         #"{"messages":[{"role":"tool","content":"x"}]}"#,
         #"{"messages":[{"role": "tool","content":"x"}]}"#,
+        #"""
+        {"messages":[{"role"  :
+              "TOOL","content":"x"}]}
+        """#,
+        #"{"messages":[{"role":"user","content":[{"type":"tool\u005fresult","content":"x"}]}]}"#,
         #"{"input":[{"type":"function_call_output","output":"x"}]}"#,
         // Retrieved content is untrusted too (extractSpans handles it), so
         // the gate MUST open for a request whose ONLY untrusted span is a
@@ -110,6 +129,7 @@ struct InjectionInspectionPassTests {
         #"{"messages":[{"role":"user","content":[{"type":"document","source":{"type":"text","data":"x"}}]}]}"#,
         #"{"messages":[{"role":"user","content":[{"type":"search_result","content":[{"type":"text","text":"x"}]}]}]}"#,
         #"{"messages":[{"role":"user","content":"please summarise <document>x</document>"}]}"#,
+        #"{"messages":[{"role":"user","content":"please summarise <DOCUMENT>x</DOCUMENT>"}]}"#,
     ])
     func triggerFiresOnUntrustedShapes(raw: String) {
         #expect(InjectionInspectionPass.hasTrigger(body: Data(raw.utf8)))
@@ -137,6 +157,81 @@ struct InjectionInspectionPassTests {
     func oversizedBodySkipped() {
         let big = Data(repeating: UInt8(ascii: "a"), count: InjectionInspectionPass.maxScanBytes + 1)
         #expect(InjectionInspectionPass.hasTrigger(body: big) == false)
+    }
+
+    @Test("CoreML work is evenly bounded across long conversations")
+    func mlWindowSamplingIsBoundedAndEven() {
+        #expect(InjectionInspectionPass.mlSampleIndices(spanCount: 3) == Set([0, 1, 2]))
+
+        let count = 240
+        let sampled = InjectionInspectionPass.mlSampleIndices(spanCount: count)
+        #expect(sampled.count == InjectionInspectionPass.maxMLWindowsPerRequest)
+        #expect(sampled.contains(0))
+        #expect(sampled.contains(count - 1))
+        let sorted = sampled.sorted()
+        #expect(zip(sorted, sorted.dropFirst()).allSatisfy { pair in
+            pair.1 - pair.0 <= 11
+        })
+    }
+
+    @Test("Oversized policy gate checks the full bounded body without parsing")
+    func oversizedPlausibilityGate() {
+        var marked = Data(repeating: UInt8(ascii: "a"), count: InjectionInspectionPass.maxScanBytes + 2_000)
+        marked.append(contentsOf: #"{"type":"tool_result"}"#.utf8)
+        #expect(marked.withUnsafeBytes {
+            InjectionInspectionPass.hasPlausibleUntrustedMarker(bytes: $0)
+        })
+
+        let ordinary = Data(repeating: UInt8(ascii: "a"), count: InjectionInspectionPass.maxScanBytes + 2_000)
+        #expect(!ordinary.withUnsafeBytes {
+            InjectionInspectionPass.hasPlausibleUntrustedMarker(bytes: $0)
+        })
+
+        var principalMention = Data(repeating: UInt8(ascii: " "), count: InjectionInspectionPass.maxScanBytes + 1)
+        principalMention.append(contentsOf: #"{"content":"documentation about tool_result payloads"}"#.utf8)
+        #expect(!principalMention.withUnsafeBytes {
+            InjectionInspectionPass.hasPlausibleUntrustedMarker(bytes: $0)
+        }, "a principal merely naming a wire token is not a structured untrusted shape")
+
+        var unrelatedEscape = Data(repeating: UInt8(ascii: " "), count: InjectionInspectionPass.maxScanBytes + 1)
+        unrelatedEscape.append(contentsOf: #"{"messages":[{"role":"user","content":"literal \\u example in ordinary prose"}]}"#.utf8)
+        #expect(!unrelatedEscape.withUnsafeBytes {
+            InjectionInspectionPass.hasPlausibleUntrustedMarker(bytes: $0)
+        }, "an unrelated literal \\u must not turn an oversized clean session into a block")
+
+        var escapedMarker = Data(repeating: UInt8(ascii: " "), count: InjectionInspectionPass.maxScanBytes + 1)
+        escapedMarker.append(contentsOf: #"{"type":"tool\u005fresult","content":"x"}"#.utf8)
+        #expect(escapedMarker.withUnsafeBytes {
+            InjectionInspectionPass.hasPlausibleUntrustedMarker(bytes: $0)
+        }, "the gate must still recognize an actually escaped supported marker")
+    }
+
+    @Test("A clean oversized historical tool-result session gets a bounded detector sample")
+    func oversizedHistoricalSessionDoesNotWedge() {
+        let cleanHistory = String(
+            repeating: "ordinary historical tool output; ",
+            count: InjectionInspectionPass.maxScanBytes / 32 + 2_000
+        )
+        let body = json([
+            "messages": [["role": "tool", "content": cleanHistory]],
+        ])
+        #expect(body.count > InjectionInspectionPass.maxScanBytes)
+
+        let sentinel = FilterPattern(
+            id: "oversized-sentinel",
+            name: "oversized-sentinel",
+            category: "test",
+            severity: "critical",
+            regex: try! NSRegularExpression(pattern: "QURTLE"),
+            enabled: true
+        )
+        let localFilter = InjectionFilter(patterns: [sentinel], dampeners: [], classifier: nil)
+        let clean = InjectionInspectionPass.inspectOversized(body: body, filter: localFilter)
+
+        #expect(clean.decision == .allow)
+        #expect(clean.scannedSpanCount == InjectionInspectionPass.maxOversizedDetectorWindows,
+                "detector work must remain constant as conversation history grows")
+        #expect(clean.untrustedSpanCount == clean.scannedSpanCount)
     }
 
     @Test("Empty body is not scanned")
@@ -212,13 +307,73 @@ struct InjectionInspectionPassTests {
         #expect(InjectionInspectionPass.extractSpans(body: json(["foo": "bar"])).isEmpty)
     }
 
-    @Test("Long spans are clipped, not dropped")
-    func longSpansClipped() {
+    @Test("Long spans are covered by bounded overlapping windows")
+    func longSpansWindowed() {
         let huge = String(repeating: "x", count: InjectionInspectionPass.maxSpanScanChars + 5_000)
         let body = json(["messages": [["role": "tool", "content": huge]]])
         let spans = InjectionInspectionPass.extractSpans(body: body)
-        #expect(spans.count == 1)
+        #expect(spans.count == 2)
         #expect(spans[0].text.count == InjectionInspectionPass.maxSpanScanChars)
+        #expect(spans[1].text.count == 5_000 + InjectionInspectionPass.spanScanOverlapChars)
+        #expect(spans[1].locator.hasSuffix("#window[1]"))
+    }
+
+    @Test("Detector windows are bounded in UTF-16 even for one huge grapheme")
+    func combiningSequenceCannotBypassWindowBound() throws {
+        // `String.count` sees this as one Character, while Foundation's
+        // regex engine sees more than 64 Ki UTF-16 code units. The scanner's
+        // work bound must use the regex engine's coordinate system.
+        let pathological = "a" + String(
+            repeating: "\u{0301}",
+            count: InjectionInspectionPass.maxSpanScanChars + 8_192
+        )
+        #expect(pathological.count == 1)
+        let raw: [String: Any] = [
+            "messages": [[
+                "role": "user",
+                "content": [["type": "tool_result", "content": pathological]],
+            ]],
+        ]
+        let body = try JSONSerialization.data(withJSONObject: raw)
+        let spans = InjectionInspectionPass.extractSpans(body: body)
+
+        #expect(spans.count > 1)
+        #expect(spans.allSatisfy {
+            ($0.text as NSString).length <= InjectionInspectionPass.maxSpanScanChars
+        })
+    }
+
+    @Test("A detection near the tail of a long tool result is not skipped")
+    func longSpanTailIsScanned() {
+        let text = String(repeating: "x", count: InjectionInspectionPass.maxSpanScanChars + 2_000)
+            + " QURTLE"
+        let body = json(["messages": [["role": "tool", "content": text]]])
+        let regex = try! NSRegularExpression(pattern: "QURTLE")
+        let pattern = FilterPattern(
+            id: "tail", name: "tail-trigger", category: "test",
+            severity: "critical", regex: regex, enabled: true
+        )
+        let localFilter = InjectionFilter(patterns: [pattern], dampeners: [], classifier: nil)
+        let outcome = InjectionInspectionPass.inspect(body: body, filter: localFilter)
+        #expect(outcome.decision == .block)
+        #expect(outcome.blockedFinding?.locator.hasSuffix("#window[1]") == true)
+    }
+
+    @Test("Window overlap preserves a wide signature crossing the hard boundary")
+    func longSpanBoundaryIsScanned() {
+        // START is 1,500 characters before the first window ends; END is
+        // beyond it. A 512-character overlap loses START, while the 4 KiB
+        // overlap required by shipped `{0,2048}` patterns preserves both.
+        let prefix = String(repeating: "x", count: InjectionInspectionPass.maxSpanScanChars - 1_500)
+        let crossingSignature = "START" + String(repeating: "y", count: 2_000) + "END"
+        let body = json(["messages": [["role": "tool", "content": prefix + crossingSignature]]])
+        let regex = try! NSRegularExpression(pattern: "START.{0,2048}END")
+        let pattern = FilterPattern(
+            id: "boundary", name: "boundary-trigger", category: "test",
+            severity: "critical", regex: regex, enabled: true
+        )
+        let localFilter = InjectionFilter(patterns: [pattern], dampeners: [], classifier: nil)
+        #expect(InjectionInspectionPass.inspect(body: body, filter: localFilter).decision == .block)
     }
 
     // MARK: - The provenance split (the point of the whole pass)
@@ -266,6 +421,32 @@ struct InjectionInspectionPassTests {
         ])
         let outcome = InjectionInspectionPass.inspect(body: body, filter: filter, strict: true)
         #expect(outcome.decision == .block)
+        #expect(outcome.blockedFinding?.origin == .principal)
+        let message = InjectionInspectionPass.refusalJSON(for: outcome)
+        #expect(message.contains("operator-authored content"))
+        #expect(!message.contains("not something you typed"))
+    }
+
+    @Test("Block attribution skips earlier untrusted findings below the threshold")
+    func blockAttributionNamesActualThresholdBlocker() {
+        let low = FilterPattern(
+            id: "low", name: "low-only", category: "test", severity: "low",
+            regex: try! NSRegularExpression(pattern: "LOWTOKEN"), enabled: true
+        )
+        let critical = FilterPattern(
+            id: "critical", name: "actual-blocker", category: "test", severity: "critical",
+            regex: try! NSRegularExpression(pattern: "HIGHTOKEN"), enabled: true
+        )
+        let localFilter = InjectionFilter(patterns: [low, critical], dampeners: [], classifier: nil)
+        let body = json(["messages": [
+            ["role": "tool", "content": "LOWTOKEN"],
+            ["role": "tool", "content": "HIGHTOKEN"],
+        ]])
+        let outcome = InjectionInspectionPass.inspect(body: body, filter: localFilter)
+        #expect(outcome.decision == .block)
+        #expect(outcome.findings.first?.fusedScore ?? 1 < InjectionInspectionPass.untrustedBlockThreshold)
+        #expect(outcome.blockedFinding?.patternNames == ["actual-blocker"])
+        #expect(outcome.blockedFinding?.locator == "messages[1].content")
     }
 
     @Test("A developer discussing prompt injection is not blocked")
@@ -305,6 +486,8 @@ struct InjectionInspectionPassTests {
         #expect(outcome.decision == .allow)
         #expect(outcome.findings.isEmpty)
         #expect(outcome.scannedSpanCount == 2)
+        #expect(outcome.untrustedSpanCount == 1,
+                "principal text must not be counted as the untrusted leg of response correlation")
     }
 
     // MARK: - Dampeners (false-positive suppression on the untrusted leg)

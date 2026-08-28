@@ -11,26 +11,8 @@
   --color-accent-green: #059669;
   --color-accent-red: #dc2626;
   --color-accent-amber: #d97706;
-  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
-}
-
-@font-face {
-  font-family: "Inter";
-  font-style: normal;
-  font-weight: 100 900;
-  font-display: swap;
-  src: url("https://fonts.gstatic.com/s/inter/v18/UcCO3FwrK3iLTeHuS_nVMrMxCp50SjIw2boKoduKmMEVuLyfAZ9hiA.woff2")
-    format("woff2");
-}
-
-@font-face {
-  font-family: "JetBrains Mono";
-  font-style: normal;
-  font-weight: 400 700;
-  font-display: swap;
-  src: url("https://fonts.gstatic.com/s/jetbrainsmono/v20/tDbY2o-flEEny0FZhsfKu5WU4zr3E_BX0PnT8RD8yKxTOlOTk6OThhvA.woff2")
-    format("woff2");
+  --font-sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
 
 html {
@@ -183,18 +165,22 @@ body {
       animation-range: 0 70vh;
     }
   }
+}
 
-  /* Reduced motion: keep the opacity lift (it's the part that
-     signals "this just appeared") but compress the range to a
-     1% slice so there's no perceptible travel. */
-  @media (prefers-reduced-motion: reduce) {
-    .reveal,
-    .reveal-stagger > *,
-    .reveal-scale {
-      opacity: 0.7;
-      animation: reveal-rise linear both;
-      animation-timeline: view();
-      animation-range: entry 0% entry 1%;
-    }
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  .shield-ring,
+  .shield-ring-delayed,
+  .scan-line,
+  .reveal,
+  .reveal-stagger > *,
+  .reveal-scale,
+  .hero-recede {
+    animation: none !important;
+    opacity: 1;
+    transform: none;
   }
 }

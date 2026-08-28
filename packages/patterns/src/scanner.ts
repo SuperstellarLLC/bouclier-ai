@@ -1,5 +1,10 @@
 import { dampeners as defaultDampeners } from "./dampeners.js";
-import { deobfuscateLeet, normalize } from "./normalize.js";
+import {
+  deobfuscateLeetWithSourceMap,
+  normalize,
+  normalizeWithSourceMap,
+  type MappedContent,
+} from "./normalize.js";
 import { patterns as defaultPatterns } from "./patterns.js";
 import { computeScore, findDampenerRanges } from "./scorer.js";
 import type { Dampener, Pattern, ScanMatch, ScanResult } from "./types.js";
@@ -14,11 +19,13 @@ const REDACTION_MESSAGE =
 const regexCache = new Map<string, RegExp>();
 
 function compilePattern(pattern: Pattern): RegExp {
-  const cached = regexCache.get(pattern.id);
+  const flags = [...new Set(`g${pattern.flags}`)].join("");
+  const cacheKey = `${pattern.regex}\0${flags}`;
+  const cached = regexCache.get(cacheKey);
   if (cached) return cached;
 
-  const regex = new RegExp(pattern.regex, `g${pattern.flags}`);
-  regexCache.set(pattern.id, regex);
+  const regex = new RegExp(pattern.regex, flags);
+  regexCache.set(cacheKey, regex);
   return regex;
 }
 
@@ -70,46 +77,47 @@ export function scan(content: string, options?: ScanOptions): ScanResult {
   const activePatterns = (customPatterns ?? defaultPatterns).filter((p) => p.enabled);
 
   // Step 1-2: Normalize — scan both original and normalized variants
-  const normalized = normalize(content);
-  const variants = [content]; // Always include original (catches zero-width chars etc.)
-  if (normalized !== content) {
+  const original = identitySourceMap(content);
+  const normalizedText = normalize(content);
+  const normalized = normalizedText === content ? original : normalizeWithSourceMap(content);
+  const variants: MappedContent[] = [original]; // Always include original (catches zero-width chars etc.)
+  if (normalizedText !== content) {
     variants.push(normalized);
   }
   if (deobfuscate) {
-    const leetNormalized = deobfuscateLeet(normalized);
-    if (leetNormalized !== normalized && leetNormalized !== content) {
+    const leetNormalized = deobfuscateLeetWithSourceMap(normalized);
+    if (leetNormalized.text !== normalized.text && leetNormalized.text !== content) {
       variants.push(leetNormalized);
     }
   }
 
   // Step 3: Run patterns against all variants
-  // Track matches from original content separately for accurate redaction offsets
   const allMatches: ScanMatch[] = [];
-  const originalMatches: ScanMatch[] = [];
 
-  for (let vi = 0; vi < variants.length; vi++) {
-    const variant = variants[vi]!;
-    const isOriginal = vi === 0;
-
+  for (const variant of variants) {
     for (const pattern of activePatterns) {
       const regex = compilePattern(pattern);
       regex.lastIndex = 0;
 
       let match: RegExpExecArray | null;
-      while ((match = regex.exec(variant)) !== null) {
+      while ((match = regex.exec(variant.text)) !== null) {
+        // A zero-width custom pattern contains no content to report or redact.
+        // Advance explicitly so it can never wedge the scanner in an infinite loop.
+        if (match[0].length === 0) {
+          regex.lastIndex = advanceStringIndex(variant.text, regex.lastIndex, regex.unicode);
+          continue;
+        }
+        const sourceRange = mapSourceRange(variant, match.index, match[0].length);
         const scanMatch: ScanMatch = {
           patternId: pattern.id,
           patternName: pattern.name,
           category: pattern.category,
           severity: pattern.severity,
-          offset: match.index,
-          length: match[0].length,
-          matched: match[0],
+          offset: sourceRange.start,
+          length: sourceRange.end - sourceRange.start,
+          matched: content.slice(sourceRange.start, sourceRange.end),
         };
         allMatches.push(scanMatch);
-        if (isOriginal) {
-          originalMatches.push(scanMatch);
-        }
       }
     }
   }
@@ -117,7 +125,7 @@ export function scan(content: string, options?: ScanOptions): ScanResult {
   // Deduplicate all matches by pattern+offset for scoring
   const seenKeys = new Set<string>();
   const uniqueMatches = allMatches.filter((m) => {
-    const key = `${m.patternId}:${m.offset}`;
+    const key = `${m.patternId}:${m.offset}:${m.length}`;
     if (seenKeys.has(key)) return false;
     seenKeys.add(key);
     return true;
@@ -138,13 +146,14 @@ export function scan(content: string, options?: ScanOptions): ScanResult {
     dampenerRanges,
   );
 
-  // Step 5: Build sanitized content using only original-content matches (safe offsets)
+  // Step 5: Every variant now carries safe original offsets, so normalized-only
+  // detections are redacted too. Merge overlap unions to avoid leaking the tail
+  // of a longer match when a shorter pattern starts at the same position.
   let sanitized = content;
-  originalMatches.sort((a, b) => a.offset - b.offset);
-  if (originalMatches.length > 0) {
-    const nonOverlapping = deduplicateOverlaps(originalMatches);
-    for (let i = nonOverlapping.length - 1; i >= 0; i--) {
-      const m = nonOverlapping[i]!;
+  if (uniqueMatches.length > 0) {
+    const redactionRanges = mergeOverlaps(uniqueMatches);
+    for (let i = redactionRanges.length - 1; i >= 0; i--) {
+      const m = redactionRanges[i]!;
       sanitized =
         sanitized.slice(0, m.offset) + REDACTION_MESSAGE + sanitized.slice(m.offset + m.length);
     }
@@ -161,21 +170,53 @@ export function scan(content: string, options?: ScanOptions): ScanResult {
   };
 }
 
-/**
- * Remove overlapping matches, keeping the higher-severity or earlier match.
- */
-function deduplicateOverlaps(matches: ScanMatch[]): ScanMatch[] {
-  const result: ScanMatch[] = [];
-  let lastEnd = -1;
-
+/** Merge overlapping match spans into complete redaction ranges. */
+function mergeOverlaps(matches: ScanMatch[]): Array<{ offset: number; length: number }> {
+  const result: Array<{ offset: number; length: number }> = [];
   for (const match of matches) {
-    if (match.offset >= lastEnd) {
-      result.push(match);
-      lastEnd = match.offset + match.length;
+    const previous = result.at(-1);
+    const matchEnd = match.offset + match.length;
+    if (!previous || match.offset >= previous.offset + previous.length) {
+      result.push({ offset: match.offset, length: match.length });
+    } else {
+      previous.length = Math.max(previous.offset + previous.length, matchEnd) - previous.offset;
     }
   }
-
   return result;
+}
+
+function identitySourceMap(content: string): MappedContent {
+  return {
+    text: content,
+    sourceStarts: Array.from({ length: content.length }, (_, i) => i),
+    sourceEnds: Array.from({ length: content.length }, (_, i) => i + 1),
+  };
+}
+
+function mapSourceRange(
+  content: MappedContent,
+  normalizedOffset: number,
+  normalizedLength: number,
+): { start: number; end: number } {
+  const end = normalizedOffset + normalizedLength;
+  let sourceStart = content.sourceStarts[normalizedOffset]!;
+  let sourceEnd = content.sourceEnds[normalizedOffset]!;
+  for (let i = normalizedOffset + 1; i < end; i++) {
+    sourceStart = Math.min(sourceStart, content.sourceStarts[i]!);
+    sourceEnd = Math.max(sourceEnd, content.sourceEnds[i]!);
+  }
+  return {
+    start: sourceStart,
+    end: sourceEnd,
+  };
+}
+
+function advanceStringIndex(content: string, index: number, unicode: boolean): number {
+  if (!unicode || index >= content.length) return index + 1;
+  const first = content.charCodeAt(index);
+  if (first < 0xd800 || first > 0xdbff || index + 1 >= content.length) return index + 1;
+  const second = content.charCodeAt(index + 1);
+  return second >= 0xdc00 && second <= 0xdfff ? index + 2 : index + 1;
 }
 
 export { REDACTION_MESSAGE };

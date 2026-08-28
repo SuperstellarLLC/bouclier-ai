@@ -30,6 +30,7 @@ export const dynamic = "force-dynamic";
 const MAX_BODY_BYTES = 32 * 1024;
 
 const NO_STORE = { "Cache-Control": "no-store" } as const;
+const RETRY_AFTER = { ...NO_STORE, "Retry-After": "60" } as const;
 
 /**
  * Read the request body up to `maxBytes`, aborting the stream as soon as it is
@@ -48,7 +49,12 @@ async function readCappedBody(req: NextRequest, maxBytes: number): Promise<strin
     if (!value) continue;
     total += value.byteLength;
     if (total > maxBytes) {
-      await reader.cancel();
+      try {
+        await reader.cancel();
+      } catch {
+        // The response is still a deterministic 413 even if the client has
+        // already torn down the oversized upload stream.
+      }
       return null;
     }
     chunks.push(value);
@@ -57,8 +63,11 @@ async function readCappedBody(req: NextRequest, maxBytes: number): Promise<strin
 }
 
 export async function POST(req: NextRequest) {
-  const contentType = req.headers.get("content-type") ?? "";
-  if (!contentType.includes("application/json")) {
+  const contentType = (req.headers.get("content-type") ?? "")
+    .split(";", 1)[0]!
+    .trim()
+    .toLowerCase();
+  if (contentType !== "application/json") {
     return NextResponse.json(
       { ok: false, error: "content-type must be application/json" },
       { status: 415, headers: NO_STORE },
@@ -86,7 +95,7 @@ export async function POST(req: NextRequest) {
   const report = normalizeReport(parsed);
   if (!report) {
     return NextResponse.json(
-      { ok: false, error: "missing required fields (spanExcerpt, targetHost)" },
+      { ok: false, error: "invalid report" },
       { status: 400, headers: NO_STORE },
     );
   }
@@ -94,11 +103,12 @@ export async function POST(req: NextRequest) {
   // Proof-of-work: the stamp is bound to a fresh timestamp + this report's
   // fingerprint. Costs the caller CPU per report; costs us one hash to check.
   const pow = (parsed as { pow?: { timestamp?: unknown; nonce?: unknown } }).pow ?? {};
+  const powBits = env.REPORT_POW_BITS ?? DEFAULT_POW_BITS;
   const powCheck = verifyReportPow({
     timestamp: pow.timestamp,
     nonce: pow.nonce,
     fingerprint: report.fingerprint,
-    bits: env.REPORT_POW_BITS ?? DEFAULT_POW_BITS,
+    bits: powBits,
     now: Date.now(),
   });
   if (!powCheck.ok) {
@@ -109,17 +119,32 @@ export async function POST(req: NextRequest) {
   }
 
   // Single-use: a valid stamp is stateless and stays fresh for its whole
-  // window, so reject a replay of one we've already seen. Degrades open when
-  // Upstash is unconfigured — the global write cap still bounds abuse.
-  const claim = await claimPowStamp(Number(pow.timestamp), report.fingerprint, String(pow.nonce));
-  if (claim === "replay") {
-    return NextResponse.json(
-      { ok: false, error: "proof of work already used" },
-      { status: 403, headers: NO_STORE },
-    );
+  // window, so reject a replay of one we've already seen. The replay cache
+  // degrades open when Upstash is unavailable; the atomic DB quota remains a
+  // hard global ceiling.
+  if (powBits > 0) {
+    const claim = await claimPowStamp(Number(pow.timestamp), report.fingerprint, String(pow.nonce));
+    if (claim === "replay") {
+      return NextResponse.json(
+        { ok: false, error: "proof of work already used" },
+        { status: 403, headers: NO_STORE },
+      );
+    }
   }
 
-  await recordReport(report);
+  const stored = await recordReport(report);
+  if (stored === "rate-limited") {
+    return NextResponse.json(
+      { ok: false, error: "report intake is busy; retry later" },
+      { status: 429, headers: RETRY_AFTER },
+    );
+  }
+  if (stored === "storage-unavailable") {
+    return NextResponse.json(
+      { ok: false, error: "report storage is temporarily unavailable" },
+      { status: 503, headers: RETRY_AFTER },
+    );
+  }
   return NextResponse.json({ ok: true }, { status: 200, headers: NO_STORE });
 }
 

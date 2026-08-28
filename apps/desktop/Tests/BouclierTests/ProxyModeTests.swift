@@ -50,11 +50,11 @@ struct StandardExportsTests {
         #expect(dict["SSL_CERT_FILE"] == nil)
     }
 
-    @Test("Generated POSIX env script probes the gateway port for fail-open")
+    @Test("Generated POSIX env script probes Bouclier liveness for fail-open")
     func failOpenProbe() {
         let exports = ShellEnvInjector.buildStandardExports(gatewayPort: 9191)
         let script = ShellEnvInjector.posixEnvFileContent(exports: exports)
-        #expect(script.contains("127.0.0.1 9191"))
+        #expect(script.contains("http://127.0.0.1:9191/livez"))
         #expect(script.contains("ANTHROPIC_BASE_URL"))
         // Fail-open: unsets the vars when the gateway isn't listening.
         #expect(script.contains("unset"))

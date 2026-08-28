@@ -23,6 +23,16 @@ struct ManagedConfigValidatorTests {
         #expect(ManagedConfigValidator.validatedPort(nil) == nil)
     }
 
+    @Test("Accepts only documented enforcement policies")
+    func validatesEnforcementPolicy() {
+        #expect(ManagedConfigValidator.validatedEnforcementPolicy("BLOCK") == "block")
+        #expect(ManagedConfigValidator.validatedEnforcementPolicy("monitor") == "monitor")
+        #expect(ManagedConfigValidator.validatedEnforcementPolicy("warn") == "warn")
+        #expect(ManagedConfigValidator.validatedEnforcementPolicy("log") == "log")
+        #expect(ManagedConfigValidator.validatedEnforcementPolicy("allow") == nil)
+        #expect(ManagedConfigValidator.validatedEnforcementPolicy(nil) == nil)
+    }
+
     // MARK: - Hostnames
 
     @Test("Accepts standard hostnames")
@@ -95,21 +105,4 @@ struct ManagedConfigValidatorTests {
         #expect(ManagedConfigValidator.validatedWebhookURL("https://siem.corp.com/i#frag") == nil)
     }
 
-    // MARK: - Proxy URLs
-
-    @Test("Accepts http/https proxy URLs with valid ports")
-    func acceptsValidProxyURLs() {
-        #expect(ManagedConfigValidator.validatedProxyURL("http://proxy.corp.com:3128") != nil)
-        #expect(ManagedConfigValidator.validatedProxyURL("https://proxy.corp.com:8443") != nil)
-    }
-
-    @Test("Rejects proxy URLs with non-http schemes or privileged ports")
-    func rejectsBadProxyURLs() {
-        #expect(ManagedConfigValidator.validatedProxyURL("socks5://proxy.corp.com:1080") == nil)
-        #expect(ManagedConfigValidator.validatedProxyURL("file:///tmp") == nil)
-        #expect(ManagedConfigValidator.validatedProxyURL("http://proxy.corp.com:80") == nil)
-        #expect(ManagedConfigValidator.validatedProxyURL("http://proxy.corp.com:22") == nil)
-        #expect(ManagedConfigValidator.validatedProxyURL(nil) == nil)
-        #expect(ManagedConfigValidator.validatedProxyURL("not a url") == nil)
-    }
 }
