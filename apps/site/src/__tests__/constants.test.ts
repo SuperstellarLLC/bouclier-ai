@@ -51,16 +51,19 @@ describe("advertised detection-engine size", () => {
 /**
  * The hero badge and download URL quote APP_VERSION. Benchmark evidence is
  * deliberately pinned to its measured revision in benchmark-provenance.ts,
- * while the root CHANGELOG's top release remains the source of truth for the
- * currently downloadable app version.
+ * while the signed appcast remains the source of truth for the currently
+ * downloadable app version. Release notes may be prepared and committed ahead
+ * of the maintainer-signed artifact so release.sh can start from a clean tree.
  */
 describe("advertised app version", () => {
-  it("APP_VERSION matches the latest CHANGELOG release", () => {
+  it("APP_VERSION matches the signed appcast release", () => {
     // cwd is apps/site when vitest runs (jsdom rewrites import.meta.url
     // to a non-file scheme, so the module URL can't anchor the path).
-    const changelog = readFileSync(resolve(process.cwd(), "../../CHANGELOG.md"), "utf8");
-    const latest = changelog.match(/^## \[(\d+\.\d+\.\d+)\]/m)?.[1];
-    expect(latest).toBeDefined();
-    expect(APP_VERSION).toBe(latest);
+    const appcast = readFileSync(resolve(process.cwd(), "public/appcast.xml"), "utf8");
+    const released = appcast.match(
+      /<sparkle:shortVersionString>([^<]+)<\/sparkle:shortVersionString>/,
+    )?.[1];
+    expect(released).toBeDefined();
+    expect(APP_VERSION).toBe(released);
   });
 });
