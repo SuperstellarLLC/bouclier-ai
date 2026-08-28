@@ -13,10 +13,14 @@ import Testing
 struct GatewayRouteTests {
     let o = UpstreamOverrides.default
 
-    private func host(_ uri: String, _ headers: [(String, String)] = []) -> String? {
+    private func route(_ uri: String, _ headers: [(String, String)] = []) -> GatewayRoute {
         var h = HTTPHeaders()
         for (n, v) in headers { h.add(name: n, value: v) }
-        if case .proxy(let host, _) = GatewayRoute.resolve(method: .POST, uri: uri, headers: h, overrides: o) {
+        return GatewayRoute.resolve(method: .POST, uri: uri, headers: h, overrides: o)
+    }
+
+    private func host(_ uri: String, _ headers: [(String, String)] = []) -> String? {
+        if case .proxy(let host, _) = route(uri, headers) {
             return host
         }
         return nil
@@ -33,7 +37,17 @@ struct GatewayRouteTests {
     func openaiRoutes() {
         #expect(host("/v1/chat/completions") == "api.openai.com")
         #expect(host("/v1/responses") == "api.openai.com")
+        #expect(host("/v1/responses/resp_123") == "api.openai.com")
         #expect(host("/v1/embeddings") == "api.openai.com")
+    }
+
+    @Test("Provider routes match whole path segments, not lookalike prefixes")
+    func exactPathSegments() {
+        #expect(route("/v1/messages-evil") == .rejectUnknownProvider)
+        #expect(route("/v1/complete-evil") == .rejectUnknownProvider)
+        #expect(route("/v1/responses-evil") == .rejectUnknownProvider)
+        #expect(route("/v1/models-evil") == .rejectUnknownProvider)
+        #expect(route("/v1/messages-evil", [("authorization", "Bearer sk-proj-1")]) == .rejectUnknownProvider)
     }
 
     @Test("/v1/models disambiguates by auth header")
@@ -41,57 +55,51 @@ struct GatewayRouteTests {
         #expect(host("/v1/models") == "api.openai.com")
         #expect(host("/v1/models", [("x-api-key", "sk-ant-xxx")]) == "api.anthropic.com")
         #expect(host("/v1/models", [("anthropic-version", "2023-06-01")]) == "api.anthropic.com")
+        #expect(host("/v1/models", [("authorization", "Bearer sk-proj-xxx")]) == "api.openai.com")
     }
 
-    @Test("Unknown paths sniff auth, default to Anthropic")
+    @Test("Provider-specific credentials that contradict the route fail closed")
+    func contradictoryProviderEvidence() {
+        #expect(route("/v1/responses", [("x-api-key", "sk-ant-xxx")]) == .rejectUnknownProvider)
+        #expect(route("/v1/responses", [("authorization", "Bearer sk-ant-api03-xxx")]) == .rejectUnknownProvider)
+        #expect(route("/v1/messages", [("authorization", "Bearer sk-proj-xxx")]) == .rejectUnknownProvider)
+        #expect(route("/v1/messages", [("X-API-Key", "sk-proj-xxx")]) == .rejectUnknownProvider)
+        #expect(route("/v1/models", [
+            ("x-api-key", "sk-ant-xxx"),
+            ("authorization", "Bearer sk-proj-xxx"),
+        ]) == .rejectUnknownProvider)
+        #expect(route("/v1/models", [
+            ("x-api-key", "sk-ant-xxx"),
+            ("X-API-KEY", "sk-proj-xxx"),
+        ]) == .rejectUnknownProvider)
+        #expect(route("/v1/messages", [
+            ("authorization", "Bearer sk-ant-api03-xxx, Bearer sk-proj-xxx"),
+        ]) == .rejectUnknownProvider)
+        #expect(route("/v1/messages", [
+            ("authorization", "Bearer opaque-oauth-token"),
+        ]) == .proxy(host: "api.anthropic.com", port: 443))
+        #expect(route("/v1/responses", [
+            ("authorization", "Bearer opaque-oauth-token"),
+        ]) == .proxy(host: "api.openai.com", port: 443))
+    }
+
+    @Test("Unknown paths require provider evidence and never cross-route bearer credentials")
     func unknownPaths() {
         #expect(host("/whatever", [("x-api-key", "k")]) == "api.anthropic.com")
         #expect(host("/whatever", [("authorization", "Bearer sk-ant-1")]) == "api.anthropic.com")
-        #expect(host("/whatever", [("authorization", "Bearer sk-proj-1")]) == "api.openai.com")
-        #expect(host("/whatever") == "api.anthropic.com") // default
+        #expect(host("/whatever", [("authorization", "Bearer sk-proj-1")]) == nil)
+        #expect(host("/whatever", [("authorization", "Bearer oauth-token")]) == nil)
+        #expect(host("/whatever", [("authorization", "bEaReR opaque-new-format")]) == nil)
+        #expect(host("/whatever") == nil)
+        #expect(host("/whatever", [("authorization", "Basic dXNlcjpwYXNz")]) == nil)
     }
 
     @Test("Ops routes resolve locally, never proxied")
     func opsRoutes() {
-        var h = HTTPHeaders()
+        let h = HTTPHeaders()
         #expect(GatewayRoute.resolve(method: .GET, uri: "/livez", headers: h, overrides: o) == .ops(.livez))
         #expect(GatewayRoute.resolve(method: .GET, uri: "/readyz", headers: h, overrides: o) == .ops(.readyz))
         #expect(GatewayRoute.resolve(method: .GET, uri: "/health", headers: h, overrides: o) == .ops(.health))
-    }
-}
-
-@Suite("UpstreamOverrides — target parsing")
-struct UpstreamOverridesTests {
-    @Test("Valid https target overrides host/port")
-    func validTarget() {
-        let r = UpstreamOverrides.parseTarget("https://gw.internal.example:8443")
-        #expect(r?.0 == "gw.internal.example")
-        #expect(r?.1 == 8443)
-    }
-
-    @Test("Loopback and metadata targets are rejected (no SSRF/self-loop)")
-    func rejectsDangerous() {
-        #expect(UpstreamOverrides.parseTarget("http://127.0.0.1:9000") == nil)
-        #expect(UpstreamOverrides.parseTarget("http://localhost") == nil)
-        #expect(UpstreamOverrides.parseTarget("http://169.254.169.254") == nil)
-        // Unspecified/wildcard addresses route to loopback on macOS — must be
-        // rejected too, or they defeat the guard (credential exfil / self-loop).
-        #expect(UpstreamOverrides.parseTarget("http://0.0.0.0:9000") == nil)
-        #expect(UpstreamOverrides.parseTarget("http://0") == nil)
-        #expect(UpstreamOverrides.parseTarget(nil) == nil)
-        #expect(UpstreamOverrides.parseTarget("not a url") == nil)
-    }
-
-    @Test("Environment wiring picks up *_TARGET_API_URL")
-    func fromEnv() {
-        let o = UpstreamOverrides.fromEnvironment([
-            "ANTHROPIC_TARGET_API_URL": "https://anthropic-gw.example",
-            "OPENAI_TARGET_API_URL": "https://openai-gw.example:8443",
-        ])
-        #expect(o.anthropicHost == "anthropic-gw.example")
-        #expect(o.anthropicPort == 443)
-        #expect(o.openaiHost == "openai-gw.example")
-        #expect(o.openaiPort == 8443)
     }
 }
 
@@ -105,6 +113,352 @@ struct GatewayHostGuardTests {
         #expect(GatewayWire.isLoopbackHostHeader("[::1]:8484"))
         #expect(!GatewayWire.isLoopbackHostHeader("evil.example.com"))
         #expect(!GatewayWire.isLoopbackHostHeader("169.254.169.254"))
+        #expect(!GatewayWire.isLoopbackHostHeader("[::1].evil.example"))
+        #expect(!GatewayWire.isLoopbackHostHeader("localhost:not-a-port"))
+        #expect(!GatewayWire.isLoopbackHostHeader("localhost:70000"))
+    }
+
+    @Test("Inbound Host requires one exact, well-formed loopback authority")
+    func inboundHostDisposition() {
+        var headers = HTTPHeaders()
+        #expect(GatewayWire.inboundHostDisposition(in: headers) == .malformed)
+
+        headers.add(name: "Host", value: "127.0.0.1:8484")
+        #expect(GatewayWire.inboundHostDisposition(in: headers) == .accepted)
+
+        headers.replaceOrAdd(name: "Host", value: "evil.example:443")
+        #expect(GatewayWire.inboundHostDisposition(in: headers) == .misdirected)
+
+        headers.replaceOrAdd(name: "Host", value: "localhost:not-a-port")
+        #expect(GatewayWire.inboundHostDisposition(in: headers) == .malformed)
+
+        headers = HTTPHeaders()
+        headers.add(name: "Host", value: "127.0.0.1:8484")
+        headers.add(name: "Host", value: "evil.example")
+        #expect(GatewayWire.inboundHostDisposition(in: headers) == .malformed)
+    }
+
+    @Test("Only one unambiguous oversized Content-Length is rejected early")
+    func earlyContentLengthLimit() {
+        var headers = HTTPHeaders()
+        let limit = HTTPRequestInspector.maxBodyBytes
+        headers.add(name: "Content-Length", value: "\(limit)")
+        #expect(!GatewayWire.declaredContentLengthExceedsLimit(in: headers, limit: limit))
+        headers.replaceOrAdd(name: "Content-Length", value: "\(limit + 1)")
+        #expect(GatewayWire.declaredContentLengthExceedsLimit(in: headers, limit: limit))
+        headers.replaceOrAdd(name: "Content-Length", value: String(repeating: "9", count: 100))
+        #expect(GatewayWire.declaredContentLengthExceedsLimit(in: headers, limit: limit))
+        headers.replaceOrAdd(name: "Content-Length", value: "+999999999")
+        #expect(!GatewayWire.declaredContentLengthExceedsLimit(in: headers, limit: limit))
+
+        headers = HTTPHeaders()
+        headers.add(name: "Content-Length", value: "\(limit + 1)")
+        headers.add(name: "Content-Length", value: "\(limit + 1)")
+        #expect(!GatewayWire.declaredContentLengthExceedsLimit(in: headers, limit: limit),
+                "ambiguous duplicate framing stays the decoder's responsibility")
+    }
+
+    @Test("Connection-nominated and proxy credential headers are stripped")
+    func stripsAllHopByHopHeaders() {
+        var headers = HTTPHeaders()
+        headers.add(name: "Connection", value: "keep-alive, X-Local-Auth")
+        headers.add(name: "X-Local-Auth", value: "must-not-leak")
+        headers.add(name: "Proxy-Authorization", value: "Basic local-secret")
+        headers.add(name: "Authorization", value: "Bearer provider-secret")
+        let stripped = GatewayWire.hopByHopHeaderNames(in: headers)
+        #expect(stripped.contains("x-local-auth"))
+        #expect(stripped.contains("proxy-authorization"))
+        #expect(!stripped.contains("authorization"))
+    }
+
+    @Test("Non-default TLS upstream ports are present in Host")
+    func upstreamHostIncludesPort() {
+        #expect(GatewayWire.upstreamHostHeader(host: "api.openai.com", port: 443) == "api.openai.com")
+        #expect(GatewayWire.upstreamHostHeader(host: "gateway.example", port: 8443) == "gateway.example:8443")
+        #expect(GatewayWire.upstreamHostHeader(host: "::1", port: 8443) == "[::1]:8443")
+    }
+
+    @Test("Upstream authority identity includes the port")
+    func upstreamAuthorityIncludesPort() {
+        let first = UpstreamAuthority(host: "gateway.example", port: 443)
+        #expect(first == UpstreamAuthority(host: "gateway.example", port: 443))
+        #expect(first != UpstreamAuthority(host: "gateway.example", port: 8443))
+        #expect(first != UpstreamAuthority(host: "other.example", port: 443))
+    }
+
+    @Test("Only absent or identity Content-Encoding is directly inspectable")
+    func contentEncodingCoverage() {
+        var headers = HTTPHeaders()
+        #expect(GatewayWire.unsupportedContentEncoding(in: headers) == nil)
+        headers.replaceOrAdd(name: "Content-Encoding", value: "identity")
+        #expect(GatewayWire.unsupportedContentEncoding(in: headers) == nil)
+        headers.replaceOrAdd(name: "Content-Encoding", value: "gzip")
+        #expect(GatewayWire.unsupportedContentEncoding(in: headers) == "gzip")
+        headers.replaceOrAdd(name: "Content-Encoding", value: "identity, br")
+        #expect(GatewayWire.unsupportedContentEncoding(in: headers) == "br")
+    }
+
+    @Test("Expect handling cannot deadlock a conforming request body sender")
+    func expectContinuePolicy() {
+        var headers = HTTPHeaders()
+        #expect(GatewayWire.expectation(in: headers) == .none)
+        headers.replaceOrAdd(name: "Expect", value: "100-Continue")
+        #expect(GatewayWire.expectation(in: headers) == .continue)
+        GatewayWire.removeLocallyHandledExpectation(from: &headers)
+        #expect(headers.first(name: "Expect") == nil,
+                "an expectation satisfied by Bouclier must not reach the origin")
+        headers.replaceOrAdd(name: "Expect", value: "custom-extension")
+        #expect(GatewayWire.expectation(in: headers) == .unsupported)
+    }
+
+    @Test("Each downstream connection accepts exactly one request")
+    func downstreamRequestGateBoundsPipelining() {
+        var gate = DownstreamRequestGate()
+        let first = gate.beginRequest()
+        let second = gate.beginRequest()
+        let third = gate.beginRequest()
+        #expect(first)
+        #expect(!second)
+        #expect(!third, "the claim is permanent for this connection")
+    }
+
+    @Test("In-flight upstream writes queue without replacing or reconnecting")
+    func upstreamConnectGateQueuesDeterministically() {
+        let authority = UpstreamAuthority(host: "gateway.example", port: 443)
+        var gate = UpstreamConnectGate()
+
+        #expect(gate.route(
+            authority, hasUpstreamChannel: false, queuedWriteCount: 0, queueLimit: 8
+        ) == .queueAndConnect)
+        #expect(gate.isConnecting)
+        #expect(gate.route(
+            authority, hasUpstreamChannel: false, queuedWriteCount: 1, queueLimit: 8
+        ) == .queue, "a second write must not start a duplicate connect")
+        #expect(gate.route(
+            UpstreamAuthority(host: "gateway.example", port: 8443),
+            hasUpstreamChannel: false,
+            queuedWriteCount: 2,
+            queueLimit: 8
+        ) == .rejectAuthority)
+
+        gate.didConnect()
+        #expect(!gate.isConnecting)
+        #expect(gate.route(
+            authority, hasUpstreamChannel: true, queuedWriteCount: 0, queueLimit: 8
+        ) == .writeNow)
+    }
+
+    @Test("Pending upstream queue is bounded and a failed connect can retry")
+    func upstreamConnectGateBoundsAndResets() {
+        let authority = UpstreamAuthority(host: "gateway.example", port: 443)
+        var gate = UpstreamConnectGate()
+        #expect(gate.route(
+            authority, hasUpstreamChannel: false, queuedWriteCount: 0, queueLimit: 1
+        ) == .queueAndConnect)
+        #expect(gate.route(
+            authority, hasUpstreamChannel: false, queuedWriteCount: 1, queueLimit: 1
+        ) == .rejectBusy)
+        gate.didFail()
+        #expect(gate.authority == nil)
+        #expect(!gate.isConnecting)
+        #expect(gate.route(
+            authority, hasUpstreamChannel: false, queuedWriteCount: 0, queueLimit: 1
+        ) == .queueAndConnect)
+    }
+
+    @Test("Response monitoring rejects pipelining instead of mixing request provenance")
+    func responseMonitoringAllowsOneRequestPerConnection() {
+        var gate = ResponseMonitoringGate()
+        let first = gate.beginMonitoredRequest()
+        let second = gate.beginMonitoredRequest()
+        #expect(first)
+        #expect(!second,
+                "a second request must not re-prime the first response's inspector")
+    }
+}
+
+@Suite("Gateway resource admission and relay lifetime")
+struct GatewayResourceSafetyTests {
+    @Test("Connection slots and aggregate retained bytes are independently bounded")
+    func processWideAdmissionBudget() {
+        let controller = GatewayAdmissionController(
+            maximumConnections: 2,
+            maximumRetainedBodyBytes: 10
+        )
+        let first = controller.tryAcquireConnection()
+        let second = controller.tryAcquireConnection()
+        #expect(first != nil)
+        #expect(second != nil)
+        #expect(controller.tryAcquireConnection() == nil)
+
+        #expect(first?.tryReserveBodyBytes(6) == true)
+        #expect(second?.tryReserveBodyBytes(4) == true)
+        #expect(second?.tryReserveBodyBytes(1) == false)
+        #expect(controller.snapshot() == .init(activeConnections: 2, retainedBodyBytes: 10))
+
+        // Closing a client reclaims its descriptor slot without pretending
+        // that an inspection worker has already dropped the retained body.
+        first?.releaseConnection()
+        first?.releaseConnection()
+        #expect(controller.snapshot() == .init(activeConnections: 1, retainedBodyBytes: 10))
+        first?.releaseRetainedBodyBytes()
+        first?.releaseRetainedBodyBytes()
+        #expect(controller.snapshot() == .init(activeConnections: 1, retainedBodyBytes: 4))
+
+        second?.releaseRetainedBodyBytes()
+        second?.releaseConnection()
+        #expect(controller.snapshot() == .init(activeConnections: 0, retainedBodyBytes: 0))
+    }
+
+    @Test("Only canonical Content-Length receives an up-front reservation")
+    func admissionSizing() {
+        var headers = HTTPHeaders()
+        headers.add(name: "Content-Length", value: "42")
+        #expect(GatewayAdmissionSizing.declaredBodyBytes(in: headers) == 42)
+
+        headers = HTTPHeaders()
+        headers.add(name: "Content-Length", value: "4")
+        headers.add(name: "Content-Length", value: "4")
+        #expect(GatewayAdmissionSizing.declaredBodyBytes(in: headers) == nil)
+        headers = HTTPHeaders()
+        headers.add(name: "Content-Length", value: "+4")
+        #expect(GatewayAdmissionSizing.declaredBodyBytes(in: headers) == nil)
+    }
+
+    @Test("Body handoff and discard release channel-local buffer capacity")
+    func bodyBufferOwnership() {
+        let requestedCapacity = 1024 * 1024
+        var body = ByteBufferAllocator().buffer(capacity: requestedCapacity)
+        body.writeInteger(UInt8(ascii: "x"))
+
+        let handedOff = GatewayBodyBufferOwnership.handOff(&body)
+        #expect(handedOff.capacity >= requestedCapacity)
+        #expect(handedOff.readableBytes == 1)
+        #expect(body.capacity == 0,
+                "the live channel must not retain a second large backing store")
+
+        var discarded = ByteBufferAllocator().buffer(capacity: requestedCapacity)
+        GatewayBodyBufferOwnership.discard(&discarded)
+        #expect(discarded.capacity == 0,
+                "local refusal paths must relinquish retained request storage")
+    }
+
+    @Test("Downstream writability controls reads only after TLS is ready")
+    func relayBackpressureState() {
+        var state = GatewayRelayBackpressureState()
+        #expect(state.downstreamWritabilityChanged(false) == nil)
+        #expect(!state.upstreamReady)
+        #expect(state.upstreamBecameReady() == false)
+        #expect(state.downstreamWritabilityChanged(true) == true)
+        #expect(state.downstreamWritabilityChanged(true) == nil)
+        state.upstreamClosed()
+        #expect(!state.upstreamReady)
+    }
+
+    @Test("Response idle timeout resets on streamed bytes")
+    func responseIdleTimeoutResetsOnBytes() throws {
+        let loop = EmbeddedEventLoop()
+        let client = EmbeddedChannel(loop: loop)
+        let address = try SocketAddress(ipAddress: "127.0.0.1", port: 443)
+        client.connect(to: address, promise: nil)
+        let upstream = EmbeddedChannel(
+            handlers: [
+                GatewayRelayHandler(
+                    clientChannel: client,
+                    inspectionSession: ResponseInspectionSession(),
+                    readController: GatewayRelayReadController(),
+                    idleTimeout: .milliseconds(100),
+                    maximumLifetime: .seconds(10)
+                ),
+            ],
+            loop: loop
+        )
+        upstream.connect(to: address, promise: nil)
+        defer {
+            _ = try? upstream.finish(acceptAlreadyClosed: true)
+            _ = try? client.finish(acceptAlreadyClosed: true)
+        }
+
+        #expect(upstream.isActive)
+        #expect(client.isActive)
+        loop.advanceTime(by: .milliseconds(80))
+        var chunk = upstream.allocator.buffer(capacity: 1)
+        chunk.writeString("x")
+        _ = try upstream.writeInbound(chunk)
+        #expect(upstream.isActive)
+        #expect(client.isActive)
+        loop.advanceTime(by: .milliseconds(80))
+        #expect(upstream.isActive)
+        #expect(client.isActive)
+
+        loop.advanceTime(by: .milliseconds(21))
+        #expect(!upstream.isActive)
+        #expect(!client.isActive)
+    }
+
+    @Test("Empty upstream events do not extend response idle lifetime")
+    func emptyResponseEventDoesNotResetIdle() throws {
+        let loop = EmbeddedEventLoop()
+        let client = EmbeddedChannel(loop: loop)
+        let address = try SocketAddress(ipAddress: "127.0.0.1", port: 443)
+        client.connect(to: address, promise: nil)
+        let upstream = EmbeddedChannel(
+            handlers: [
+                GatewayRelayHandler(
+                    clientChannel: client,
+                    inspectionSession: ResponseInspectionSession(),
+                    readController: GatewayRelayReadController(),
+                    idleTimeout: .milliseconds(100),
+                    maximumLifetime: .seconds(10)
+                ),
+            ],
+            loop: loop
+        )
+        upstream.connect(to: address, promise: nil)
+        defer {
+            _ = try? upstream.finish(acceptAlreadyClosed: true)
+            _ = try? client.finish(acceptAlreadyClosed: true)
+        }
+
+        loop.advanceTime(by: .milliseconds(80))
+        let empty = upstream.allocator.buffer(capacity: 0)
+        _ = try upstream.writeInbound(empty)
+        loop.advanceTime(by: .milliseconds(21))
+        #expect(!upstream.isActive)
+        #expect(!client.isActive)
+    }
+
+    @Test("Absolute response lifetime remains bounded despite active streaming")
+    func responseMaximumLifetime() throws {
+        let loop = EmbeddedEventLoop()
+        let client = EmbeddedChannel(loop: loop)
+        let address = try SocketAddress(ipAddress: "127.0.0.1", port: 443)
+        client.connect(to: address, promise: nil)
+        let upstream = EmbeddedChannel(
+            handlers: [
+                GatewayRelayHandler(
+                    clientChannel: client,
+                    inspectionSession: ResponseInspectionSession(),
+                    readController: GatewayRelayReadController(),
+                    idleTimeout: .seconds(10),
+                    maximumLifetime: .milliseconds(100)
+                ),
+            ],
+            loop: loop
+        )
+        upstream.connect(to: address, promise: nil)
+        defer {
+            _ = try? upstream.finish(acceptAlreadyClosed: true)
+            _ = try? client.finish(acceptAlreadyClosed: true)
+        }
+
+        loop.advanceTime(by: .milliseconds(60))
+        var chunk = upstream.allocator.buffer(capacity: 1)
+        chunk.writeString("x")
+        _ = try upstream.writeInbound(chunk)
+        loop.advanceTime(by: .milliseconds(41))
+        #expect(!upstream.isActive)
+        #expect(!client.isActive)
     }
 }
 
@@ -139,10 +493,15 @@ struct GatewayE2ETests {
             anthropicHost: "localhost", anthropicPort: upstream.port,
             openaiHost: "localhost", openaiPort: upstream.port
         )
+        let admission = GatewayAdmissionController(
+            maximumConnections: 4,
+            maximumRetainedBodyBytes: 1024 * 1024
+        )
         let gateway = GatewayServer(
             port: 0,
             overrides: overrides,
             upstreamTrustRootsPEM: [pki.caCertPEM],
+            admissionController: admission,
             onRequest: { _ in }
         )
         let channel = try await gateway.start()
@@ -159,6 +518,7 @@ struct GatewayE2ETests {
             ("Anthropic-Version", "2023-06-01"),
             ("Anthropic-Beta", "context-1m-2025-08-07,prompt-caching-2024-07-31"),
             ("User-Agent", "claude-cli/1.0.0 (external, cli)"),
+            ("Expect", "100-continue"),
         ]
 
         let resp = try await GatewayDrivenClient.send(
@@ -184,9 +544,14 @@ struct GatewayE2ETests {
         #expect(observedHeaders["anthropic-version"] == "2023-06-01")
         #expect(observedHeaders["anthropic-beta"] == "context-1m-2025-08-07,prompt-caching-2024-07-31")
         #expect(observedHeaders["user-agent"] == "claude-cli/1.0.0 (external, cli)")
+        #expect(observedHeaders["expect"] == nil,
+                "the gateway already emitted 100 Continue, so Expect must be consumed locally")
         // Host must be rewritten to the upstream, not the loopback the
         // client addressed.
-        #expect(observedHeaders["host"] == "localhost")
+        #expect(observedHeaders["host"] == "localhost:\(upstream.port)")
+        #expect(await waitForAdmission(admission) {
+            $0.retainedBodyBytes == 0
+        }, "successful upstream write must release its retained-body reservation")
     }
 
     /// The operator's own prompt is never filtered, no matter what it
@@ -323,6 +688,73 @@ struct GatewayE2ETests {
         #expect(await upstream.observedRequestBody().isEmpty == false, "the request must reach the provider in monitor mode")
     }
 
+    @Test("Blocking mode does not wedge a clean oversized historical tool-result session")
+    func blockingModeForwardsCleanOversizedHistory() async throws {
+        for key in ["HTTPS_PROXY", "HTTP_PROXY", "NODE_EXTRA_CA_CERTS", "SSL_CERT_FILE", "REQUESTS_CA_BUNDLE"] {
+            unsetenv(key)
+        }
+        FeatureFlags.setTestOverride("secretInjection", false)
+        FeatureFlags.setTestOverride("injectionDetection", true)
+        FeatureFlags.setTestOverride("injectionBlock", true)
+        let sentinel = FilterPattern(
+            id: "oversized-e2e-sentinel",
+            name: "oversized-e2e-sentinel",
+            category: "test",
+            severity: "critical",
+            regex: try! NSRegularExpression(pattern: "QURTLE"),
+            enabled: true
+        )
+        InjectionFilter.active.install(
+            InjectionFilter(patterns: [sentinel], dampeners: [], classifier: nil)
+        )
+        defer {
+            FeatureFlags.clearTestOverrides()
+            InjectionFilter.active.reset()
+        }
+
+        let pki = try TestPKI.generate(upstreamHost: "localhost")
+        let upstream = try await UpstreamRecorder.start(
+            certificatePEM: pki.upstreamCertPEM,
+            keyPEM: pki.upstreamKeyPEM
+        )
+        defer { upstream.shutdown() }
+        let overrides = UpstreamOverrides(
+            anthropicHost: "localhost", anthropicPort: upstream.port,
+            openaiHost: "localhost", openaiPort: upstream.port
+        )
+        let gateway = GatewayServer(
+            port: 0,
+            overrides: overrides,
+            upstreamTrustRootsPEM: [pki.caCertPEM],
+            onRequest: { _ in }
+        )
+        let channel = try await gateway.start()
+        defer { gateway.shutdown() }
+        guard let gatewayPort = channel.localAddress?.port else {
+            Issue.record("no port")
+            return
+        }
+
+        let history = String(
+            repeating: "ordinary historical tool output; ",
+            count: InjectionInspectionPass.maxScanBytes / 32 + 2_000
+        )
+        let body = #"{"messages":[{"role":"tool","content":"\#(history)"}]}"#
+        #expect(body.utf8.count > InjectionInspectionPass.maxScanBytes)
+
+        let response = try await GatewayDrivenClient.send(
+            gatewayHost: "127.0.0.1",
+            gatewayPort: gatewayPort,
+            method: "POST",
+            path: "/v1/messages",
+            body: body,
+            extraHeaders: []
+        )
+        #expect(response.status == 200,
+                "a clean long history must be forwarded, got \(response.status)")
+        #expect(await upstream.observedRequestBody().count == body.utf8.count)
+    }
+
     @Test("Ops route /livez answers locally without hitting upstream")
     func livezLocal() async throws {
         for key in ["HTTPS_PROXY", "HTTP_PROXY"] { unsetenv(key) }
@@ -350,7 +782,16 @@ struct GatewayE2ETests {
         for key in ["HTTPS_PROXY", "HTTP_PROXY"] { unsetenv(key) }
         // Port 1 on loopback: nothing listens → connection refused.
         let overrides = UpstreamOverrides(anthropicHost: "127.0.0.1", anthropicPort: 1, openaiHost: "127.0.0.1", openaiPort: 1)
-        let gateway = GatewayServer(port: 0, overrides: overrides, onRequest: { _ in })
+        let admission = GatewayAdmissionController(
+            maximumConnections: 4,
+            maximumRetainedBodyBytes: 1024
+        )
+        let gateway = GatewayServer(
+            port: 0,
+            overrides: overrides,
+            admissionController: admission,
+            onRequest: { _ in }
+        )
         let channel = try await gateway.start()
         defer { gateway.shutdown() }
         guard let gatewayPort = channel.localAddress?.port else { Issue.record("no port"); return }
@@ -359,6 +800,178 @@ struct GatewayE2ETests {
             method: "POST", path: "/v1/messages", body: "{}", extraHeaders: []
         )
         #expect(resp.status == 502, "expected 502 on dead upstream, got \(resp.status)")
+        #expect(await waitForAdmission(admission) {
+            $0.activeConnections == 0 && $0.retainedBodyBytes == 0
+        }, "failed upstream setup must release its channel and body reservation")
+    }
+
+    @Test("Host and declared-size failures are answered from the request head")
+    func rejectsInvalidHeadBeforeBodyArrives() async throws {
+        let gateway = GatewayServer(
+            port: 0,
+            inspectionEnabled: { false },
+            onRequest: { _ in }
+        )
+        let channel = try await gateway.start()
+        defer { gateway.shutdown() }
+        guard let port = channel.localAddress?.port else {
+            Issue.record("no port")
+            return
+        }
+        let oversized = HTTPRequestInspector.maxBodyBytes + 1
+
+        // Deliberately send only the head while declaring a huge body. A
+        // handler that deferred Host validation until `.end` would hang and
+        // wait for all of it; the hardened path answers immediately.
+        let rebinding = try await GatewayDrivenClient.sendRaw(
+            gatewayHost: "127.0.0.1",
+            gatewayPort: port,
+            request: "POST /v1/messages HTTP/1.1\r\nHost: evil.example\r\nContent-Length: \(oversized)\r\n\r\n"
+        )
+        #expect(rebinding.status == 421)
+
+        let tooLarge = try await GatewayDrivenClient.sendRaw(
+            gatewayHost: "127.0.0.1",
+            gatewayPort: port,
+            request: "POST /v1/messages HTTP/1.1\r\nHost: 127.0.0.1:\(port)\r\nContent-Length: \(oversized)\r\n\r\n"
+        )
+        #expect(tooLarge.status == 413)
+
+        let duplicateHost = try await GatewayDrivenClient.sendRaw(
+            gatewayHost: "127.0.0.1",
+            gatewayPort: port,
+            request: "GET /livez HTTP/1.1\r\nHost: 127.0.0.1:\(port)\r\nHost: evil.example\r\n\r\n"
+        )
+        #expect(duplicateHost.status == 400)
+    }
+
+    @Test("A pipelined second request is rejected before either body is retained upstream")
+    func rejectsPipelinedSecondRequest() async throws {
+        for key in ["HTTPS_PROXY", "HTTP_PROXY"] { unsetenv(key) }
+        let overrides = UpstreamOverrides(
+            anthropicHost: "127.0.0.1", anthropicPort: 1,
+            openaiHost: "127.0.0.1", openaiPort: 1
+        )
+        let gateway = GatewayServer(
+            port: 0,
+            overrides: overrides,
+            inspectionEnabled: { false },
+            onRequest: { _ in }
+        )
+        let channel = try await gateway.start()
+        defer { gateway.shutdown() }
+        guard let port = channel.localAddress?.port else {
+            Issue.record("no port")
+            return
+        }
+
+        let one = "POST /v1/messages HTTP/1.1\r\nHost: 127.0.0.1:\(port)\r\nContent-Length: 2\r\n\r\n{}"
+        let two = "POST /v1/messages HTTP/1.1\r\nHost: 127.0.0.1:\(port)\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}"
+        let response = try await GatewayDrivenClient.sendRaw(
+            gatewayHost: "127.0.0.1",
+            gatewayPort: port,
+            request: one + two
+        )
+        #expect(response.status == 429,
+                "the one-exchange boundary must reject a pipelined second head deterministically")
+    }
+
+    @Test("Process-wide connection saturation returns 503 and releases on close")
+    func connectionAdmissionSaturation() async throws {
+        let admission = GatewayAdmissionController(
+            maximumConnections: 1,
+            maximumRetainedBodyBytes: 1024
+        )
+        let gateway = GatewayServer(
+            port: 0,
+            admissionController: admission,
+            inspectionEnabled: { false },
+            onRequest: { _ in }
+        )
+        let gatewayChannel = try await gateway.start()
+        defer { gateway.shutdown() }
+        guard let port = gatewayChannel.localAddress?.port else {
+            Issue.record("no port")
+            return
+        }
+
+        let heldGroup = MultiThreadedEventLoopGroup(numberOfThreads: 1)
+        let held = try await ClientBootstrap(group: heldGroup)
+            .connect(host: "127.0.0.1", port: port)
+            .get()
+        #expect(await waitForAdmission(admission) { $0.activeConnections == 1 })
+
+        let saturated = try await GatewayDrivenClient.sendRaw(
+            gatewayHost: "127.0.0.1",
+            gatewayPort: port,
+            request: "GET /livez HTTP/1.1\r\nHost: 127.0.0.1:\(port)\r\nConnection: close\r\n\r\n"
+        )
+        #expect(saturated.status == 503)
+
+        try await held.close()
+        try await heldGroup.shutdownGracefully()
+        #expect(await waitForAdmission(admission) { $0.activeConnections == 0 })
+
+        let recovered = try await GatewayDrivenClient.sendRaw(
+            gatewayHost: "127.0.0.1",
+            gatewayPort: port,
+            request: "GET /livez HTTP/1.1\r\nHost: 127.0.0.1:\(port)\r\nConnection: close\r\n\r\n"
+        )
+        #expect(recovered.status == 200)
+    }
+
+    @Test("Aggregate body saturation is refused before a second body is retained")
+    func aggregateBodyAdmissionSaturation() async throws {
+        let admission = GatewayAdmissionController(
+            maximumConnections: 4,
+            maximumRetainedBodyBytes: 4
+        )
+        let gateway = GatewayServer(
+            port: 0,
+            admissionController: admission,
+            inspectionEnabled: { false },
+            onRequest: { _ in }
+        )
+        let gatewayChannel = try await gateway.start()
+        defer { gateway.shutdown() }
+        guard let port = gatewayChannel.localAddress?.port else {
+            Issue.record("no port")
+            return
+        }
+
+        let heldGroup = MultiThreadedEventLoopGroup(numberOfThreads: 1)
+        let held = try await ClientBootstrap(group: heldGroup)
+            .connect(host: "127.0.0.1", port: port)
+            .get()
+        var partial = held.allocator.buffer(capacity: 128)
+        partial.writeString(
+            "POST /v1/messages HTTP/1.1\r\nHost: 127.0.0.1:\(port)\r\nContent-Length: 4\r\n\r\nx"
+        )
+        try await held.writeAndFlush(partial).get()
+        #expect(await waitForAdmission(admission) { $0.retainedBodyBytes == 4 })
+
+        let saturated = try await GatewayDrivenClient.sendRaw(
+            gatewayHost: "127.0.0.1",
+            gatewayPort: port,
+            request: "POST /v1/messages HTTP/1.1\r\nHost: 127.0.0.1:\(port)\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n1\r\ny\r\n0\r\n\r\n"
+        )
+        #expect(saturated.status == 503)
+        #expect(admission.snapshot().retainedBodyBytes == 4)
+
+        try await held.close()
+        try await heldGroup.shutdownGracefully()
+        #expect(await waitForAdmission(admission) { $0.retainedBodyBytes == 0 })
+    }
+
+    private func waitForAdmission(
+        _ controller: GatewayAdmissionController,
+        predicate: (GatewayAdmissionController.Snapshot) -> Bool
+    ) async -> Bool {
+        for _ in 0..<50 {
+            if predicate(controller.snapshot()) { return true }
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+        return predicate(controller.snapshot())
     }
 }
 
@@ -395,11 +1008,11 @@ actor EchoUpstream {
             .serverChannelOption(.backlog, value: 16)
             .serverChannelOption(.socketOption(.so_reuseaddr), value: 1)
             .childChannelInitializer { channel in
-                let sslHandler = NIOSSLServerHandler(context: sslContext)
-                return channel.pipeline.addHandler(sslHandler).flatMap {
-                    channel.pipeline.configureHTTPServerPipeline().flatMap {
-                        channel.pipeline.addHandler(EchoHandler(recorder: recorder))
-                    }
+                channel.eventLoop.makeCompletedFuture {
+                    let pipeline = channel.pipeline.syncOperations
+                    try pipeline.addHandler(NIOSSLServerHandler(context: sslContext))
+                    try pipeline.configureHTTPServerPipeline()
+                    try pipeline.addHandler(EchoHandler(recorder: recorder))
                 }
             }
             .childChannelOption(.socketOption(.so_reuseaddr), value: 1)
@@ -468,11 +1081,24 @@ enum GatewayDrivenClient {
         extraHeaders: [(String, String)],
         untilEOF: Bool = false
     ) async throws -> (status: Int, body: String) {
-        let group = MultiThreadedEventLoopGroup(numberOfThreads: 1)
-        let collector = GatewayResponseCollector()
         let extras = extraHeaders.map { "\($0.0): \($0.1)\r\n" }.joined()
         let request = "\(method) \(path) HTTP/1.1\r\nHost: \(gatewayHost):\(gatewayPort)\r\nContent-Type: application/json\r\nContent-Length: \(body.utf8.count)\r\nConnection: close\r\n\(extras)\r\n\(body)"
+        return try await sendRaw(
+            gatewayHost: gatewayHost,
+            gatewayPort: gatewayPort,
+            request: request,
+            untilEOF: untilEOF
+        )
+    }
 
+    static func sendRaw(
+        gatewayHost: String,
+        gatewayPort: Int,
+        request: String,
+        untilEOF: Bool = false
+    ) async throws -> (status: Int, body: String) {
+        let group = MultiThreadedEventLoopGroup(numberOfThreads: 1)
+        let collector = GatewayResponseCollector()
         let channel = try await ClientBootstrap(group: group)
             .channelInitializer { ch in
                 ch.pipeline.addHandler(PlaintextRequestHandler(request: request, collector: collector))
@@ -506,7 +1132,7 @@ private final class GatewayResponseCollector: @unchecked Sendable {
 
     var isComplete: Bool {
         lock.lock(); defer { lock.unlock() }
-        return eof || raw.range(of: "\r\n\r\n") != nil
+        return eof || finalStatus(in: raw) != nil
     }
     var didEOF: Bool {
         lock.lock(); defer { lock.unlock() }
@@ -514,15 +1140,27 @@ private final class GatewayResponseCollector: @unchecked Sendable {
     }
     var status: Int? {
         lock.lock(); defer { lock.unlock() }
-        guard let firstLine = raw.components(separatedBy: "\r\n").first else { return nil }
-        let parts = firstLine.split(separator: " ")
-        guard parts.count >= 2, let code = Int(parts[1]) else { return nil }
-        return code
+        return finalStatus(in: raw)
     }
     var body: String {
         lock.lock(); defer { lock.unlock() }
-        guard let r = raw.range(of: "\r\n\r\n") else { return "" }
-        return String(raw[r.upperBound...])
+        // An `Expect: 100-continue` exchange has an interim header block
+        // before the final response. Return only the final response body.
+        guard let finalStart = raw.range(of: "HTTP/1.1 ", options: .backwards)?.lowerBound,
+              let delimiter = raw.range(
+                of: "\r\n\r\n",
+                range: finalStart..<raw.endIndex
+              ) else { return "" }
+        return String(raw[delimiter.upperBound...])
+    }
+
+    private func finalStatus(in response: String) -> Int? {
+        response.components(separatedBy: "\r\n").compactMap { line -> Int? in
+            guard line.hasPrefix("HTTP/1.1 ") else { return nil }
+            let parts = line.split(separator: " ")
+            guard parts.count >= 2, let code = Int(parts[1]), code >= 200 else { return nil }
+            return code
+        }.last
     }
 }
 
@@ -685,11 +1323,11 @@ actor UpstreamRecorder {
             .serverChannelOption(.backlog, value: 16)
             .serverChannelOption(.socketOption(.so_reuseaddr), value: 1)
             .childChannelInitializer { channel in
-                let sslHandler = NIOSSLServerHandler(context: sslContext)
-                return channel.pipeline.addHandler(sslHandler).flatMap {
-                    channel.pipeline.configureHTTPServerPipeline().flatMap {
-                        channel.pipeline.addHandler(RecorderHandler(recorder: recorder))
-                    }
+                channel.eventLoop.makeCompletedFuture {
+                    let pipeline = channel.pipeline.syncOperations
+                    try pipeline.addHandler(NIOSSLServerHandler(context: sslContext))
+                    try pipeline.configureHTTPServerPipeline()
+                    try pipeline.addHandler(RecorderHandler(recorder: recorder))
                 }
             }
             .childChannelOption(.socketOption(.so_reuseaddr), value: 1)

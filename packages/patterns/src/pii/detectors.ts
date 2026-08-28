@@ -63,7 +63,7 @@ const IPV4 = /\b(?:\d{1,3}\.){3}\d{1,3}\b/g;
 
 /** IPv6 (full + compressed forms). Conservative — matches the canonical shapes only. */
 const IPV6 =
-  /\b(?:[A-Fa-f0-9]{1,4}:){7}[A-Fa-f0-9]{1,4}\b|\b(?:[A-Fa-f0-9]{1,4}:){1,7}:(?:[A-Fa-f0-9]{1,4}:){0,6}[A-Fa-f0-9]{0,4}\b/g;
+  /\b(?:[A-Fa-f0-9]{1,4}:){7}[A-Fa-f0-9]{1,4}\b|\b(?:[A-Fa-f0-9]{1,4}:){1,7}:(?:[A-Fa-f0-9]{1,4}:){0,6}[A-Fa-f0-9]{0,4}\b|(?<![A-Fa-f0-9:])::(?:[A-Fa-f0-9]{1,4}:){0,6}[A-Fa-f0-9]{1,4}\b/g;
 
 /** AWS access key: 16-char base32-ish prefixed by AKIA/ASIA/AIDA. Unambiguous, no validator needed. */
 const AWS_ACCESS_KEY = /\b(?:AKIA|ASIA|AIDA|AGPA|AROA|AIPA|ANPA|ANVA|ASCA)[A-Z0-9]{16}\b/g;

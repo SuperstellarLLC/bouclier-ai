@@ -22,6 +22,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 SITE_DIR="$(dirname "$(dirname "$PROJECT_DIR")")/apps/site"
+REPO_ROOT="$(dirname "$(dirname "$PROJECT_DIR")")"
 
 # shellcheck source=_prompts.sh
 source "$SCRIPT_DIR/_prompts.sh"
@@ -31,6 +32,16 @@ echo "════════════════════════�
 echo "  Bouclier.ai — Release Pipeline"
 echo "═══════════════════════════════════════════════"
 echo ""
+
+# A signed/notarized artifact must be reproducible from the commit that will be
+# tagged. Starting dirty can put uncommitted runtime code in the DMG while the
+# handoff commit contains only version metadata. Require product changes and
+# the versioned CHANGELOG section to be reviewed and committed first.
+if [ -n "$(git -C "$REPO_ROOT" status --porcelain --untracked-files=normal)" ]; then
+  echo "ERROR: release requires a clean worktree and index." >&2
+  echo "Commit the complete product change (including its versioned CHANGELOG section), then rerun." >&2
+  exit 1
+fi
 
 # Suggest the next patch version as default — users just press enter to
 # accept a standard bump, and only type for major/minor jumps.
@@ -50,6 +61,15 @@ fi
 # the maintainer's Apple ID. Set $BOUCLIER_APPLE_ID and
 # $BOUCLIER_APPLE_TEAM_ID in your shell or a .env to skip the prompt.
 prompt_with_default VERSION "Version" "${DEFAULT_VERSION:-0.2.8}"
+if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+  echo "ERROR: version must be a numeric semantic version (for example 0.9.11)." >&2
+  exit 1
+fi
+if ! grep -Fq "## [$VERSION]" "$REPO_ROOT/CHANGELOG.md"; then
+  echo "ERROR: CHANGELOG.md has no committed '## [$VERSION]' release section." >&2
+  echo "Convert Unreleased to the dated version section, commit it, and rerun." >&2
+  exit 1
+fi
 prompt_with_default APPLE_ID "Apple ID" "${BOUCLIER_APPLE_ID:-}"
 prompt_with_default TEAM_ID "Apple Team ID" "${BOUCLIER_APPLE_TEAM_ID:-}"
 prompt_with_default DOWNLOAD_BASE_URL "Vercel Blob public URL" \
@@ -60,7 +80,26 @@ export BLOB_READ_WRITE_TOKEN
 
 DMG="$PROJECT_DIR/build/Bouclier-ai-v${VERSION}-macOS.dmg"
 APP="$PROJECT_DIR/build/Bouclier-ai.app"
-REPO_ROOT="$(dirname "$(dirname "$PROJECT_DIR")")"
+
+verify_release_diff() {
+  local changed unexpected=""
+  while IFS= read -r changed; do
+    case "$changed" in
+      apps/site/src/lib/constants.ts|\
+      apps/desktop/Sources/Bouclier/Resources/Info.plist|\
+      apps/desktop/project.yml|\
+      apps/site/public/appcast.xml) ;;
+      "") ;;
+      *) unexpected="${unexpected}${changed}"$'\n' ;;
+    esac
+  done < <(git -C "$REPO_ROOT" diff --name-only)
+  if [ -n "$unexpected" ]; then
+    echo "ERROR: the release process changed files outside the audited metadata/appcast set:" >&2
+    printf '%s' "$unexpected" >&2
+    echo "Aborting so the signed artifact cannot drift from its eventual tag." >&2
+    exit 1
+  fi
+}
 
 echo ""
 echo "── Starting release for v${VERSION} ──"
@@ -69,9 +108,11 @@ echo ""
 # ── Step 0: Bump version in source files ────────
 echo "▸ Bumping version to ${VERSION}..."
 sed -i '' "s/APP_VERSION = \".*\"/APP_VERSION = \"${VERSION}\"/" "$REPO_ROOT/apps/site/src/lib/constants.ts"
+sed -i '' "s/MARKETING_VERSION: \".*\"/MARKETING_VERSION: \"${VERSION}\"/" "$PROJECT_DIR/project.yml"
 sed -i '' "s/<key>CFBundleShortVersionString<\/key>.*/<key>CFBundleShortVersionString<\/key>/" "$PROJECT_DIR/Sources/Bouclier/Resources/Info.plist"
 sed -i '' "/<key>CFBundleShortVersionString<\/key>/{n;s|<string>.*</string>|<string>${VERSION}</string>|;}" "$PROJECT_DIR/Sources/Bouclier/Resources/Info.plist"
-echo "  ✓ Version bumped in constants.ts + Info.plist"
+echo "  ✓ Version bumped in constants.ts + project.yml + Info.plist"
+verify_release_diff
 echo ""
 
 # ── Step 1: Ensure the on-device model is built ──
@@ -87,6 +128,7 @@ echo ""
 # ── Step 2: Build + Sign ────────────────────────
 echo "▸ Step 2/6: Building and signing..."
 VERSION="$VERSION" "$SCRIPT_DIR/build-app.sh" --release --sign
+verify_release_diff
 echo "  ✓ App built and signed at $APP"
 echo ""
 
@@ -132,6 +174,7 @@ echo ""
 # ── Step 5: Sparkle sign + appcast ──────────────
 echo "▸ Step 5/6: Signing for Sparkle and generating appcast..."
 VERSION="$VERSION" DOWNLOAD_BASE_URL="$DOWNLOAD_BASE_URL" "$SCRIPT_DIR/publish-update.sh"
+verify_release_diff
 echo ""
 
 # ── Step 6: Upload DMG ──────────────────────────
@@ -153,9 +196,11 @@ echo "  Target pathname: $UPLOAD_PATHNAME"
 # defaulted to public); without it `vercel blob put` exits with
 # "Missing required --access flag" and the upload is skipped silently.
 if ! command -v vercel &>/dev/null; then
-  echo "  ⚠ vercel CLI not found — upload manually:"
+  echo "  ERROR: vercel CLI not found. The release is not publishable until the DMG upload succeeds."
+  echo "  Install/authenticate the CLI, then run:"
   echo "    vercel blob put $DMG --pathname $UPLOAD_PATHNAME --access public --allow-overwrite"
   echo ""
+  exit 1
 elif vercel blob put "$DMG" \
        --pathname "$UPLOAD_PATHNAME" \
        --access public \
@@ -163,8 +208,10 @@ elif vercel blob put "$DMG" \
   echo "  ✓ Uploaded"
 else
   echo ""
-  echo "  ⚠ Upload failed. Run manually from any blob-linked folder:"
+  echo "  ERROR: DMG upload failed. The appcast must not be deployed with a missing artifact."
+  echo "  Retry from any blob-linked folder:"
   echo "    vercel blob put $DMG --pathname $UPLOAD_PATHNAME --access public --allow-overwrite"
+  exit 1
 fi
 echo ""
 
@@ -180,7 +227,11 @@ echo "  version bump on push to main):"
 echo ""
 echo "    git add apps/site/src/lib/constants.ts \\"
 echo "            apps/desktop/Sources/Bouclier/Resources/Info.plist \\"
+echo "            apps/desktop/project.yml \\"
 echo "            apps/site/public/appcast.xml"
 echo "    git commit -m \"chore: v${VERSION} release\""
-echo "    git push"
+echo "    git push origin HEAD"
+echo "    # Verify the commit on the remote, then trigger the tag verifier/draft release:"
+echo "    git tag v${VERSION}"
+echo "    git push origin v${VERSION}"
 echo ""

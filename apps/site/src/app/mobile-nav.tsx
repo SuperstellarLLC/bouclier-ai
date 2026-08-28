@@ -1,21 +1,41 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import Link from "next/link";
 
 export function MobileNav({ downloadUrl }: { downloadUrl: string }) {
   const [open, setOpen] = useState(false);
+  const menuId = useId();
+  const buttonRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      setOpen(false);
+      buttonRef.current?.focus();
+    };
+
+    document.addEventListener("keydown", closeOnEscape);
+    return () => document.removeEventListener("keydown", closeOnEscape);
+  }, [open]);
 
   return (
     <div className="sm:hidden">
       <button
+        ref={buttonRef}
+        type="button"
         onClick={() => setOpen(!open)}
-        className="text-text-secondary hover:text-text p-1"
+        className="text-text-secondary hover:text-text rounded-md p-1"
         aria-label={open ? "Close menu" : "Open menu"}
         aria-expanded={open}
+        aria-controls={menuId}
       >
         {open ? (
           <svg
+            aria-hidden="true"
+            focusable="false"
             width="24"
             height="24"
             viewBox="0 0 24 24"
@@ -27,6 +47,8 @@ export function MobileNav({ downloadUrl }: { downloadUrl: string }) {
           </svg>
         ) : (
           <svg
+            aria-hidden="true"
+            focusable="false"
             width="24"
             height="24"
             viewBox="0 0 24 24"
@@ -40,7 +62,10 @@ export function MobileNav({ downloadUrl }: { downloadUrl: string }) {
       </button>
 
       {open && (
-        <div className="border-border absolute left-0 right-0 top-full border-b bg-white px-6 py-4">
+        <div
+          id={menuId}
+          className="border-border absolute left-0 right-0 top-full border-b bg-white px-6 py-4 shadow-sm"
+        >
           <div className="flex flex-col gap-3">
             <div className="flex items-center gap-2">
               <span className="rounded-md border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-amber-800">
@@ -83,8 +108,16 @@ export function MobileNav({ downloadUrl }: { downloadUrl: string }) {
             >
               Privacy
             </Link>
+            <Link
+              href="/terms"
+              onClick={() => setOpen(false)}
+              className="text-text-secondary hover:text-text py-1 text-sm"
+            >
+              Terms
+            </Link>
             <a
               href={downloadUrl}
+              onClick={() => setOpen(false)}
               className="bg-bouclier rounded-lg px-4 py-2.5 text-center text-sm font-medium text-white"
             >
               Download

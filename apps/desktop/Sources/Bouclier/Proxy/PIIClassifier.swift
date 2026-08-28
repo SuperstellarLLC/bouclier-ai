@@ -89,9 +89,9 @@ final class PIIClassifier: @unchecked Sendable {
         // MLClassifier so dev builds (`swift run`, .mlpackage only) and
         // release builds (.mlmodelc precompiled) both work.
         let modelURL: URL
-        if let compiled = Bundle.module.url(forResource: "Piiranha", withExtension: "mlmodelc") {
+        if let compiled = BouclierResources.url(forResource: "Piiranha", withExtension: "mlmodelc") {
             modelURL = compiled
-        } else if let raw = Bundle.module.url(forResource: "Piiranha", withExtension: "mlpackage") {
+        } else if let raw = BouclierResources.url(forResource: "Piiranha", withExtension: "mlpackage") {
             modelURL = try Self.compiledCopy(of: raw)
         } else {
             throw ClassifierError.modelNotFound
@@ -102,7 +102,7 @@ final class PIIClassifier: @unchecked Sendable {
         self.model = try MLModel(contentsOf: modelURL, configuration: config)
 
         // ── 2. Tokenizer folder.
-        guard let tokenizerDir = Bundle.module.url(
+        guard let tokenizerDir = BouclierResources.url(
             forResource: "PiiranhaTokenizer",
             withExtension: nil
         ) else {
@@ -112,7 +112,7 @@ final class PIIClassifier: @unchecked Sendable {
 
         // ── 3. Label map. Produced by convert-piiranha.py from
         // `model.config.id2label`. JSON keys are stringified ints.
-        guard let labelMapURL = Bundle.module.url(
+        guard let labelMapURL = BouclierResources.url(
             forResource: "piiranha-labels",
             withExtension: "json"
         ) else {
@@ -121,25 +121,12 @@ final class PIIClassifier: @unchecked Sendable {
         self.idToLabel = try Self.loadLabelMap(from: labelMapURL)
     }
 
-    /// Compile a raw `.mlpackage` to `.mlmodelc` and cache the result.
-    /// Identical to MLClassifier.compiledCopy except for the model name.
+    /// Compile a raw `.mlpackage` to a release/version-aware cached copy.
     private static func compiledCopy(of rawPackage: URL) throws -> URL {
-        let supportDir = try FileManager.default.url(
-            for: .applicationSupportDirectory, in: .userDomainMask,
-            appropriateFor: nil, create: true
-        ).appendingPathComponent("ai.bouclier.app/compiled-models", isDirectory: true)
-        try FileManager.default.createDirectory(at: supportDir, withIntermediateDirectories: true)
-
-        let cachedURL = supportDir.appendingPathComponent("Piiranha.mlmodelc", isDirectory: true)
-        if FileManager.default.fileExists(atPath: cachedURL.path) {
-            return cachedURL
-        }
-        let freshCompiled = try MLModel.compileModel(at: rawPackage)
-        if FileManager.default.fileExists(atPath: cachedURL.path) {
-            try FileManager.default.removeItem(at: cachedURL)
-        }
-        try FileManager.default.moveItem(at: freshCompiled, to: cachedURL)
-        return cachedURL
+        try CompiledModelCache.compiledCopy(
+            of: rawPackage,
+            modelName: "Piiranha"
+        )
     }
 
     private static func loadLabelMap(from url: URL) throws -> [Int: String] {

@@ -11,37 +11,41 @@
  *        https://www.bouclier.ai/api/download/stats
  */
 
+import { createHash, timingSafeEqual as cryptoTimingSafeEqual } from "node:crypto";
+
 import { type NextRequest, NextResponse } from "next/server";
 
 import { env } from "@/env";
 import { readDownloadStats } from "@/lib/download-tracker";
 
 export const dynamic = "force-dynamic";
+const NO_STORE = { "Cache-Control": "no-store" } as const;
 
 export async function GET(req: NextRequest) {
   if (!env.DOWNLOAD_STATS_TOKEN) {
-    return new NextResponse(null, { status: 404 });
+    return new NextResponse(null, { status: 404, headers: NO_STORE });
   }
   const header = req.headers.get("authorization") ?? "";
-  const provided = header.startsWith("Bearer ") ? header.slice(7) : null;
+  const match = header.match(/^Bearer ([^\s]+)$/i);
+  const provided = match?.[1] ?? null;
   if (!provided || !timingSafeEqual(provided, env.DOWNLOAD_STATS_TOKEN)) {
-    return new NextResponse(null, { status: 404 });
+    return new NextResponse(null, { status: 404, headers: NO_STORE });
   }
   const stats = await readDownloadStats();
   if (!stats) {
-    return NextResponse.json({ error: "download tracker storage not configured" }, { status: 503 });
+    return NextResponse.json(
+      { error: "download tracker storage unavailable" },
+      { status: 503, headers: NO_STORE },
+    );
   }
   return NextResponse.json(stats, {
-    headers: { "Cache-Control": "no-store" },
+    headers: NO_STORE,
   });
 }
 
 /** Constant-time token comparison so an attacker can't time-side-channel guess. */
 function timingSafeEqual(a: string, b: string): boolean {
-  if (a.length !== b.length) return false;
-  let diff = 0;
-  for (let i = 0; i < a.length; i++) {
-    diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
-  }
-  return diff === 0;
+  const aDigest = createHash("sha256").update(a).digest();
+  const bDigest = createHash("sha256").update(b).digest();
+  return cryptoTimingSafeEqual(aDigest, bDigest);
 }

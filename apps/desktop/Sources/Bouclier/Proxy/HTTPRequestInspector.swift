@@ -106,8 +106,10 @@ enum HTTPRequestInspector {
     /// client times out and the user sees a confusing error).
     static let multimodalInspectionBudgetSeconds: Double = 30
 
-    /// Run the multimodal inspector over a request body. Composed by
-    /// the TLS handler after `inspect()` and the text PII pass.
+    /// Run the dormant multimodal inspector over a request body. This was
+    /// composed by the removed TLS handler; `GatewayServer` does not call it.
+    /// Retained as an isolated, tested seam only — it is not a live product
+    /// control or an MDM-deployable capability.
     /// Idempotent and safe to call when
     /// `FeatureFlags.multimodalInspection` is off (returns the input
     /// unchanged with an empty report). Handles two body shapes:

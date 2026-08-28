@@ -22,7 +22,26 @@ struct SettingsView: View {
             AboutView(updater: updater)
                 .tabItem { Label("About", systemImage: "info.circle") }
         }
-        .frame(width: 540, height: 420)
+        .frame(width: 560, height: 520)
+    }
+}
+
+private struct ConfigurationNoticeView: View {
+    let notice: ConfigurationNotice
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: notice.kind == .success
+                  ? "checkmark.circle.fill"
+                  : "exclamationmark.triangle.fill")
+            VStack(alignment: .leading, spacing: 2) {
+                Text(notice.title).font(.caption.weight(.semibold))
+                Text(notice.message).font(.caption)
+            }
+        }
+        .foregroundStyle(notice.kind == .success ? Color.green : Color.orange)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)
     }
 }
 
@@ -45,9 +64,9 @@ struct GeneralSettingsView: View {
     /// Off by default; local-only. Key matches the gateway's read.
     @AppStorage("captureBlockSamplesEnabled") private var captureBlockSamples: Bool = false
     @State private var sampleRefresh = 0
-    /// Auto-write proxy + CA env vars into `~/.zshenv`, `~/.bashrc`,
+    /// Auto-write provider base URLs into `~/.zshenv`, `~/.bashrc`,
     /// fish config, and launchctl. On by default — without it, Node /
-    /// Python CLIs (Claude Code, Cursor, openai) silently bypass the
+    /// Python CLIs (Claude Code, openai, anthropic) silently bypass the
     /// proxy. Off-switch is here as an escape hatch for users with
     /// custom corporate proxies that conflict.
     @AppStorage(ShellEnvInjector.autoConfigureKey) private var autoConfigureShell: Bool = true
@@ -60,26 +79,63 @@ struct GeneralSettingsView: View {
     var body: some View {
         Form {
             Section("Proxy") {
-                TextField("Port", value: $port, format: .number)
-                    .help("Requires proxy restart to take effect")
+                if let managedPort = ManagedConfig.port {
+                    LabeledContent("Port", value: "\(managedPort)")
+                    Text("Managed by your organization")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else {
+                    TextField("Port", value: $port, format: .number)
+                        .help("Takes effect the next time the gateway starts")
+                        .disabled(proxyManager.configurationMutationLocked)
+                        .onChange(of: port) { _, _ in
+                            proxyManager.clearSuccessfulConfigurationCleanupNotice()
+                        }
+                    if !ManagedConfigValidator.validPortRange.contains(port) {
+                        Text("Choose a port from 1024 to 65535. Bouclier will use 8484 until this is corrected.")
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                    } else if let boundPort = proxyManager.boundPort, boundPort != port {
+                        Text("Currently listening on \(boundPort). The new port takes effect after Bouclier restarts.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
                 Toggle("Launch at login", isOn: $launchAtLogin)
                     .onChange(of: launchAtLogin) { _, newValue in
-                        ProxyManager.setLaunchAtLogin(newValue)
+                        if !proxyManager.setLaunchAtLoginEnabled(newValue) {
+                            launchAtLogin = UserDefaults.standard.bool(
+                                forKey: ProxyManager.launchAtLoginKey
+                            )
+                        }
                     }
+                    .disabled(
+                        proxyManager.managedContinuityLockActive
+                            || proxyManager.configurationMutationLocked
+                    )
             }
             Section {
                 Toggle("Capture CLI tools (Claude Code, Python, Node SDKs)", isOn: $autoConfigureShell)
                     .onChange(of: autoConfigureShell) { _, newValue in
-                        if newValue {
-                            ShellEnvInjector.applyStandard(gatewayPort: proxyManager.port)
-                        } else {
-                            ShellEnvInjector.remove()
+                        if !proxyManager.setCLICaptureEnabled(newValue) {
+                            autoConfigureShell = ShellEnvInjector.isEnabled
                         }
                     }
+                    .disabled(
+                        proxyManager.managedContinuityLockActive
+                            || proxyManager.configurationMutationLocked
+                    )
+                if let issue = proxyManager.cliCaptureHealthIssue {
+                    Label(issue, systemImage: "exclamationmark.triangle.fill")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                }
             } header: {
                 Text("CLI capture")
             } footer: {
-                Text("Bouclier writes `ANTHROPIC_BASE_URL` / `OPENAI_BASE_URL` into your shell startup files and the launchctl session so command-line AI tools route through the gateway. Without this, tools that don't already have those variables set bypass Bouclier and talk to the provider directly. Only processes that read these variables are inspected — an app with its own backend (e.g. Cursor's agent) or a hard-coded base URL is not.")
+                Text(proxyManager.managedContinuityLockActive
+                    ? "CLI capture is required while your organization prevents protection from being disabled. Bouclier supplies `ANTHROPIC_BASE_URL` / `OPENAI_BASE_URL` through shell startup files and the launchctl session, but preserves a custom value already set by you or your organization. Only processes that use Bouclier's values are inspected — an app with its own backend or a hard-coded base URL is not."
+                    : "Bouclier supplies `ANTHROPIC_BASE_URL` / `OPENAI_BASE_URL` through your shell startup files and the launchctl session so compatible command-line AI tools route through the gateway. A custom value already set by you or your organization is preserved and continues to bypass Bouclier. Apps with their own backend (for example Cursor's agent) or a hard-coded base URL are not inspected.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -97,10 +153,10 @@ struct GeneralSettingsView: View {
                             .foregroundStyle(.red)
                     }
                 }
-                Button(mcpCommandCopied ? "Copied" : "Copy Claude Code MCP command") {
+                Button(mcpCommandCopied ? "Copied" : "Copy Claude Code MCP status command") {
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString(
-                        "claude mcp add bouclier -- \(CLIInstaller.mcpBinaryPath)",
+                        CLIInstaller.mcpRegistrationCommand(),
                         forType: .string
                     )
                     mcpCommandCopied = true
@@ -108,12 +164,15 @@ struct GeneralSettingsView: View {
             } header: {
                 Text("Agent command-line access")
             } footer: {
-                Text("Puts `bouclier` on PATH (macOS will ask you to approve it — same as any app installing a helper tool) so Bash-driven agents can call `bouclier status` directly. Paste the MCP command into a terminal once to register the Bouclier MCP server with Claude Code.")
+                Text("Puts `bouclier` on PATH (macOS will ask you to approve it — same as any app installing a helper tool) so Bash-driven agents can call `bouclier status` directly. The MCP command registers one read-only `bouclier_status` tool with Claude Code; it cannot change settings or read request content.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
             Section("Notifications") {
                 Toggle("Show block notifications", isOn: $showNotifications)
+                    .onChange(of: showNotifications) { _, enabled in
+                        if enabled { proxyManager.requestBlockNotificationAuthorizationIfNeeded() }
+                    }
                 Toggle("Quiet mode (no sounds)", isOn: $quietMode)
                     .disabled(!showNotifications)
             }
@@ -156,7 +215,7 @@ struct GeneralSettingsView: View {
                     Button("Reset", role: .destructive) { proxyManager.stats.reset() }
                     Button("Cancel", role: .cancel) {}
                 } message: {
-                    Text("Clears the menu-bar counters (requests inspected / injections blocked). The audit log and on-disk stats are untouched.")
+                    Text("Clears the menu-bar counters (requests inspected / detector-blocked requests). The audit log and on-disk stats are untouched.")
                 }
             } header: {
                 Text("Diagnostics")
@@ -167,23 +226,50 @@ struct GeneralSettingsView: View {
             }
 
             Section {
-                Button("Reset all proxy settings", role: .destructive) {
+                Button("Reset HTTP/HTTPS & PAC…", role: .destructive) {
                     showResetProxiesConfirm = true
                 }
+                .disabled(
+                    proxyManager.configurationMutationLocked
+                        || (proxyManager.protectionActive && ManagedConfig.preventDisable)
+                )
+                .help(proxyManager.configurationMutationLocked
+                      ? "Configuration cleanup is already in progress"
+                      : (proxyManager.protectionActive && ManagedConfig.preventDisable
+                         ? "Disabling protection is prevented by your organization"
+                         : ""))
                 .confirmationDialog(
-                    "Reset all proxy settings?",
+                    "Reset HTTP/HTTPS and PAC settings?",
                     isPresented: $showResetProxiesConfirm,
                     titleVisibility: .visible
                 ) {
-                    Button("Reset", role: .destructive) { proxyManager.resetAllProxies() }
+                    Button("Reset Web Proxies", role: .destructive) {
+                        Task { await proxyManager.resetAllProxies() }
+                    }
                     Button("Cancel", role: .cancel) {}
                 } message: {
-                    Text("Clears every proxy artifact Bouclier may have left on this Mac — PAC settings on every network service, launchctl session env, the crash watchdog, and the shell startup blocks. Protection turns off until you re-enable it from the Protection tab.")
+                    Text("This recovery action turns off automatic PAC configuration and manual HTTP/HTTPS web proxies on every macOS network service — including corporate or personal settings Bouclier did not create. SOCKS, FTP, and proxy auto-discovery/WPAD settings are not changed. It also removes Bouclier's session routing, watchdog, shell blocks, and retired certificate/extension state. You may need to reconfigure unrelated web proxies afterward. Any step that cannot be verified is reported so you can retry safely.")
+                }
+                if proxyManager.configurationCleanupInProgress {
+                    ProgressView("Cleaning Bouclier configuration…")
+                        .font(.caption)
+                }
+                if proxyManager.legacyMigrationInProgress,
+                   proxyManager.migrationCleanupNotice == nil
+                {
+                    ProgressView("Checking retired Bouclier configuration…")
+                        .font(.caption)
+                }
+                if let notice = proxyManager.configurationCleanupNotice {
+                    ConfigurationNoticeView(notice: notice)
+                }
+                if let notice = proxyManager.migrationCleanupNotice {
+                    ConfigurationNoticeView(notice: notice)
                 }
             } header: {
                 Text("Proxy recovery")
             } footer: {
-                Text("Use this if an unclean shutdown left CLI tools or your browser unable to reach LLM APIs. Open a new terminal afterwards so it picks up the cleared shell env.")
+                Text("Use this if an unclean shutdown left CLI tools or HTTP/HTTPS traffic unable to reach LLM APIs. Open a new terminal afterwards so it picks up the cleared shell env.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -211,16 +297,18 @@ struct GeneralSettingsView: View {
 
 struct ProtectionSettingsView: View {
     @ObservedObject var proxyManager: ProxyManager
-    @State private var showUninstallConfirm = false
+    @AppStorage("injectionBlockEnabled") private var userBlockingEnabled = false
+    @State private var showConfigurationRemovalConfirm = false
     /// Bumped to force a re-read of the (UserDefaults-backed) allowlist
     /// count after the operator re-arms it.
     @State private var allowlistRefresh = 0
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
             Text("How Protection Works")
                 .font(.headline)
-            Text("Routes your agents through a local gateway via ANTHROPIC_BASE_URL — no certificate to install. Every request is inspected on-device for prompt-injection in untrusted tool output; a request is forwarded byte-for-byte or refused, never rewritten.")
+            Text("Routes compatible agents through a local gateway via ANTHROPIC_BASE_URL / OPENAI_BASE_URL — no certificate to install. Untrusted tool output is inspected on-device; findings are either monitored or blocked according to the action below. Within the hard 64 MiB transport cap, supported bodies are fully inspected up to 8 MiB; larger bodies receive a bounded 24-window sample. Model-visible request-body bytes are forwarded unchanged or refused; proxy framing headers are normalized.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
 
@@ -234,24 +322,58 @@ struct ProtectionSettingsView: View {
                           detail: proxyManager.isRunning ? "Listening on port \(proxyManager.port)" : "Stopped")
                 StatusRow(label: "Certificate", active: true,
                           detail: "Not needed")
-                StatusRow(label: "Patterns", active: proxyManager.patternCount > 0,
-                          detail: "\(proxyManager.patternCount) loaded")
+                StatusRow(
+                    label: "Patterns",
+                    active: proxyManager.patternTierHealthy,
+                    detail: proxyManager.patternTierHealthy
+                        ? "\(proxyManager.patternCount) loaded"
+                        : "\(proxyManager.patternCount) emergency patterns only — reinstall"
+                )
+                StatusRow(
+                    label: "On-device ML",
+                    active: proxyManager.mlTierActive,
+                    detail: proxyManager.mlTierActive
+                        ? "Prompt Guard 2 active"
+                        : (proxyManager.mlTierUnavailable ? "Unavailable — pattern tier only" : "Loading…")
+                )
             }
             .font(.callout)
 
-            Spacer()
+            Divider()
+
+            Text("When Suspicious Content Is Found")
+                .font(.headline)
+            Picker("Finding action", selection: blockingBinding) {
+                Text("Monitor").tag(false)
+                Text("Block").tag(true)
+            }
+            .pickerStyle(.segmented)
+            .disabled(
+                managedBlockingEnabled != nil
+                    || proxyManager.configurationMutationLocked
+            )
+            .help(findingActionHelp)
+
+            HStack(alignment: .top, spacing: 8) {
+                Image(systemName: findingActionIcon)
+                    .foregroundStyle(findingActionTint)
+                Text(findingActionDescription)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
 
             if proxyManager.isRunning {
                 Divider()
                 Text("CLI Tools")
                     .font(.headline)
                 HStack(spacing: 8) {
-                    Image(systemName: ShellEnvInjector.isEnabled ? "checkmark.seal.fill" : "exclamationmark.triangle.fill")
-                        .foregroundStyle(ShellEnvInjector.isEnabled ? .green : .orange)
+                    Image(systemName: proxyManager.cliCaptureHealthy ? "checkmark.seal.fill" : "exclamationmark.triangle.fill")
+                        .foregroundStyle(proxyManager.cliCaptureHealthy ? .green : .orange)
                         .font(.callout)
-                    Text(ShellEnvInjector.isEnabled
-                         ? "Command-line tools that read ANTHROPIC_BASE_URL / OPENAI_BASE_URL (Claude Code, the openai/anthropic SDKs) route through the gateway. Open a new terminal to pick up the change."
-                         : "CLI capture is off — Settings → General to re-enable.")
+                    Text(proxyManager.cliCaptureHealthIssue
+                         ?? (ShellEnvInjector.isEnabled
+                         ? "Automatic base-URL setup is installed. Open a new terminal; compatible tools route through the gateway unless their environment already supplies a custom ANTHROPIC_BASE_URL or OPENAI_BASE_URL, which Bouclier preserves."
+                         : "CLI capture is off — Settings → General to re-enable."))
                         .font(.callout)
                         .foregroundStyle(.secondary)
                 }
@@ -262,7 +384,7 @@ struct ProtectionSettingsView: View {
                 HStack(spacing: 6) {
                     Image(systemName: "building.2")
                         .foregroundStyle(.blue)
-                    Text("Managed by your organization")
+                    Text("Your organization manages some settings. Managed finding actions apply after protection is enabled; the profile does not activate capture by itself.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -272,12 +394,16 @@ struct ProtectionSettingsView: View {
 
             HStack {
                 if proxyManager.protectionActive {
-                    Label("Protection active", systemImage: "checkmark.shield.fill")
-                        .foregroundStyle(.green)
+                    Label(protectionStatusText, systemImage: protectionStatusIcon)
+                        .foregroundStyle(protectionState == .operational ? Color.green : Color.orange)
                         .font(.callout)
                     Spacer()
                     Button("Disable", role: .destructive) { proxyManager.disableStandard() }
                         .help("Traffic keeps flowing through the gateway, uninspected — active agent sessions are not interrupted")
+                        .disabled(
+                            ManagedConfig.preventDisable
+                                || proxyManager.configurationMutationLocked
+                        )
                 } else {
                     if proxyManager.isRunning {
                         Label("Passthrough — protection off", systemImage: "shield.slash")
@@ -287,6 +413,7 @@ struct ProtectionSettingsView: View {
                     }
                     Button("Enable Protection") { proxyManager.enableStandard() }
                         .buttonStyle(.borderedProminent)
+                        .disabled(proxyManager.configurationMutationLocked)
                 }
             }
 
@@ -310,25 +437,155 @@ struct ProtectionSettingsView: View {
                     }
                     .font(.caption)
                     .help("Stop forwarding all released spans — the detector will block them again")
+                    .disabled(proxyManager.configurationMutationLocked)
                 }
             }
 
-            Button("Uninstall Everything…", role: .destructive) {
-                showUninstallConfirm = true
+            Button("Remove Bouclier Configuration…", role: .destructive) {
+                showConfigurationRemovalConfirm = true
             }
             .buttonStyle(.link)
-            .disabled(ManagedConfig.preventUninstall)
-            .help(ManagedConfig.preventUninstall ? "Uninstall is disabled by your organization" : "")
-            .alert("Uninstall Bouclier.ai?", isPresented: $showUninstallConfirm) {
+            .disabled(configurationRemovalDisabled)
+            .help(configurationRemovalHelp)
+            .alert("Remove Bouclier configuration?", isPresented: $showConfigurationRemovalConfirm) {
                 Button("Cancel", role: .cancel) {}
-                Button("Uninstall", role: .destructive) {
-                    proxyManager.uninstall()
+                Button("Remove Configuration", role: .destructive) {
+                    Task { await proxyManager.removeConfiguration() }
                 }
             } message: {
-                Text("This will stop the gateway and remove everything Bouclier configured on this Mac. You can reinstall anytime.")
+                Text("Bouclier will stop the gateway, turn off launch at login, and attempt to remove its shell, narrowly owned legacy PAC URL, certificate, and retired extension configuration. Unrelated manual or corporate proxies remain unchanged. The app and audit history remain. Any step that cannot be verified is reported so you can retry safely.")
             }
+            if proxyManager.configurationCleanupInProgress {
+                ProgressView("Removing Bouclier configuration…")
+                    .font(.caption)
+            }
+            if proxyManager.legacyMigrationInProgress,
+               proxyManager.migrationCleanupNotice == nil
+            {
+                ProgressView("Checking retired Bouclier configuration…")
+                    .font(.caption)
+            }
+            if let notice = proxyManager.configurationCleanupNotice {
+                ConfigurationNoticeView(notice: notice)
+            }
+            if let notice = proxyManager.migrationCleanupNotice {
+                ConfigurationNoticeView(notice: notice)
+            }
+            }
+            .padding()
         }
-        .padding()
+    }
+
+    private var managedBlockingEnabled: Bool? {
+        FeatureFlags.managedInjectionBlock
+    }
+
+    private var configurationRemovalDisabled: Bool {
+        proxyManager.configurationMutationLocked
+            || ManagedConfig.preventConfigurationRemoval
+            || (ManagedConfig.preventDisable && proxyManager.protectionActive)
+    }
+
+    private var configurationRemovalHelp: String {
+        if proxyManager.configurationMutationLocked {
+            return "Configuration cleanup is already in progress"
+        }
+        if ManagedConfig.preventConfigurationRemoval {
+            return "Configuration removal is disabled by your organization"
+        }
+        if ManagedConfig.preventDisable && proxyManager.protectionActive {
+            return "Disable protection is locked by your organization"
+        }
+        return ""
+    }
+
+    private var blockingEnabled: Bool {
+        managedBlockingEnabled ?? userBlockingEnabled
+    }
+
+    private var detectorDisabledByPolicy: Bool {
+        proxyManager.protectionActive && !proxyManager.detectorEnabled
+    }
+
+    private var findingActionIcon: String {
+        switch protectionState {
+        case .operational:
+            return blockingEnabled ? "hand.raised.fill" : "eye.fill"
+        case .requested, .degraded:
+            return "exclamationmark.shield.fill"
+        case .off:
+            return "slider.horizontal.3"
+        }
+    }
+
+    private var findingActionTint: Color {
+        switch protectionState {
+        case .operational:
+            return blockingEnabled ? .orange : .blue
+        case .requested, .degraded:
+            return .orange
+        case .off:
+            return .secondary
+        }
+    }
+
+    private var findingActionDescription: String {
+        protectionState.findingActionDescription(
+            blockingEnabled: blockingEnabled,
+            detectorDisabledByPolicy: detectorDisabledByPolicy
+        )
+    }
+
+    private var findingActionHelp: String {
+        if managedBlockingEnabled != nil {
+            return "This setting is managed by your organization"
+        }
+        if proxyManager.configurationMutationLocked {
+            return "Configuration cleanup is in progress"
+        }
+        return protectionState == .operational
+            ? "Applies immediately; no restart required"
+            : "Saves this action; it applies when protection is operational"
+    }
+
+    private var protectionState: DesktopProtectionState {
+        .resolve(
+            protectionActive: proxyManager.protectionActive,
+            gatewayRunning: proxyManager.isRunning,
+            detectionEngineDegraded: proxyManager.detectionEngineDegraded
+        )
+    }
+
+    private var protectionStatusText: String {
+        switch protectionState {
+        case .operational:
+            return "Protection active for routed traffic"
+        case .degraded:
+            return "Protection degraded for routed traffic"
+        case .requested:
+            return "Protection requested — gateway not running"
+        case .off:
+            return "Protection off"
+        }
+    }
+
+    private var protectionStatusIcon: String {
+        protectionState == .operational
+            ? "checkmark.shield.fill"
+            : "exclamationmark.shield.fill"
+    }
+
+    private var blockingBinding: Binding<Bool> {
+        Binding(
+            get: { blockingEnabled },
+            set: { value in
+                guard managedBlockingEnabled == nil,
+                      !proxyManager.configurationMutationLocked
+                else { return }
+                userBlockingEnabled = value
+                if value { proxyManager.requestBlockNotificationAuthorizationIfNeeded() }
+            }
+        )
     }
 }
 
@@ -423,6 +680,11 @@ struct AboutView: View {
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
 
+            Text("Built with Llama · Meta Prompt Guard 2 runs on-device")
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+
             Text("Version \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—")")
                 .font(.caption)
                 .foregroundStyle(.tertiary)
@@ -463,6 +725,10 @@ struct AboutView: View {
                     }
                 }
                 .buttonStyle(.link)
+                if let noticeURL = Bundle.main.url(forResource: "NOTICE", withExtension: "txt") {
+                    Button("Third-party notices") { NSWorkspace.shared.open(noticeURL) }
+                        .buttonStyle(.link)
+                }
             }
 
             Divider().frame(width: 200)

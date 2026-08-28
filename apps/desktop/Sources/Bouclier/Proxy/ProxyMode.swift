@@ -5,8 +5,9 @@ import Foundation
 /// `.standard` is the only mode: the non-CA base-URL gateway
 /// (`GatewayServer`). The agent points `ANTHROPIC_BASE_URL` /
 /// `OPENAI_BASE_URL` at us and we inspect the **LLM channel** for prompt
-/// injection, refusing or forwarding a request byte-for-byte — never
-/// rewriting it. No CA install, no system-trust changes.
+/// injection, refusing it or forwarding its model-visible body bytes
+/// unchanged. Proxy routing and framing headers are normalized. No CA
+/// install, no system-trust changes.
 ///
 /// The previous `.extreme` mode (a CA-based TLS-intercepting proxy with
 /// a System Extension) was removed — it required a trusted root CA and

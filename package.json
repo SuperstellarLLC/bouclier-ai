@@ -1,8 +1,7 @@
 {
   "name": "bouclier-ai",
-  "version": "0.4.0",
   "private": true,
-  "description": "Local-only macOS proxy that keeps your API keys and secrets out of the model.",
+  "description": "Local-only macOS prompt-injection monitor and optional blocker for AI coding agents.",
   "homepage": "https://www.bouclier.ai",
   "repository": {
     "type": "git",
@@ -26,7 +25,7 @@
     "test:e2e": "turbo test:e2e",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "check": "turbo typecheck lint test && prettier --check .",
+    "check": "turbo typecheck lint test && node scripts/check-pattern-sync.mjs && prettier --check .",
     "prepare": "husky"
   },
   "devDependencies": {

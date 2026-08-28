@@ -1,14 +1,15 @@
 services:
   app:
     build:
-      context: .
-      dockerfile: Dockerfile
+      context: ../..
+      dockerfile: apps/site/Dockerfile
     ports:
       - "3000:3000"
     env_file:
       - .env.local
     environment:
       - NODE_ENV=production
+      - BOUCLIER_DEPLOYMENT_ENV=production
     restart: unless-stopped
     healthcheck:
       test:

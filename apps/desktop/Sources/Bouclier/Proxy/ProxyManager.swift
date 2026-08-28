@@ -6,6 +6,61 @@ import ServiceManagement
 import SwiftUI
 import UserNotifications
 
+enum ConfigurationCleanupComponent: String, Equatable, Sendable {
+    case launchAtLogin = "launch at login"
+    case shellRouting = "shell, watchdog, or launchctl routing"
+    case legacyPAC = "legacy Bouclier PAC routing"
+    case legacyCertificate = "legacy certificate"
+    case legacyExtension = "legacy extension"
+    case systemProxy = "macOS HTTP/HTTPS and PAC settings"
+
+    var recovery: String {
+        switch self {
+        case .launchAtLogin:
+            "Quit other copies of Bouclier and retry."
+        case .shellRouting:
+            "Check permissions for your shell profiles and ~/Library/LaunchAgents, then retry."
+        case .legacyPAC:
+            "Check macOS Network settings permissions, then retry."
+        case .legacyCertificate:
+            "Allow Keychain changes, or remove the legacy Bouclier certificate in Keychain Access, then retry. If its identity file is damaged, also remove the ai.bouclier.app / ca-private-key item and legacy ca.pem/ca.key files."
+        case .legacyExtension:
+            "Approve removal in System Settings if prompted, restart if requested, then retry."
+        case .systemProxy:
+            "Check Network settings permissions, then retry."
+        }
+    }
+}
+
+struct ConfigurationNotice: Equatable, Sendable {
+    enum Kind: Equatable, Sendable {
+        case success
+        case attention
+    }
+
+    let kind: Kind
+    let title: String
+    let message: String
+}
+
+struct ConfigurationCleanupReport: Equatable, Sendable {
+    let failed: [ConfigurationCleanupComponent]
+
+    init(_ results: [(ConfigurationCleanupComponent, Bool)]) {
+        failed = results.compactMap { component, succeeded in
+            succeeded ? nil : component
+        }
+    }
+
+    var isComplete: Bool { failed.isEmpty }
+
+    func partialFailureMessage(action: String) -> String {
+        let artifacts = failed.map(\.rawValue).joined(separator: ", ")
+        let recovery = failed.map(\.recovery).joined(separator: " ")
+        return "\(action) is incomplete. Still needs attention: \(artifacts). \(recovery) Completed steps are safe to retry."
+    }
+}
+
 @MainActor
 final class ProxyManager: ObservableObject {
     @Published var isRunning = false
@@ -27,10 +82,31 @@ final class ProxyManager: ObservableObject {
     @Published var errorMessage: String?
     @Published var stats = ProxyStats()
     @Published var logs: [LogEntry] = []
+    @Published private(set) var configurationCleanupInProgress = false
+    @Published private(set) var legacyMigrationInProgress = false
+    @Published private(set) var configurationCleanupNotice: ConfigurationNotice?
+    @Published private(set) var migrationCleanupNotice: ConfigurationNotice?
+    @Published private(set) var cliCaptureIssue: String?
+    @Published private(set) var legacyCLICleanupIssue: String?
+    /// Changes whenever a pattern reload or classifier-load outcome changes
+    /// the active detection tier, prompting SwiftUI to recompute its summary.
+    @Published private(set) var patternRevision = 0
+
+    /// The port actually bound by the live gateway. Kept separate from the
+    /// configured preference: editing Settings while the gateway is running
+    /// must not make status claim it moved ports, or repoint shell capture at
+    /// a listener that does not exist. The new preference takes effect on the
+    /// next start.
+    @Published private(set) var boundPort: Int?
 
     var port: Int {
-        let p = UserDefaults.standard.object(forKey: "proxyPort") as? Int ?? 8484
-        return (1...65535).contains(p) ? p : 8484
+        boundPort ?? configuredPort
+    }
+
+    private var configuredPort: Int {
+        if let managed = ManagedConfig.port { return managed }
+        let preferred = UserDefaults.standard.object(forKey: "proxyPort") as? Int
+        return ManagedConfigValidator.validatedPort(preferred) ?? 8484
     }
 
     /// Owns the live prompt-injection engine: loads `patterns.json`,
@@ -43,10 +119,88 @@ final class ProxyManager: ObservableObject {
     /// the menu bar so "protected" is a number, not a vibe.
     var patternCount: Int { InjectionFilter.active.current()?.patternCount ?? 0 }
 
-    /// Whether the on-device ML tier is attached. False in the shipped
-    /// DMG — the Prompt Guard 2 weights were unbundled in v0.7.0 and the
-    /// engine runs regex-only unless a model is supplied locally.
+    /// False when resource loading fell back to the intentionally tiny
+    /// emergency set. Protection still runs, but the UI must say degraded.
+    var patternTierHealthy: Bool {
+        patternCount >= InjectionFilter.expectedBundledPatternCount
+    }
+
+    /// Whether the bundled on-device Prompt Guard tier has finished loading.
+    /// False during startup or when the model cannot load.
     var mlTierActive: Bool { InjectionFilter.active.current()?.hasMLClassifier ?? false }
+
+    /// Distinguishes a brief startup load from a permanent regex-only
+    /// fallback so the product never silently implies its bundled ML tier is
+    /// active after a load failure.
+    var mlTierUnavailable: Bool { patternManager?.classifierLoadError != nil }
+
+    /// Effective request-detector health. Protection can be requested while
+    /// managed policy disables `injectionDetection`; that state is a degraded
+    /// relay and must never be described as monitor or block mode.
+    var detectorEnabled: Bool {
+        Self.effectiveDetectorEnabled(
+            gatewayRunning: isRunning,
+            protectionEnabled: Self.effectiveProtectionEnabled,
+            featureEnabled: FeatureFlags.injectionDetection
+        )
+    }
+
+    var detectionEngineDegraded: Bool {
+        !detectorEnabled || !patternTierHealthy || mlTierUnavailable
+    }
+
+    /// Pure policy join used by both live health publication and focused
+    /// tests. Keeping the conjunction here prevents future status surfaces
+    /// from treating the protection toggle alone as proof of inspection.
+    static func effectiveDetectorEnabled(
+        gatewayRunning: Bool,
+        protectionEnabled: Bool,
+        featureEnabled: Bool
+    ) -> Bool {
+        gatewayRunning && protectionEnabled && featureEnabled
+    }
+
+    /// True when normal user controls that would break capture or persistence
+    /// are locked by an active managed protection policy.
+    var managedContinuityLockActive: Bool {
+        Self.managedContinuityLocked(protectionActive: protectionActive)
+    }
+
+    /// Configuration mutation stays locked for both an explicit reset/removal
+    /// and the automatic retired-extension migration. Otherwise a user can
+    /// re-create an artifact while an OS approval sheet is still outstanding,
+    /// after its cleanup result was already captured.
+    var configurationMutationLocked: Bool {
+        Self.configurationMutationLocked(
+            cleanupInProgress: configurationCleanupInProgress,
+            migrationInProgress: legacyMigrationInProgress
+        )
+    }
+
+    static func configurationMutationLocked(
+        cleanupInProgress: Bool,
+        migrationInProgress: Bool
+    ) -> Bool {
+        cleanupInProgress || migrationInProgress
+    }
+
+    var cliCaptureHealthy: Bool {
+        ShellEnvInjector.isEnabled && cliCaptureHealthIssue == nil
+    }
+
+    var cliCaptureHealthIssue: String? {
+        cliCaptureIssue ?? legacyCLICleanupIssue
+    }
+
+    private var persistentConfigurationAttention: String? {
+        if configurationCleanupNotice?.kind == .attention {
+            return configurationCleanupNotice?.message
+        }
+        if migrationCleanupNotice?.kind == .attention {
+            return migrationCleanupNotice?.message
+        }
+        return cliCaptureHealthIssue
+    }
 
     private var gatewayServer: GatewayServer?
     private var statusPublisher: StatusPublisher?
@@ -61,6 +215,11 @@ final class ProxyManager: ObservableObject {
     /// Delegate for the block-notification "Release this span" action.
     /// Strongly held here because `UNUserNotificationCenter.delegate` is weak.
     private var notificationHandler: NotificationActionHandler?
+    /// Delivers SIGTERM on the main queue so shutdown can use normal AppKit
+    /// lifecycle hooks. A raw C signal handler must not call Foundation,
+    /// launch `Process`, or touch files.
+    private var terminationSignalSource: DispatchSourceSignal?
+    private var migrationIssues: [String] = []
 
     /// Coalesces bursts of block notifications so a false-positive storm (many
     /// tool_results blocked in one agent session) shows a throttled summary
@@ -78,9 +237,29 @@ final class ProxyManager: ObservableObject {
     /// passthrough relay on quit. Stays set in passthrough mode too, so a
     /// quit while protection is paused still keeps the session alive.
     nonisolated(unsafe) static var liveGatewayPort: Int?
+    /// The live decision is process-owned and synchronized. UserDefaults
+    /// seeds/persists it, but NIO never re-reads that writable domain per
+    /// request: a Bash-capable process using `defaults write` must not turn a
+    /// green, active shield into silent passthrough. All legitimate changes
+    /// flow through the guarded MainActor methods below.
+    private nonisolated static let protectionStateLock = NSLock()
+    private nonisolated(unsafe) static var effectiveProtectionState = false
+
+    nonisolated static var effectiveProtectionEnabled: Bool {
+        protectionStateLock.lock()
+        defer { protectionStateLock.unlock() }
+        return effectiveProtectionState
+    }
+
+    private static func setEffectiveProtection(_ enabled: Bool) {
+        protectionStateLock.lock()
+        effectiveProtectionState = enabled
+        protectionStateLock.unlock()
+    }
 
     init() {
         protectionActive = Self.protectionEnabled
+        Self.setEffectiveProtection(protectionActive)
 
         // The detection engine is live again as of v0.9.0, this time
         // hanging off the certificate-free gateway rather than the
@@ -91,17 +270,26 @@ final class ProxyManager: ObservableObject {
         // the registry per request; see `InjectionInspectionPass`.
         //
         // `loadPIITier: false` — the Piiranha model has been unbundled
-        // since v0.7.0 and nothing calls the PII path.
-        patternManager = PatternManager(loadPIITier: false)
+        // since v0.7.0 and nothing calls the PII path. The injection-tier
+        // callback publishes reload/load changes so the menu doesn't remain
+        // stuck on the startup tier until some unrelated state changes.
+        patternManager = PatternManager(onChange: { [weak self] in
+            Task { @MainActor in
+                guard let self else { return }
+                self.patternRevision &+= 1
+                self.statusPublisher?.refresh()
+            }
+        }, loadPIITier: false)
 
-        // Register crash cleanup — disable system proxy if we die unexpectedly
+        // Register lifecycle cleanup so a quit/crash withdraws the exact
+        // launchctl values and status snapshot this process owned.
         registerCleanupHandlers()
 
         // Auto-init at construction. The previous design deferred this
         // to MenuBarView.onAppear, but that fires only when the user
         // *opens* the menu — so on launch the shield icon read "off"
-        // until the user clicked it, defeating the whole point of the
-        // auto-start-when-CA-installed change. Calling it here makes
+        // until the user clicked it, defeating automatic protection startup.
+        // Calling it here makes
         // the gate fire as soon as the App's body builds the
         // MenuBarExtra scene (which forces @StateObject construction).
         initializeStorage()
@@ -147,7 +335,15 @@ final class ProxyManager: ObservableObject {
         // One-shot cleanup for installs that had extreme mode (CA +
         // System Extension + PAC) active before it was removed. Must run
         // before anything else touches `ca`/`extensionManager` state.
+        migrateLegacyLaunchctlEnvironmentIfNeeded()
         migrateAwayFromExtremeModeIfNeeded()
+
+        // A managed "cannot disable" deployment must not leave two quiet
+        // bypasses open: turning off shell capture means new CLI processes
+        // never reach the gateway, and turning off the login item means the
+        // gateway disappears after logout. Enforce both preferences before
+        // auto-start so startStandard() sees shell capture enabled.
+        enforceManagedContinuityControlsIfNeeded()
 
         // Publish the read-only status snapshot for the CLI so an agent can
         // check whether protection is on before it runs.
@@ -187,26 +383,155 @@ final class ProxyManager: ObservableObject {
     /// Gated by a version-suffixed sentinel key, mirroring
     /// `LegacyDefaultsCleanup`'s pattern — a future migration would mint a
     /// new `.v2` key rather than reuse this one.
-    private static let extremeModeMigrationKey = "bouclier.extremeModeRemoved.v1"
+    // v2 replaces v1's broad, false-success-prone cleanup. It touches only an
+    // exact Bouclier PAC URL/extension and records completion only after state
+    // can be read and no retired manager remains.
+    private static let extremeModeMigrationKey = "bouclier.extremeModeRemoved.v2"
+    private static let legacyLaunchctlMigrationKey = "bouclier.legacyLaunchctlCleanup.v1"
+    // ShellEnvInjector persists this value before any partial apply so cleanup
+    // can still target the exact launchctl value after the preference changes.
+    // Keep the spelling in sync without widening ShellEnvInjector's API solely
+    // for a one-release migration helper.
+    private static let lastAppliedGatewayPortKey = "bouclier.lastAppliedGatewayPort"
+
+    static func cleanupCandidatePorts(
+        boundPort: Int?,
+        managedPort: Int?,
+        preferredPort: Int?,
+        lastAppliedPort: Int?
+    ) -> [Int] {
+        var seen = Set<Int>()
+        let candidates = [boundPort, managedPort, preferredPort, lastAppliedPort]
+            .compactMap { candidate -> Int? in
+                guard let candidate,
+                      let valid = ManagedConfigValidator.validatedPort(candidate),
+                      seen.insert(valid).inserted
+                else { return nil }
+                return valid
+            }
+        // 8484 is ownership evidence only when it is the effective fallback,
+        // not as a speculative historical port beside an unrelated setting.
+        return candidates.isEmpty ? [8484] : candidates
+    }
+
+    private var cleanupCandidatePorts: [Int] {
+        Self.cleanupCandidatePorts(
+            boundPort: boundPort,
+            managedPort: ManagedConfig.port,
+            preferredPort: UserDefaults.standard.object(forKey: "proxyPort") as? Int,
+            lastAppliedPort: UserDefaults.standard.object(
+                forKey: Self.lastAppliedGatewayPortKey
+            ) as? Int
+        )
+    }
+
+    private func removeOwnedLegacyLaunchctl(for ports: [Int]) -> Bool {
+        ports.reduce(true) { complete, candidate in
+            ShellEnvInjector.unsetLegacyLaunchctlIfOwned(
+                proxyPort: candidate,
+                caCertPath: CertificateAuthority.caCertPath.path
+            ) && complete
+        }
+    }
+
+    private func recordMigrationIssue(_ message: String) {
+        if !migrationIssues.contains(message) { migrationIssues.append(message) }
+        publishMigrationIssues()
+        errorMessage = message
+        log(message, blocked: false)
+    }
+
+    private func publishMigrationIssues() {
+        guard !migrationIssues.isEmpty else {
+            migrationCleanupNotice = nil
+            return
+        }
+        migrationCleanupNotice = ConfigurationNotice(
+            kind: .attention,
+            title: "Legacy cleanup needs attention",
+            message: migrationIssues.joined(separator: " ")
+        )
+    }
+
+    private func migrateLegacyLaunchctlEnvironmentIfNeeded() {
+        guard !UserDefaults.standard.bool(forKey: Self.legacyLaunchctlMigrationKey) else { return }
+        let complete = removeOwnedLegacyLaunchctl(for: cleanupCandidatePorts)
+        if complete {
+            legacyCLICleanupIssue = nil
+            UserDefaults.standard.set(true, forKey: Self.legacyLaunchctlMigrationKey)
+        } else {
+            let message = "Bouclier could not verify removal of its retired launchctl proxy variables. Quit other copies, check session permissions, and reopen Bouclier to retry."
+            legacyCLICleanupIssue = message
+            recordMigrationIssue(message)
+        }
+    }
+
     private func migrateAwayFromExtremeModeIfNeeded() {
         guard !UserDefaults.standard.bool(forKey: Self.extremeModeMigrationKey) else { return }
-        UserDefaults.standard.set(true, forKey: Self.extremeModeMigrationKey)
-
+        let ports = cleanupCandidatePorts
         let hadCA = ca.isInstalled
-        if hadCA {
-            ca.uninstallCA()
-            caInstalled = false
-            _ = SystemProxy.disableAll()
-            log("Removed the local CA and system proxy config left by extreme mode, which no longer exists in this version", blocked: false)
-        }
-
+        legacyMigrationInProgress = true
         Task {
-            await extensionManager.checkStatus()
-            guard extensionManager.extensionInstalled else { return }
-            await extensionManager.disableProxy()
-            extensionManager.removeExtension()
-            await MainActor.run {
-                self.log("Deactivated the System Extension left by extreme mode, which no longer exists in this version", blocked: false)
+            defer {
+                self.legacyMigrationInProgress = false
+                if (Self.protectionEnabled || Self.envConfigured), !self.isRunning {
+                    self.start()
+                }
+            }
+
+            // Keep local retry material in place until systemextensiond has
+            // finished. This avoids declaring local cleanup complete while a
+            // retired transparent proxy remains active pending approval.
+            let extensionComplete = await extensionManager.removeLegacyConfiguration {
+                [weak self] message in
+                guard let self else { return }
+                self.migrationCleanupNotice = ConfigurationNotice(
+                    kind: .attention,
+                    title: "Legacy extension removal requires action",
+                    message: message
+                )
+                self.errorMessage = message
+                self.log(message, blocked: false)
+            }
+            let caCleanupComplete = ca.uninstallCA()
+            caInstalled = ca.isInstalled
+            let pacCleanupComplete = await Task.detached {
+                SystemProxy.disableLegacyBouclierPAC(proxyPorts: ports)
+            }.value
+
+            if !extensionComplete {
+                let detail = extensionManager.errorMessage ?? "unknown cleanup error"
+                recordMigrationIssue(
+                    "Bouclier could not finish removing its retired System Extension. \(detail)"
+                )
+            }
+            if !caCleanupComplete {
+                recordMigrationIssue(
+                    "Bouclier could not verify removal of its retired certificate. Allow Keychain changes or remove the Bouclier certificate in Keychain Access, then reopen Bouclier. If its identity file is damaged, also remove the ai.bouclier.app / ca-private-key item and legacy ca.pem/ca.key files."
+                )
+            }
+            if !pacCleanupComplete {
+                recordMigrationIssue(
+                    "Bouclier could not verify removal of its retired PAC URL. Check macOS Network settings permissions, then reopen Bouclier."
+                )
+            }
+
+            let complete = extensionComplete && caCleanupComplete && pacCleanupComplete
+            if complete {
+                UserDefaults.standard.set(true, forKey: Self.extremeModeMigrationKey)
+                publishMigrationIssues()
+                if hadCA && migrationIssues.isEmpty {
+                    migrationCleanupNotice = ConfigurationNotice(
+                        kind: .success,
+                        title: "Legacy security configuration removed",
+                        message: "Bouclier removed the retired local certificate and verified that its old extension and PAC routing are absent."
+                    )
+                }
+                if hadCA {
+                    log("Removed the local CA left by extreme mode, which no longer exists in this version", blocked: false)
+                }
+            } else {
+                UserDefaults.standard.removeObject(forKey: Self.extremeModeMigrationKey)
             }
         }
 
@@ -219,7 +544,7 @@ final class ProxyManager: ObservableObject {
 
     /// One-time opt-in: persists across launches so standard mode can
     /// auto-start without surprising a brand-new user on first run.
-    static let protectionEnabledKey = "protectionEnabled"
+    nonisolated static let protectionEnabledKey = "protectionEnabled"
     static var protectionEnabled: Bool {
         UserDefaults.standard.bool(forKey: protectionEnabledKey)
     }
@@ -234,7 +559,8 @@ final class ProxyManager: ObservableObject {
 
     /// True once the user's shell/GUI env has ever been pointed at the
     /// gateway (set by enable, kept by disable, cleared only by
-    /// uninstall/reset). Distinct from `protectionEnabled` so "protection
+    /// explicit configuration removal/proxy reset). Distinct from
+    /// `protectionEnabled` so "protection
     /// off" can mean *allow-all passthrough* rather than *dead port*:
     /// as long as env may reference our port, the gateway must answer.
     static let envConfiguredKey = "gatewayEnvConfigured"
@@ -246,13 +572,24 @@ final class ProxyManager: ObservableObject {
     /// agent's SDKs at it. No CA, no PAC, no system extension. This is the
     /// frictionless default path from the Protection tab.
     func enableStandard() {
+        guard !configurationMutationLocked else {
+            log("Protection cannot be enabled while configuration cleanup is in progress", blocked: false)
+            return
+        }
+        clearSuccessfulConfigurationCleanupNotice()
         UserDefaults.standard.set(true, forKey: Self.protectionEnabledKey)
         UserDefaults.standard.set(true, forKey: Self.envConfiguredKey)
         protectionActive = true
+        Self.setEffectiveProtection(true)
+        statusPublisher?.refresh()
+        enforceManagedContinuityControlsIfNeeded()
         UserDefaults.standard.set(ProxyMode.standard.rawValue, forKey: ProxyMode.userDefaultsKey)
+        requestBlockNotificationAuthorizationIfNeeded()
         if isRunning {
             // Gateway is already bound — safe to re-point the env immediately.
-            ShellEnvInjector.applyStandard(gatewayPort: port)
+            if ShellEnvInjector.isEnabled {
+                _ = applyShellCapture(gatewayPort: port)
+            }
         } else {
             // start() only kicks off the async bind; startStandard() applies
             // the env itself once isRunning flips true, so CLI tools are
@@ -260,6 +597,18 @@ final class ProxyManager: ObservableObject {
             start()
         }
         log("Standard protection enabled (no CA)", blocked: false)
+    }
+
+    /// Ask for Notification Center access only after the user has chosen a
+    /// mode that can actually create block banners. Prompting at process
+    /// launch put a permission dialog in front of first-run onboarding with
+    /// no explanation — and monitor-only users never need this permission.
+    func requestBlockNotificationAuthorizationIfNeeded() {
+        guard Self.isRunningInPackagedApp,
+              FeatureFlags.injectionBlock,
+              UserDefaults.standard.object(forKey: "showNotifications") as? Bool ?? true
+        else { return }
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
     }
 
     /// Turn off standard protection WITHOUT killing the gateway: the
@@ -272,10 +621,22 @@ final class ProxyManager: ObservableObject {
     /// `ANTHROPIC_BASE_URL=127.0.0.1:<port>` for its lifetime — the shell
     /// dotfile's fail-open TCP probe only helps shells launched later.
     /// Disable must degrade to "no protection", never to "no API".
-    /// Full teardown remains available via quit / uninstall / reset.
+    /// Full teardown remains available via explicit configuration removal or
+    /// proxy reset; quitting hands the live port to a short-lived passthrough
+    /// relay.
     func disableStandard() {
+        guard !configurationMutationLocked else {
+            log("Protection cannot be changed while configuration cleanup is in progress", blocked: false)
+            return
+        }
+        guard !ManagedConfig.preventDisable else {
+            log("Protection stays enabled — disabling is prevented by your organization", blocked: false)
+            return
+        }
         UserDefaults.standard.set(false, forKey: Self.protectionEnabledKey)
         protectionActive = false
+        Self.setEffectiveProtection(false)
+        statusPublisher?.refresh()
         if isRunning {
             log("Protection disabled — gateway stays up as allow-all passthrough so active agent sessions keep working", blocked: false)
         } else {
@@ -286,23 +647,37 @@ final class ProxyManager: ObservableObject {
     /// Build the read-only snapshot the StatusPublisher writes. Counts only —
     /// never request content.
     func statusSnapshot() -> BouclierStatus {
-        BouclierStatus(
+        let detectorEnabled = self.detectorEnabled
+        return BouclierStatus(
             writtenAt: Date().timeIntervalSince1970,
             pid: getpid(),
             appVersion: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—",
             running: isRunning,
             mode: ProxyMode.current.rawValue,
             caInstalled: caInstalled,
-            protectionEnabled: UserDefaults.standard.bool(forKey: Self.protectionEnabledKey),
+            protectionEnabled: Self.effectiveProtectionEnabled,
+            detectorEnabled: detectorEnabled,
+            blockingEnabled: detectorEnabled && FeatureFlags.injectionBlock,
+            patternCount: patternCount,
+            mlClassifierState: mlTierActive
+                ? "active"
+                : (mlTierUnavailable ? "unavailable" : "loading"),
             activity: .init(requestsScanned: stats.requestsScanned,
-                            injectionsBlocked: stats.injectionsBlocked))
+                            injectionsBlocked: stats.injectionsBlocked,
+                            injectionFindingsFlagged: stats.injectionFindingsFlagged,
+                            requestsSkippedInspection: stats.requestsSkippedInspection,
+                            requestsBlockedByInspectionLimit: stats.requestsBlockedByInspectionLimit))
     }
 
     static func emptyStatus() -> BouclierStatus {
         BouclierStatus(
             writtenAt: Date().timeIntervalSince1970, pid: getpid(), appVersion: "—",
             running: false, mode: ProxyMode.current.rawValue, caInstalled: false, protectionEnabled: false,
-            activity: .init(requestsScanned: 0, injectionsBlocked: 0))
+            detectorEnabled: false, blockingEnabled: false,
+            patternCount: 0, mlClassifierState: "unknown",
+            activity: .init(requestsScanned: 0, injectionsBlocked: 0,
+                            injectionFindingsFlagged: 0, requestsSkippedInspection: 0,
+                            requestsBlockedByInspectionLimit: 0))
     }
 
     func start() {
@@ -311,26 +686,26 @@ final class ProxyManager: ObservableObject {
         // startStandard()) to prevent a second start() — e.g.
         // enableStandard() racing the initializeStorage auto-start — from
         // binding twice and orphaning a channel.
-        guard !isRunning, gatewayServer == nil else { return }
-        errorMessage = nil
+        guard !configurationMutationLocked,
+              !isRunning,
+              gatewayServer == nil
+        else { return }
+        errorMessage = persistentConfigurationAttention
         startStandard()
     }
 
     /// Standard (non-CA) mode: bind the base-URL gateway. No CA, no PAC,
     /// no system extension — the agent reaches us via `ANTHROPIC_BASE_URL`.
     private func startStandard() {
-        let boundPort = port
+        let requestedPort = configuredPort
         // Captured outside the closure: the static key lives on a
         // @MainActor type and can't be touched from a @Sendable closure.
-        let protectionKey = Self.protectionEnabledKey
         let gateway = GatewayServer(
-            port: boundPort,
-            // Read per request (UserDefaults is thread-safe and cached),
-            // so flipping protection on/off takes effect immediately on a
-            // *running* gateway — disable degrades to allow-all
-            // passthrough instead of tearing the listener down under
-            // active agent sessions.
-            inspectionEnabled: { UserDefaults.standard.bool(forKey: protectionKey) },
+            port: requestedPort,
+            // Read the synchronized, process-owned effective state per
+            // request, so a guarded UI change applies immediately without
+            // trusting the writable preferences domain on NIO threads.
+            inspectionEnabled: { ProxyManager.effectiveProtectionEnabled },
             onResponseAction: { [weak self] findings in
                 Task { @MainActor in self?.handleResponseActions(findings) }
             },
@@ -345,32 +720,73 @@ final class ProxyManager: ObservableObject {
             do {
                 let channel = try await gateway.start()
                 await MainActor.run {
+                    // stop()/removeConfiguration() may have run while bind was in
+                    // flight. Never resurrect a gateway the user already
+                    // stopped; close this now-stale listener instead.
+                    guard self.gatewayServer === gateway else {
+                        channel.close(mode: .all, promise: nil)
+                        return
+                    }
                     self.proxyChannel = channel
                     self.isRunning = true
+                    self.boundPort = requestedPort
                     // Publish the live port so a quit can hand it off to a
                     // passthrough relay before the listener goes away.
-                    Self.liveGatewayPort = boundPort
-                    self.log("Gateway (standard mode) listening on 127.0.0.1:\(boundPort)", blocked: false)
+                    Self.liveGatewayPort = requestedPort
+                    self.statusPublisher?.refresh()
+                    channel.closeFuture.whenComplete { [weak self, weak gateway] _ in
+                        guard let gateway else { return }
+                        Task { @MainActor [weak self] in
+                            guard let self, self.gatewayServer === gateway else { return }
+                            // Intentional stop/removal clears gatewayServer
+                            // before this callback reaches MainActor. If it is
+                            // still current, the listener died unexpectedly;
+                            // immediately withdraw every operational claim and
+                            // clear only the exact launchctl values it owned.
+                            self.proxyChannel = nil
+                            self.gatewayServer = nil
+                            self.isRunning = false
+                            self.boundPort = nil
+                            Self.liveGatewayPort = nil
+                            ShellEnvInjector.unsetLaunchctl(gatewayPort: requestedPort)
+                            self.errorMessage = "Gateway listener stopped unexpectedly. Protection is not currently operational; turn it off and on to retry."
+                            self.log("Gateway listener stopped unexpectedly", blocked: true)
+                            self.statusPublisher?.refresh()
+                            Task.detached { gateway.shutdown() }
+                        }
+                    }
+                    self.log("Gateway (standard mode) listening on 127.0.0.1:\(requestedPort)", blocked: false)
                     // Only wire shells/GUI apps to the gateway once the
                     // listener is actually bound and accepting. Applying
                     // this before bind() resolves points CLI tools
                     // (Claude Code, etc.) at a port nothing is listening
                     // on yet — the exact "connection refused at startup"
                     // race this ordering closes.
-                    ShellEnvInjector.applyStandard(gatewayPort: boundPort)
+                    if ShellEnvInjector.isEnabled {
+                        _ = self.applyShellCapture(gatewayPort: requestedPort)
+                    }
                 }
             } catch {
+                gateway.shutdown()
                 await MainActor.run {
+                    guard self.gatewayServer === gateway else { return }
+                    self.gatewayServer = nil
                     self.isRunning = false
+                    self.boundPort = nil
                     let msg = Self.friendlyError(error)
                     self.errorMessage = msg
                     self.log("Gateway failed: \(msg)", blocked: true)
+                    self.statusPublisher?.refresh()
                 }
             }
         }
     }
 
     func stop() {
+        // Preserve the authority before clearing published state. Settings
+        // may already contain a different next-launch port; cleanup must
+        // value-check against the port this listener actually owned.
+        let stoppedPort = boundPort
         // Close channel first (non-blocking)
         proxyChannel?.close(mode: .all, promise: nil)
         proxyChannel = nil
@@ -383,39 +799,123 @@ final class ProxyManager: ObservableObject {
         }
 
         isRunning = false
+        boundPort = nil
         Self.liveGatewayPort = nil
         errorMessage = nil
+        statusPublisher?.refresh()
 
-        // disableAll, not disable: the active interface check only
-        // sweeps one service. On a multi-network setup (Wi-Fi + Ethernet,
-        // VPN profiles) the stale Bouclier PAC was surviving on the
-        // services we didn't touch, then re-biting the user when they
-        // swapped networks. Sweeping all services on every quit is the
-        // robust fix.
-        _ = SystemProxy.disableAll()
+        // Current standard mode never changes macOS system-proxy settings.
+        // Do not run the legacy "disable all proxies" escape hatch here:
+        // it also disables unrelated corporate/manual proxy configuration.
+        // That destructive sweep is limited to the explicit Reset action;
+        // the old extreme-mode migration removes only an exactly owned PAC.
         // Drop the launchctl proxy env so processes spawned via `open`
         // / Spotlight don't keep pointing at a port we no longer listen
         // on. The dotfile block stays (fail-open TCP probe handles that
         // case); we only fix the GUI-launch path here.
-        ShellEnvInjector.unsetLaunchctl()
+        ShellEnvInjector.unsetLaunchctl(gatewayPort: stoppedPort)
 
         log("Proxy stopped", blocked: false)
     }
 
-    func uninstall() {
+    /// Stop Bouclier and remove the local routing artifacts it configured.
+    /// This intentionally does not claim to uninstall/delete the app bundle;
+    /// Finder, MDM, or the user's software-management tool owns that action.
+    @discardableResult
+    func removeConfiguration() async -> Bool {
+        guard !ManagedConfig.preventConfigurationRemoval else {
+            log("Configuration removal is prevented by your organization", blocked: false)
+            return false
+        }
+        guard !(ManagedConfig.preventDisable && protectionActive) else {
+            log("Configuration removal is unavailable while disabling protection is prevented by your organization", blocked: false)
+            return false
+        }
+        guard !configurationMutationLocked else {
+            log("Configuration cleanup is already in progress", blocked: false)
+            return false
+        }
+        configurationCleanupInProgress = true
+        configurationCleanupNotice = nil
+        defer { configurationCleanupInProgress = false }
+
+        // Preserve the live authority before stop() clears boundPort. A user
+        // may already have edited the next-launch preference; shell cleanup
+        // must target values written for the listener that actually ran.
+        let cleanupPort = port
+        let candidatePorts = cleanupCandidatePorts
         stop()
         UserDefaults.standard.set(false, forKey: Self.protectionEnabledKey)
-        UserDefaults.standard.set(false, forKey: Self.envConfiguredKey)
         protectionActive = false
-        // Belt-and-suspenders: the one-shot migration already cleans up
-        // extreme mode's CA/extension for installs that go through
-        // `initializeStorage()`, but a full uninstall should leave zero
-        // trace regardless of whether that migration has run yet.
-        extensionManager.removeExtension()
-        ca.uninstallCA()
-        ShellEnvInjector.remove()
-        caInstalled = false
-        log("Bouclier fully uninstalled", blocked: false)
+        Self.setEffectiveProtection(false)
+        statusPublisher?.refresh()
+
+        // Let systemextensiond finish first, then remove and verify every
+        // process-local artifact. Mutators stay locked for the whole interval,
+        // so a successful result cannot be invalidated while approval is open.
+        let extensionComplete = await extensionManager.removeLegacyConfiguration {
+            [weak self] message in
+            self?.errorMessage = message
+            self?.log(message, blocked: false)
+        }
+        let loginItemComplete = Self.setLaunchAtLogin(false, protectionActive: false)
+        let standardShellComplete = ShellEnvInjector.remove(gatewayPort: cleanupPort)
+        let legacyLaunchctlComplete = removeOwnedLegacyLaunchctl(for: candidatePorts)
+        let shellComplete = standardShellComplete && legacyLaunchctlComplete
+        let pacComplete = await Task.detached {
+            SystemProxy.disableLegacyBouclierPAC(proxyPorts: candidatePorts)
+        }.value
+        let caComplete = ca.uninstallCA()
+        caInstalled = ca.isInstalled
+        cliCaptureIssue = standardShellComplete ? nil : "Bouclier could not verify removal of its CLI capture files or watchdog. Check General ▸ CLI capture and filesystem permissions, then retry configuration removal."
+        legacyCLICleanupIssue = legacyLaunchctlComplete ? nil : "Bouclier could not verify removal of its retired launchctl proxy variables. Quit other copies and retry configuration removal."
+
+        // Keep passthrough auto-start armed only while some shell/session
+        // routing may still point at the local port. A partial cleanup must not
+        // turn stale routing into connection-refused on the next launch.
+        UserDefaults.standard.set(!shellComplete, forKey: Self.envConfiguredKey)
+
+        let report = ConfigurationCleanupReport([
+            (.launchAtLogin, loginItemComplete),
+            (.shellRouting, shellComplete),
+            (.legacyPAC, pacComplete),
+            (.legacyCertificate, caComplete),
+            (.legacyExtension, extensionComplete),
+        ])
+        guard report.isComplete else {
+            if !caComplete || !extensionComplete || !pacComplete {
+                UserDefaults.standard.removeObject(forKey: Self.extremeModeMigrationKey)
+            }
+            if !legacyLaunchctlComplete {
+                UserDefaults.standard.removeObject(forKey: Self.legacyLaunchctlMigrationKey)
+            }
+            var message = report.partialFailureMessage(action: "Configuration removal")
+            if !extensionComplete, let detail = extensionManager.errorMessage {
+                message += " \(detail)"
+            }
+            errorMessage = message
+            configurationCleanupNotice = ConfigurationNotice(
+                kind: .attention,
+                title: "Configuration removal is incomplete",
+                message: message
+            )
+            log(message, blocked: false)
+            return false
+        }
+
+        errorMessage = nil
+        UserDefaults.standard.set(true, forKey: Self.extremeModeMigrationKey)
+        UserDefaults.standard.set(true, forKey: Self.legacyLaunchctlMigrationKey)
+        migrationIssues.removeAll()
+        migrationCleanupNotice = nil
+        legacyCLICleanupIssue = nil
+        configurationCleanupNotice = ConfigurationNotice(
+            kind: .success,
+            title: "Bouclier configuration removed",
+            message: "The gateway and Bouclier-owned routing, login item, retired PAC, certificate, and extension state are verified absent. The app and audit history remain installed."
+        )
+        log("Bouclier configuration removed; the app and audit history remain installed", blocked: false)
+        return true
     }
 
     /// Nuclear reset for the cases where an unclean shutdown (or a
@@ -425,43 +925,251 @@ final class ProxyManager: ObservableObject {
     /// service, drops the launchctl session env, removes the watchdog
     /// LaunchAgent, and strips the shell-startup blocks. Protection is
     /// off afterwards — re-enable from the Protection tab.
-    func resetAllProxies() {
-        if isRunning { stop() }
+    @discardableResult
+    func resetAllProxies() async -> Bool {
+        guard !(ManagedConfig.preventDisable && protectionActive) else {
+            log("Proxy reset is unavailable while disabling protection is prevented by your organization", blocked: false)
+            return false
+        }
+        guard !configurationMutationLocked else {
+            log("Configuration cleanup is already in progress", blocked: false)
+            return false
+        }
+        configurationCleanupInProgress = true
+        configurationCleanupNotice = nil
+        defer { configurationCleanupInProgress = false }
+
+        let cleanupPort = port
+        let candidatePorts = cleanupCandidatePorts
+        // stop() also cancels an in-flight bind represented by gatewayServer
+        // while isRunning is still false; checking only the published flag can
+        // otherwise let a listener appear after reset has reported completion.
+        stop()
         UserDefaults.standard.set(false, forKey: Self.protectionEnabledKey)
-        UserDefaults.standard.set(false, forKey: Self.envConfiguredKey)
         protectionActive = false
-        SystemProxy.disableAll()
-        ShellEnvInjector.remove()
-        log("All proxy settings reset", blocked: false)
+        Self.setEffectiveProtection(false)
+        statusPublisher?.refresh()
+
+        let extensionComplete = await extensionManager.removeLegacyConfiguration {
+            [weak self] message in
+            self?.errorMessage = message
+            self?.log(message, blocked: false)
+        }
+        let loginItemComplete = Self.setLaunchAtLogin(false, protectionActive: false)
+        let systemProxyComplete = await Task.detached {
+            SystemProxy.disableAll()
+        }.value
+        let standardShellComplete = ShellEnvInjector.remove(gatewayPort: cleanupPort)
+        let legacyLaunchctlComplete = removeOwnedLegacyLaunchctl(for: candidatePorts)
+        let shellComplete = standardShellComplete && legacyLaunchctlComplete
+        let caComplete = ca.uninstallCA()
+        caInstalled = ca.isInstalled
+        cliCaptureIssue = standardShellComplete ? nil : "Bouclier could not verify removal of its CLI capture files or watchdog. Check General ▸ CLI capture and filesystem permissions, then retry proxy recovery."
+        legacyCLICleanupIssue = legacyLaunchctlComplete ? nil : "Bouclier could not verify removal of its retired launchctl proxy variables. Quit other copies and retry proxy recovery."
+        UserDefaults.standard.set(!shellComplete, forKey: Self.envConfiguredKey)
+
+        let report = ConfigurationCleanupReport([
+            (.launchAtLogin, loginItemComplete),
+            (.systemProxy, systemProxyComplete),
+            (.shellRouting, shellComplete),
+            (.legacyCertificate, caComplete),
+            (.legacyExtension, extensionComplete),
+        ])
+        guard report.isComplete else {
+            if !caComplete || !extensionComplete || !systemProxyComplete {
+                UserDefaults.standard.removeObject(forKey: Self.extremeModeMigrationKey)
+            }
+            if !legacyLaunchctlComplete {
+                UserDefaults.standard.removeObject(forKey: Self.legacyLaunchctlMigrationKey)
+            }
+            var message = report.partialFailureMessage(action: "Proxy reset")
+            if !extensionComplete, let detail = extensionManager.errorMessage {
+                message += " \(detail)"
+            }
+            errorMessage = message
+            configurationCleanupNotice = ConfigurationNotice(
+                kind: .attention,
+                title: "Proxy recovery is incomplete",
+                message: message
+            )
+            log(message, blocked: false)
+            return false
+        }
+
+        errorMessage = nil
+        UserDefaults.standard.set(true, forKey: Self.extremeModeMigrationKey)
+        UserDefaults.standard.set(true, forKey: Self.legacyLaunchctlMigrationKey)
+        migrationIssues.removeAll()
+        migrationCleanupNotice = nil
+        legacyCLICleanupIssue = nil
+        configurationCleanupNotice = ConfigurationNotice(
+            kind: .success,
+            title: "HTTP/HTTPS and PAC recovery completed",
+            message: "Manual web proxies and automatic PAC configuration are verified off on every readable network service, and Bouclier-owned routing is removed."
+        )
+        log("HTTP/HTTPS and PAC proxy settings were reset", blocked: false)
+        return true
+    }
+
+    /// Managed protection includes the normal capture/availability controls,
+    /// not merely the shield toggle. Returns false when a requested mutation
+    /// would create a bypass and restores the persisted preference so SwiftUI
+    /// cannot display a state the app rejected.
+    @discardableResult
+    func setCLICaptureEnabled(_ enabled: Bool) -> Bool {
+        guard !configurationMutationLocked else {
+            log("CLI capture cannot be changed while configuration cleanup is in progress", blocked: false)
+            return false
+        }
+        if !enabled && Self.managedContinuityLocked(protectionActive: protectionActive) {
+            UserDefaults.standard.set(true, forKey: ShellEnvInjector.autoConfigureKey)
+            log("CLI capture stays enabled — disabling is prevented by your organization", blocked: false)
+            return false
+        }
+        clearSuccessfulConfigurationCleanupNotice()
+
+        UserDefaults.standard.set(enabled, forKey: ShellEnvInjector.autoConfigureKey)
+        if enabled {
+            if isRunning { return applyShellCapture(gatewayPort: port) }
+        } else if !ShellEnvInjector.remove(gatewayPort: port) {
+            UserDefaults.standard.set(true, forKey: ShellEnvInjector.autoConfigureKey)
+            let message = "CLI capture could not be fully turned off. Bouclier left the preference enabled because a shell block, watchdog, or launchctl value may remain; check shell-profile and ~/Library/LaunchAgents permissions, then retry."
+            cliCaptureIssue = message
+            errorMessage = message
+            log(message, blocked: false)
+            return false
+        }
+        clearCLICaptureIssue()
+        return true
+    }
+
+    @discardableResult
+    private func applyShellCapture(gatewayPort: Int) -> Bool {
+        let complete = ShellEnvInjector.applyStandard(gatewayPort: gatewayPort)
+        if complete {
+            clearCLICaptureIssue()
+        } else {
+            let message = "Gateway is running, but automatic CLI capture could not be fully configured. Some new AI tools may bypass Bouclier; review General ▸ CLI capture and filesystem permissions."
+            cliCaptureIssue = message
+            errorMessage = message
+            log(message, blocked: false)
+        }
+        return complete
+    }
+
+    private func clearCLICaptureIssue() {
+        let resolvedIssue = cliCaptureIssue
+        cliCaptureIssue = nil
+        if let resolvedIssue, errorMessage == resolvedIssue {
+            errorMessage = nil
+        }
+    }
+
+    @discardableResult
+    func setLaunchAtLoginEnabled(_ enabled: Bool) -> Bool {
+        guard !configurationMutationLocked else {
+            log("Launch at login cannot be changed while configuration cleanup is in progress", blocked: false)
+            return false
+        }
+        let complete = Self.setLaunchAtLogin(enabled, protectionActive: protectionActive)
+        if complete { clearSuccessfulConfigurationCleanupNotice() }
+        return complete
+    }
+
+    func clearSuccessfulConfigurationCleanupNotice() {
+        if configurationCleanupNotice?.kind == .success {
+            configurationCleanupNotice = nil
+        }
     }
 
     func clearLogs() { logs.removeAll() }
 
-    static func setLaunchAtLogin(_ enabled: Bool) {
+    static let launchAtLoginKey = "launchAtLogin"
+
+    /// Keep the UI preference and the Service Management registration in
+    /// lockstep. Removal/reset call this directly rather than merely clearing
+    /// the preference, because a registered login item survives that change.
+    @discardableResult
+    static func setLaunchAtLogin(
+        _ enabled: Bool,
+        protectionActive: Bool? = nil
+    ) -> Bool {
+        let active = protectionActive ?? Self.effectiveProtectionEnabled
+        guard enabled || !managedContinuityLocked(protectionActive: active) else {
+            UserDefaults.standard.set(true, forKey: launchAtLoginKey)
+            return false
+        }
+        let previous = UserDefaults.standard.object(forKey: launchAtLoginKey)
+        if !enabled, launchAtLoginRegistrationIsAbsent(SMAppService.mainApp.status) {
+            UserDefaults.standard.set(false, forKey: launchAtLoginKey)
+            return true
+        }
         do {
             if enabled { try SMAppService.mainApp.register() }
             else { try SMAppService.mainApp.unregister() }
-        } catch {}
+            if !enabled,
+               !launchAtLoginRegistrationIsAbsent(SMAppService.mainApp.status)
+            {
+                if let previous { UserDefaults.standard.set(previous, forKey: launchAtLoginKey) }
+                else { UserDefaults.standard.removeObject(forKey: launchAtLoginKey) }
+                return false
+            }
+            UserDefaults.standard.set(enabled, forKey: launchAtLoginKey)
+        } catch {
+            if let previous { UserDefaults.standard.set(previous, forKey: launchAtLoginKey) }
+            else { UserDefaults.standard.removeObject(forKey: launchAtLoginKey) }
+            return false
+        }
+        return true
+    }
+
+    static func launchAtLoginRegistrationIsAbsent(_ status: SMAppService.Status) -> Bool {
+        switch status {
+        case .notRegistered, .notFound:
+            true
+        case .enabled, .requiresApproval:
+            false
+        @unknown default:
+            false
+        }
+    }
+
+    static func managedContinuityLocked(
+        preventDisable: Bool = ManagedConfig.preventDisable,
+        protectionActive: Bool
+    ) -> Bool {
+        preventDisable && protectionActive
+    }
+
+    private func enforceManagedContinuityControlsIfNeeded() {
+        guard Self.managedContinuityLocked(protectionActive: protectionActive) else { return }
+        UserDefaults.standard.set(true, forKey: ShellEnvInjector.autoConfigureKey)
+        _ = Self.setLaunchAtLogin(true, protectionActive: true)
     }
 
     // MARK: - Crash Recovery
 
-    private nonisolated func registerCleanupHandlers() {
-        // Disable system proxy AND drop launchctl proxy env on SIGTERM
-        // (e.g. force quit from Activity Monitor). Without the env drop,
-        // every GUI-launched process spawned after the crash inherits a
-        // dead `HTTPS_PROXY=127.0.0.1:8484` pointer.
-        signal(SIGTERM) { _ in
-            _ = SystemProxy.disableAll()
-            ShellEnvInjector.unsetLaunchctl()
-            try? FileManager.default.removeItem(at: BouclierPaths.statusFile)
-            exit(0)
+    private func registerCleanupHandlers() {
+        // The SwiftPM test host constructs several ProxyManagers and is not
+        // an application whose process-level signal handlers we may own.
+        guard Self.isRunningInPackagedApp else { return }
+
+        // Route SIGTERM through the normal AppKit lifecycle. The previous C
+        // signal callback launched processes and touched Foundation/file APIs,
+        // none of which are async-signal-safe and could deadlock precisely
+        // during crash recovery. AppDelegate can now perform the same relay
+        // handoff as a menu-bar quit before the atexit cleanup runs.
+        signal(SIGTERM, SIG_IGN)
+        let source = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .main)
+        source.setEventHandler {
+            NSApplication.shared.terminate(nil)
         }
+        source.resume()
+        terminationSignalSource = source
 
         // Same cleanup on normal exit (menubar Quit, ⌘Q, etc.).
         atexit {
-            _ = SystemProxy.disableAll()
-            ShellEnvInjector.unsetLaunchctl()
+            ShellEnvInjector.unsetLaunchctl(gatewayPort: ProxyManager.liveGatewayPort)
             // Drop the status snapshot so readers fail fast.
             try? FileManager.default.removeItem(at: BouclierPaths.statusFile)
         }
@@ -475,22 +1183,42 @@ final class ProxyManager: ObservableObject {
     /// `ProxyManagerLifecycleTests` can exercise it without standing
     /// up a full proxy + upstream.
     func handleRequestLog(_ requestLog: RequestLog) {
-        stats.requestsScanned += 1
+        let coveragePolicyRefusal = requestLog.detected
+            && requestLog.scanSkippedReason == .unsupportedContentEncoding
+        if requestLog.inspectionPerformed {
+            stats.requestsScanned += 1
+        } else {
+            stats.requestsSkippedInspection += 1
+        }
 
         if requestLog.detected {
             // `detected` is only ever set by the gateway's refusal path:
-            // this request WAS refused, whether the signal was a named
-            // pattern or the fused ML/entropy score alone. (An earlier
+            // this request WAS refused. Unsupported Content-Encoding is a
+            // coverage-policy refusal with no verdict; otherwise the signal
+            // was a named pattern or fused ML/entropy. Oversized sampled
+            // positives clear their skip reason in the gateway and arrive as
+            // ordinary detector blocks; clean/inconclusive samples forward.
+            // (An earlier
             // version of this branch treated matchCount == 0 as a
             // forwarded "flag" — true under the pre-gateway wiring, but
             // after enforcement moved into `forwardUpstream` it mislabeled
             // real blocks: no feed entry marked blocked, no notification,
-            // and an understated SIEM severity.) Count at least 1 so an
-            // ML-only block still moves the menu-bar counter.
-            stats.injectionsBlocked += max(1, requestLog.matchCount)
+            // and an understated SIEM severity.) This is a request-level
+            // counter: one refused request is one block, regardless of how
+            // many overlapping detector patterns explained that decision.
+            if coveragePolicyRefusal {
+                stats.requestsBlockedByInspectionLimit += 1
+            } else {
+                stats.injectionsBlocked += 1
+            }
 
             let score = String(format: "%.2f", requestLog.fusedScore)
-            if requestLog.matchCount > 0 {
+            if requestLog.scanSkippedReason == .unsupportedContentEncoding {
+                log(
+                    "Blocked encoded request → \(requestLog.targetHost): its compressed body could not be inspected safely; no injection verdict was produced",
+                    blocked: true
+                )
+            } else if requestLog.matchCount > 0 {
                 let names = requestLog.patternNames.joined(separator: ", ")
                 log(
                     "Blocked \(requestLog.matchCount) injection(s) → \(requestLog.targetHost): \(names) [score \(score)]",
@@ -517,14 +1245,21 @@ final class ProxyManager: ObservableObject {
             // local-only block explainer.
             switch blockNotificationCoalescer.onBlock(at: Date().timeIntervalSinceReferenceDate) {
             case .individual:
-                sendBlockNotification(
-                    body: Self.blockNotificationBody(
-                        patternNames: requestLog.patternNames,
-                        locator: requestLog.locator,
-                        host: requestLog.targetHost
-                    ),
-                    fingerprint: requestLog.spanFingerprint
-                )
+                if requestLog.scanSkippedReason == .unsupportedContentEncoding {
+                    sendBlockNotification(
+                        title: "Request Refused — Unsupported Encoding",
+                        body: "Compressed request body could not be inspected safely → \(requestLog.targetHost)"
+                    )
+                } else {
+                    sendBlockNotification(
+                        body: Self.blockNotificationBody(
+                            patternNames: requestLog.patternNames,
+                            locator: requestLog.locator,
+                            host: requestLog.targetHost
+                        ),
+                        fingerprint: requestLog.spanFingerprint
+                    )
+                }
             case .summary(let count):
                 sendSummaryNotification(count: count, host: requestLog.targetHost)
             case .suppress:
@@ -535,13 +1270,73 @@ final class ProxyManager: ObservableObject {
             // "high" for both signal types — it describes the action (an
             // enforced refusal), not the confidence; matchCount/patterns let
             // an analyst tell regex-driven from ML-only.
-            AuditLogger.shared.logDetection(
-                host: requestLog.targetHost,
-                matchCount: requestLog.matchCount,
-                patterns: requestLog.patternNames,
-                severity: "high",
-                bodySize: requestLog.bodySize
+            if coveragePolicyRefusal {
+                AuditLogger.shared.logEvent(
+                    "injection_inspection_limit_block",
+                    detail: "host=\(requestLog.targetHost) reason=\(requestLog.scanSkippedReason?.rawValue ?? "unknown") bytes=\(requestLog.bodySize) verdict=none refused=true"
+                )
+            } else {
+                AuditLogger.shared.logDetection(
+                    host: requestLog.targetHost,
+                    matchCount: requestLog.matchCount,
+                    patterns: requestLog.patternNames,
+                    severity: "high",
+                    bodySize: requestLog.bodySize
+                )
+            }
+        } else if requestLog.injectionFlagged {
+            // Request-level count: one monitored request with several pattern
+            // hits is one visible finding event, and is never relabelled as a
+            // block. This is the core value proposition of Monitoring mode.
+            stats.injectionFindingsFlagged += 1
+            let score = String(format: "%.2f", requestLog.fusedScore)
+            let signals = requestLog.patternNames.isEmpty
+                ? "ML/entropy signal"
+                : requestLog.patternNames.joined(separator: ", ")
+            log(
+                "⚠︎ Injection finding → \(requestLog.targetHost): \(signals) [score \(score)] — allowed for forwarding, not blocked",
+                blocked: false
             )
+            AuditLogger.shared.logEvent(
+                "injection_flagged",
+                detail: "host=\(requestLog.targetHost) patterns=\(requestLog.patternNames.sorted().joined(separator: ",")) score=\(score) allowed=true"
+            )
+        }
+
+        if !requestLog.inspectionPerformed, !requestLog.detected {
+            switch requestLog.scanSkippedReason {
+            case .oversized:
+                log(
+                    "⚠︎ Inspection skipped → \(requestLog.targetHost): \(requestLog.bodySize) byte request exceeds the bounded inspection limit; its body was allowed for forwarding unchanged by Bouclier",
+                    blocked: false
+                )
+                AuditLogger.shared.logEvent(
+                    "injection_scan_skipped",
+                    detail: "host=\(requestLog.targetHost) reason=oversized bytes=\(requestLog.bodySize) allowed=true"
+                )
+            case .unsupportedContentEncoding:
+                log(
+                    "⚠︎ Inspection skipped → \(requestLog.targetHost): compressed request bodies are unsupported; its body was allowed for forwarding unchanged by Bouclier",
+                    blocked: false
+                )
+                AuditLogger.shared.logEvent(
+                    "injection_scan_skipped",
+                    detail: "host=\(requestLog.targetHost) reason=unsupported-content-encoding allowed=true"
+                )
+            case .engineUnavailable:
+                log(
+                    "⚠︎ Inspection skipped → \(requestLog.targetHost): detection engine unavailable; its body was allowed for forwarding unchanged by Bouclier",
+                    blocked: false
+                )
+                AuditLogger.shared.logEvent(
+                    "injection_scan_skipped",
+                    detail: "host=\(requestLog.targetHost) reason=engine-unavailable allowed=true"
+                )
+            case .protectionDisabled, .none:
+                // Passthrough is an explicit user state. Count it accurately
+                // in the summary without adding one noisy feed row per call.
+                break
+            }
         }
 
         // File-PII findings drive both counters and the audit log.
@@ -574,24 +1369,31 @@ final class ProxyManager: ObservableObject {
         }
 
         storage?.recordScan(
-            source: "tls-proxy",
+            source: requestLog.inspectionPerformed
+                ? "gateway"
+                : "gateway-uninspected-\(requestLog.scanSkippedReason?.rawValue ?? "unknown")",
             targetHost: requestLog.targetHost,
-            detected: requestLog.detected,
+            // An inspection-limit refusal is a policy block with no detector
+            // verdict; don't persist it as an injection detection.
+            detected: requestLog.detected && !coveragePolicyRefusal,
             matchCount: requestLog.matchCount,
             patternIds: requestLog.patternNames,
-            severity: requestLog.detected ? "high" : nil,
+            severity: requestLog.detected && !coveragePolicyRefusal ? "high" : nil,
             requestSize: requestLog.bodySize,
             mlScore: requestLog.mlScore,
             entropyAnomaly: requestLog.entropyAnomaly,
             fusedScore: requestLog.fusedScore,
-            mlAvailable: requestLog.mlAvailable
+            mlAvailable: requestLog.mlAvailable,
+            countAsScanned: requestLog.inspectionPerformed
         )
 
         // Feed the in-process metrics registry that the diagnostics bundle
         // reports (`metrics` block). Fire-and-forget: metric counters are
         // commutative, so hopping to the actor must never delay the funnel.
-        let metricsSample = Metrics.sample(for: requestLog)
-        Task { await Metrics.shared.record(metricsSample) }
+        if FeatureFlags.telemetryEnabled {
+            let metricsSample = Metrics.sample(for: requestLog)
+            Task { await Metrics.shared.record(metricsSample) }
+        }
 
         // Per-entity audit rows for file-PII findings. Stored after
         // the parent scan_logs insert so the cascade FK is satisfied.
@@ -735,10 +1537,14 @@ final class ProxyManager: ObservableObject {
         alert.runModal()
     }
 
-    private func sendBlockNotification(body: String, fingerprint: String? = nil) {
+    private func sendBlockNotification(
+        title: String = "Injection Blocked",
+        body: String,
+        fingerprint: String? = nil
+    ) {
         guard UserDefaults.standard.object(forKey: "showNotifications") as? Bool ?? true else { return }
         let content = UNMutableNotificationContent()
-        content.title = "Injection Blocked"
+        content.title = title
         content.body = body
         // Default to quiet when the user hasn't made a choice —
         // notification sounds on every blocked request get noisy fast on
@@ -765,8 +1571,8 @@ final class ProxyManager: ObservableObject {
     private func sendSummaryNotification(count: Int, host: String) {
         guard UserDefaults.standard.object(forKey: "showNotifications") as? Bool ?? true else { return }
         let content = UNMutableNotificationContent()
-        content.title = "Injection Blocked"
-        content.body = "\(count) requests blocked in the last minute → \(host)"
+        content.title = "Requests Refused"
+        content.body = "Bouclier refused \(count) requests in the last minute → \(host)"
         let quiet = UserDefaults.standard.object(forKey: "quietMode") as? Bool ?? true
         content.sound = quiet ? nil : .default
         let request = UNNotificationRequest(identifier: "injection_block_summary", content: content, trigger: nil)
@@ -788,6 +1594,13 @@ final class ProxyManager: ObservableObject {
 struct ProxyStats {
     var requestsScanned: Int = 0
     var injectionsBlocked: Int = 0
+    /// Oversized requests refused by Blocking's coverage policy. Kept
+    /// separate because no injection verdict was produced.
+    var requestsBlockedByInspectionLimit: Int = 0
+    /// Request-level monitored injection findings that were forwarded.
+    var injectionFindingsFlagged: Int = 0
+    /// Requests relayed or policy-refused without running the detector.
+    var requestsSkippedInspection: Int = 0
     /// Cumulative count of PII entities (emails, IBANs, NHS numbers,
     /// etc.) detected inside outbound *attachments* — images, PDFs,
     /// audio. Text prompts are never modified, so this counter only
@@ -803,6 +1616,9 @@ struct ProxyStats {
     mutating func reset() {
         requestsScanned = 0
         injectionsBlocked = 0
+        requestsBlockedByInspectionLimit = 0
+        injectionFindingsFlagged = 0
+        requestsSkippedInspection = 0
         piiRedacted = 0
         mediaBlocked = 0
         actionsFlagged = 0

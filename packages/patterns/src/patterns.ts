@@ -625,10 +625,7 @@ const corePatterns: Pattern[] = [
   },
 ];
 
-/**
- * Aggregated pattern set: 35 core + 126 extended (10 new categories + 18 evolution patterns).
- * Total: 161 patterns across 21 categories.
- */
+/** Aggregated live pattern set. Keep the desktop bundle in sync via `pnpm check`. */
 export const patterns: Pattern[] = [
   ...corePatterns,
   ...evolutionPatterns,

@@ -37,6 +37,24 @@ fi
 
 echo "Building Bouclier.ai ($CONFIG)..."
 
+# PromptGuard assets are generated and gitignored, so a local file's mere
+# presence is not release provenance. Verify the exact reviewed file set before
+# SwiftPM can copy it. Unsigned CI/dev packages may omit the gated model and use
+# the product's documented regex-only fallback; signed releases may not.
+PROMPTGUARD_PACKAGE="$PROJECT_DIR/Sources/Bouclier/Resources/PromptGuard2.mlpackage"
+PROMPTGUARD_TOKENIZER="$PROJECT_DIR/Sources/Bouclier/Resources/PromptGuardTokenizer"
+PROMPTGUARD_VERIFIER="$SCRIPT_DIR/verify-promptguard-artifacts.py"
+INCLUDE_PROMPTGUARD=false
+if [ -e "$PROMPTGUARD_PACKAGE" ] || [ -L "$PROMPTGUARD_PACKAGE" ] \
+  || [ -e "$PROMPTGUARD_TOKENIZER" ] || [ -L "$PROMPTGUARD_TOKENIZER" ]; then
+  python3 "$PROMPTGUARD_VERIFIER"
+  INCLUDE_PROMPTGUARD=true
+elif [ "$SIGN" = true ]; then
+  echo "ERROR: signed builds require the reviewed PromptGuard model and tokenizer." >&2
+  echo "       Run $SCRIPT_DIR/ensure-model.sh first." >&2
+  exit 1
+fi
+
 # Build all targets
 swift build -c "$CONFIG"
 
@@ -56,9 +74,46 @@ cp "$BUILD_DIR/Bouclier" "$CONTENTS/MacOS/"
 cp "$BUILD_DIR/bouclier-ai-mcp-wrapper" "$CONTENTS/MacOS/"
 cp "$BUILD_DIR/bouclier-cli" "$CONTENTS/MacOS/"
 
-# Resources (patterns.json bundle)
-if [ -d "$BUILD_DIR/Bouclier_Bouclier.bundle" ]; then
-  cp -r "$BUILD_DIR/Bouclier_Bouclier.bundle" "$CONTENTS/Resources/"
+# SwiftPM resources. This bundle is load-bearing: it contains the complete
+# detector set and classifier/tokenizer assets. Shipping without it silently
+# reduces the product to the emergency fallback patterns (and can make the
+# generated Bundle.module accessor fatal on another Mac), so absence is a
+# release error rather than an optional dev convenience.
+RESOURCE_BUNDLE="$BUILD_DIR/Bouclier_Bouclier.bundle"
+SOURCE_PATTERNS="$PROJECT_DIR/Sources/Bouclier/Resources/patterns.json"
+BUILT_PATTERNS="$RESOURCE_BUNDLE/Resources/patterns.json"
+if [ ! -f "$SOURCE_PATTERNS" ] || [ ! -f "$BUILT_PATTERNS" ]; then
+  echo "ERROR: SwiftPM resource bundle or patterns.json is missing at $RESOURCE_BUNDLE" >&2
+  exit 1
+fi
+if ! cmp -s "$SOURCE_PATTERNS" "$BUILT_PATTERNS"; then
+  echo "ERROR: SwiftPM resource bundle contains a stale patterns.json" >&2
+  exit 1
+fi
+if [ "$INCLUDE_PROMPTGUARD" = true ]; then
+  python3 "$PROMPTGUARD_VERIFIER" --resources-dir "$RESOURCE_BUNDLE/Resources"
+fi
+
+PACKAGED_RESOURCE_BUNDLE="$CONTENTS/Resources/Bouclier_Bouclier.bundle"
+mkdir -p "$PACKAGED_RESOURCE_BUNDLE"
+# Hugging Face's local-dir transport metadata can remain in historical source
+# trees. It is not a runtime input and must never enter the application bundle.
+rsync -a --exclude='.cache' "$RESOURCE_BUNDLE/" "$PACKAGED_RESOURCE_BUNDLE/"
+
+# SwiftPM can retain a stale copied resource after a source-side model is
+# removed. Do not let an unsigned fallback build accidentally package it.
+if [ "$INCLUDE_PROMPTGUARD" = false ]; then
+  rm -rf "$PACKAGED_RESOURCE_BUNDLE/Resources/PromptGuard2.mlpackage"
+  rm -rf "$PACKAGED_RESOURCE_BUNDLE/Resources/PromptGuard2.mlmodelc"
+  rm -rf "$PACKAGED_RESOURCE_BUNDLE/Resources/PromptGuardTokenizer"
+else
+  python3 "$PROMPTGUARD_VERIFIER" --resources-dir "$PACKAGED_RESOURCE_BUNDLE/Resources"
+fi
+
+PACKAGED_PATTERNS="$PACKAGED_RESOURCE_BUNDLE/Resources/patterns.json"
+if [ ! -f "$PACKAGED_PATTERNS" ] || ! cmp -s "$SOURCE_PATTERNS" "$PACKAGED_PATTERNS"; then
+  echo "ERROR: packaged detector resources could not be verified" >&2
+  exit 1
 fi
 
 # Compile PromptGuard2.mlpackage → PromptGuard2.mlmodelc so CoreML can
@@ -72,17 +127,30 @@ fi
 # The model is produced by ensure-model.sh (run from release.sh) before
 # `swift build`; when it's absent (a normal dev build without HF access)
 # this no-ops and MLClassifier degrades to regex-only, which is fine.
-ML_DIR="$CONTENTS/Resources/Bouclier_Bouclier.bundle/Resources"
+ML_DIR="$PACKAGED_RESOURCE_BUNDLE/Resources"
+PROMPTGUARD_PACKAGING="absent"
 if [ -d "$ML_DIR/PromptGuard2.mlpackage" ]; then
   if command -v xcrun &>/dev/null && xcrun --find coremlcompiler &>/dev/null; then
     echo "Compiling PromptGuard2.mlpackage → .mlmodelc ..."
     xcrun coremlcompiler compile "$ML_DIR/PromptGuard2.mlpackage" "$ML_DIR/"
     # Drop the raw source to save ~60MB of duplicated weights in the DMG
     rm -rf "$ML_DIR/PromptGuard2.mlpackage"
+    PROMPTGUARD_PACKAGING="compiled"
     echo "  ✓ Compiled and dropped raw .mlpackage"
   else
+    PROMPTGUARD_PACKAGING="raw"
     echo "  ⚠ xcrun coremlcompiler unavailable — shipping raw .mlpackage; app will compile at first launch"
   fi
+fi
+if [ "$INCLUDE_PROMPTGUARD" = true ] && [ "$PROMPTGUARD_PACKAGING" = "absent" ]; then
+  echo "ERROR: verified PromptGuard source disappeared during packaging" >&2
+  exit 1
+fi
+
+PACKAGED_CACHE=$(find "$APP" -type d -name .cache -print -quit)
+if [ -n "$PACKAGED_CACHE" ]; then
+  echo "ERROR: cache metadata was packaged at $PACKAGED_CACHE" >&2
+  exit 1
 fi
 
 # App icon
@@ -103,14 +171,39 @@ fi
 
 # Sparkle framework
 mkdir -p "$CONTENTS/Frameworks"
-SPARKLE_PATH=$(find "$PROJECT_DIR/.build/artifacts" -name "Sparkle.framework" -type d | head -1)
-if [ -n "$SPARKLE_PATH" ]; then
-  cp -R "$SPARKLE_PATH" "$CONTENTS/Frameworks/"
-  echo "Bundled Sparkle.framework"
+SPARKLE_PATH=$(find "$PROJECT_DIR/.build/artifacts" -name "Sparkle.framework" -type d -print -quit)
+if [ -z "$SPARKLE_PATH" ]; then
+  echo "ERROR: Sparkle.framework is missing from SwiftPM build artifacts" >&2
+  exit 1
 fi
+cp -R "$SPARKLE_PATH" "$CONTENTS/Frameworks/"
+echo "Bundled Sparkle.framework"
 
 # Fix rpath so the binary can find Sparkle.framework at runtime
 install_name_tool -add_rpath @executable_path/../Frameworks "$CONTENTS/MacOS/Bouclier" 2>/dev/null || true
+
+# `swift build` can embed an Xcode-toolchain rpath from the build machine.
+# Remove every non-system absolute/unknown rpath before distribution; required
+# libraries must resolve either from macOS or from within this app bundle.
+for executable in \
+  "$CONTENTS/MacOS/Bouclier" \
+  "$CONTENTS/MacOS/bouclier-ai-mcp-wrapper" \
+  "$CONTENTS/MacOS/bouclier-cli"; do
+  while IFS= read -r rpath; do
+    case "$rpath" in
+      /System/Library/*|/usr/lib/*|@loader_path*|@executable_path*) ;;
+      *)
+        echo "Removing non-portable rpath from $(basename "$executable"): $rpath"
+        install_name_tool -delete_rpath "$rpath" "$executable"
+        ;;
+    esac
+  done < <(
+    otool -l "$executable" | awk '
+      $1 == "cmd" && $2 == "LC_RPATH" { want_path = 1; next }
+      want_path && $1 == "path" { print $2; want_path = 0 }
+    '
+  )
+done
 
 # Info.plist
 cat > "$CONTENTS/Info.plist" << EOF
@@ -126,7 +219,7 @@ cat > "$CONTENTS/Info.plist" << EOF
     <key>CFBundleExecutable</key><string>Bouclier</string>
     <key>CFBundlePackageType</key><string>APPL</string>
     <key>LSUIElement</key><true/>
-    <key>LSMinimumSystemVersion</key><string>14.0</string>
+    <key>LSMinimumSystemVersion</key><string>15.0</string>
     <key>NSHumanReadableCopyright</key><string>Copyright 2026 Bouclier.ai</string>
     <key>CFBundleIconFile</key><string>AppIcon</string>
     <key>SUPublicEDKey</key>
@@ -142,14 +235,25 @@ EOF
 # ── Embed Provisioning Profile ──────────────────
 APP_PROFILE="$PROJECT_DIR/profiles/Bouclierai.provisionprofile"
 
-if [ -f "$APP_PROFILE" ]; then
+if [ "$SIGN" = true ] && [ -f "$APP_PROFILE" ]; then
   cp "$APP_PROFILE" "$CONTENTS/embedded.provisionprofile"
   echo "Embedded app provisioning profile"
-else
+elif [ "$SIGN" = true ]; then
   echo "ERROR: App provisioning profile not found at $APP_PROFILE"
   echo "Download from: https://developer.apple.com/account/resources/profiles/list"
   exit 1
+else
+  echo "Unsigned build: provisioning profile not required"
 fi
+
+VERIFY_APP_ARGS=("$APP")
+if [ "$INCLUDE_PROMPTGUARD" = true ]; then
+  VERIFY_APP_ARGS+=(--require-promptguard)
+  if [ "$PROMPTGUARD_PACKAGING" = "raw" ]; then
+    VERIFY_APP_ARGS+=(--allow-raw-promptguard)
+  fi
+fi
+python3 "$SCRIPT_DIR/verify-app-bundle.py" "${VERIFY_APP_ARGS[@]}"
 
 # ── Hide .app extension in Finder ──────────────────
 # Must happen BEFORE signing — SetFile adds resource fork metadata
@@ -194,9 +298,10 @@ if [ "$SIGN" = true ]; then
 
   # 2. Helper executables
   echo "Signing helper binaries..."
-  # The injection MCP server wraps the gateway; the `bouclier` CLI (built
-  # as bouclier-cli — see Package.swift) reads status. Neither touches the
-  # Keychain, so they need no special entitlement — least privilege.
+  # The read-only MCP status server and the `bouclier` CLI (built as
+  # bouclier-cli — see Package.swift) both read the local status snapshot.
+  # Neither touches the Keychain, so they need no special entitlement —
+  # least privilege.
   $CODESIGN "$IDENTITY" "$CONTENTS/MacOS/bouclier-ai-mcp-wrapper"
   $CODESIGN "$IDENTITY" "$CONTENTS/MacOS/bouclier-cli"
 

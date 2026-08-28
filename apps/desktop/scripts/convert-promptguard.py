@@ -10,10 +10,11 @@ any network access.
 
 Usage:
     cd apps/desktop
-    python3 -m venv .venv-ml && source .venv-ml/bin/activate
-    pip install torch transformers coremltools sentencepiece protobuf
-    huggingface-cli login   # Prompt Guard 2 is gated; one-time auth
-    python3 scripts/convert-promptguard.py
+    ./scripts/ensure-model.sh
+
+`ensure-model.sh` provisions the exact environment from
+requirements-promptguard.lock, downloads the pinned model revision, and
+verifies every generated runtime file before it can enter a release.
 
 Outputs:
     Sources/Bouclier/Resources/PromptGuard2.mlpackage
@@ -27,6 +28,7 @@ before calling mb.sqrt. This is a known workaround for DeBERTa-family
 models on coremltools 7+ (the legacy ONNX path was removed).
 """
 
+import json
 import shutil
 import sys
 from pathlib import Path
@@ -36,7 +38,15 @@ from huggingface_hub import snapshot_download
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
 MODEL_ID = "meta-llama/Llama-Prompt-Guard-2-86M"
+MODEL_REVISION = "a8ded8e697ce7c355e395a0df51f94adb4a2fd27"
 SEQ_LENGTH = 512
+
+# coremltools assigns fresh UUIDs every time it writes an mlpackage, even when
+# the model bytes are otherwise identical. Canonical identifiers make the
+# package manifest reproducible and allow the release verifier to pin the
+# complete generated artifact rather than trusting only the large weight file.
+MODEL_MANIFEST_ID = "531585EF-A9C2-473F-A9EE-1CB5D239CF16"
+WEIGHTS_MANIFEST_ID = "B1EEA3FE-F67D-4A06-8F82-A0C719DB84F1"
 
 # Resolve output directory relative to this script so it works regardless
 # of the caller's CWD.
@@ -61,13 +71,14 @@ def download_tokenizer_files() -> None:
     """Download just the tokenizer config + vocab files into the resources
     folder. swift-transformers' AutoTokenizer can load them locally with
     no network access at runtime."""
-    print(f"[1/4] Downloading tokenizer files to {TOKENIZER_OUTPUT}")
+    print(f"[1/5] Downloading tokenizer files to {TOKENIZER_OUTPUT}")
     if TOKENIZER_OUTPUT.exists():
         shutil.rmtree(TOKENIZER_OUTPUT)
     TOKENIZER_OUTPUT.mkdir(parents=True, exist_ok=True)
 
     snapshot_download(
         repo_id=MODEL_ID,
+        revision=MODEL_REVISION,
         local_dir=str(TOKENIZER_OUTPUT),
         allow_patterns=[
             # config.json is required — swift-transformers' AutoTokenizer
@@ -81,6 +92,12 @@ def download_tokenizer_files() -> None:
             "sentencepiece.bpe.model",
         ],
     )
+
+    # `snapshot_download(local_dir=...)` creates transport metadata that is
+    # neither needed at runtime nor part of the reviewed release artifact.
+    # The verifier tolerates an existing cache for backwards compatibility,
+    # while both conversion and app packaging remove it.
+    shutil.rmtree(TOKENIZER_OUTPUT / ".cache", ignore_errors=True)
     print(f"      → {sorted(p.name for p in TOKENIZER_OUTPUT.iterdir())}")
 
     # swift-transformers' AutoTokenizer registry doesn't include
@@ -89,20 +106,22 @@ def download_tokenizer_files() -> None:
     # UnigramTokenizer {} in swift-transformers) handles. Renaming the
     # class label routes through the supported path; the tokenizer
     # behaviour is unchanged because it's all driven by tokenizer.json.
-    import json as _json
     tok_config = TOKENIZER_OUTPUT / "tokenizer_config.json"
     if tok_config.exists():
-        data = _json.loads(tok_config.read_text())
+        data = json.loads(tok_config.read_text(encoding="utf-8"))
         if data.get("tokenizer_class") == "DebertaV2Tokenizer":
             data["tokenizer_class"] = "T5Tokenizer"
-            tok_config.write_text(_json.dumps(data, indent=2))
+            tok_config.write_text(json.dumps(data, indent=2), encoding="utf-8")
             print("      → rewrote tokenizer_class: DebertaV2Tokenizer → T5Tokenizer")
 
 
 def load_model() -> tuple[PromptGuardWrapper, dict]:
-    print(f"[2/4] Loading {MODEL_ID}")
-    tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
-    model = AutoModelForSequenceClassification.from_pretrained(MODEL_ID)
+    print(f"[2/5] Loading {MODEL_ID}@{MODEL_REVISION}")
+    tokenizer = AutoTokenizer.from_pretrained(MODEL_ID, revision=MODEL_REVISION)
+    model = AutoModelForSequenceClassification.from_pretrained(
+        MODEL_ID,
+        revision=MODEL_REVISION,
+    )
     model.eval()
 
     wrapper = PromptGuardWrapper(model)
@@ -347,6 +366,38 @@ def quantize_and_save(mlmodel) -> bool:
         return True
 
 
+def canonicalize_package_manifest() -> None:
+    """Replace coremltools' random package UUIDs with reviewed stable IDs."""
+    manifest_path = MODEL_OUTPUT / "Manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    entries = manifest.get("itemInfoEntries", {})
+
+    model_entry = next(
+        (entry for entry in entries.values() if entry.get("name") == "model.mlmodel"),
+        None,
+    )
+    weights_entry = next(
+        (entry for entry in entries.values() if entry.get("name") == "weights"),
+        None,
+    )
+    if model_entry is None or weights_entry is None:
+        raise RuntimeError("CoreML package manifest is missing model or weights metadata")
+
+    canonical = {
+        "fileFormatVersion": manifest.get("fileFormatVersion", "1.0.0"),
+        "itemInfoEntries": {
+            MODEL_MANIFEST_ID: model_entry,
+            WEIGHTS_MANIFEST_ID: weights_entry,
+        },
+        "rootModelIdentifier": MODEL_MANIFEST_ID,
+    }
+    manifest_path.write_text(
+        json.dumps(canonical, indent=4) + "\n",
+        encoding="utf-8",
+    )
+    print("      → canonicalized CoreML package manifest identifiers")
+
+
 def smoke_test() -> None:
     """Run two known-good prompts through the converted model and print
     scores. Sanity check that the model loads and produces sensible
@@ -360,7 +411,7 @@ def smoke_test() -> None:
         print("      ! coremltools not installed, skipping")
         return
 
-    tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
+    tokenizer = AutoTokenizer.from_pretrained(MODEL_ID, revision=MODEL_REVISION)
     model = ct.models.MLModel(str(MODEL_OUTPUT))
 
     samples = [
@@ -401,12 +452,13 @@ def main() -> int:
     if mlmodel is None:
         print("\nFAILED: could not convert model. See errors above.")
         print("Common fixes:")
-        print("  - Upgrade coremltools: pip install -U coremltools")
-        print("  - Downgrade torch to 2.7.x: pip install 'torch<2.8'")
-        print("  - Try the ProtectAI fallback: change MODEL_ID at the top")
+        print("  - Confirm Python 3.11–3.12 and the exact requirements lock are in use")
+        print("  - Do not change model/dependency pins without reviewing new artifact hashes")
         return 1
 
-    quantize_and_save(mlmodel)
+    if not quantize_and_save(mlmodel):
+        return 1
+    canonicalize_package_manifest()
 
     smoke_test()
     print("\nDone. The .mlpackage and tokenizer files are bundled into:")

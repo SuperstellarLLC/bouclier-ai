@@ -43,11 +43,20 @@ enum PIIValidators {
         return sum % 10 == 0
     }
 
+    /// Mathematical checksums accept placeholder identifiers such as all
+    /// zeroes. Repeated single-digit runs are not plausible account or
+    /// registry numbers and create noisy redactions in fixtures/docs.
+    private static func hasVariedDigits(_ digits: String) -> Bool {
+        guard let first = digits.first else { return false }
+        return digits.dropFirst().contains { $0 != first }
+    }
+
     /// Luhn for credit-card-shaped inputs (12–19 digits after separator strip).
     @Sendable static func luhn(_ value: String) -> Bool {
         let clean = stripSpaceDash(value)
         guard clean.count >= 12, clean.count <= 19 else { return false }
         guard clean.allSatisfy({ $0.isASCII && $0.isNumber }) else { return false }
+        guard hasVariedDigits(clean) else { return false }
         return luhnCore(clean)
     }
 
@@ -170,12 +179,14 @@ enum PIIValidators {
     @Sendable static func isPlausibleSIREN(_ siren: String) -> Bool {
         let clean = stripSpace(siren)
         guard clean.count == 9, clean.allSatisfy(\.isNumber) else { return false }
+        guard hasVariedDigits(clean) else { return false }
         return luhnCore(clean)
     }
 
     @Sendable static func isPlausibleSIRET(_ siret: String) -> Bool {
         let clean = stripSpace(siret)
         guard clean.count == 14, clean.allSatisfy(\.isNumber) else { return false }
+        guard hasVariedDigits(clean) else { return false }
         if clean.hasPrefix("356000000") {
             var sum = 0
             for ch in clean { sum += ch.wholeNumberValue ?? 0 }
@@ -213,6 +224,7 @@ enum PIIValidators {
         let clean = nhs.replacingOccurrences(of: "-", with: "")
             .replacingOccurrences(of: " ", with: "")
         guard clean.count == 10, clean.allSatisfy(\.isNumber) else { return false }
+        guard hasVariedDigits(clean) else { return false }
         let digits = clean.map { $0.wholeNumberValue! }
         var sum = 0
         for i in 0..<9 { sum += digits[i] * (10 - i) }
@@ -254,6 +266,7 @@ enum PIIValidators {
     @Sendable static func isPlausibleNPI(_ npi: String) -> Bool {
         let clean = stripSpace(npi)
         guard clean.count == 10, clean.allSatisfy(\.isNumber) else { return false }
+        guard hasVariedDigits(clean) else { return false }
         return luhnCore("80840" + clean)
     }
 

@@ -8,9 +8,9 @@
  *   or anything else that identifies the person clicking the link. The
  *   brand promise on the app is "no telemetry"; on the site, the only
  *   thing recorded is the *event* of a download.
- * - Be graceful when storage isn't configured — fall back to a
- *   `console.log` line so a fresh Vercel deployment without Upstash
- *   still serves the DMG.
+ * - Be graceful when storage isn't configured — skip tracking so a fresh
+ *   deployment still serves the DMG. Never emit one attacker-amplifiable log
+ *   line per public request.
  *
  * Storage choice: Upstash Redis REST API.
  * - Atomic INCR for counters; LPUSH for a rolling event log; HINCRBY
@@ -23,9 +23,21 @@
  */
 
 import { env } from "@/env";
+import { APP_VERSION } from "@/lib/constants";
+import { normalizeSafeHttpsBaseUrl } from "@/lib/safe-base-url";
 
 const MAX_EVENTS = 5_000; // rolling log size — older events drop off the back
-const ALLOWED_CHANNELS = new Set(["site", "github", "homebrew", "direct", "other"]);
+const STORAGE_TIMEOUT_MS = 5_000;
+const TRACKED_CHANNELS = ["site", "github", "homebrew", "direct", "other"] as const;
+const ALLOWED_CHANNELS = new Set<string>(TRACKED_CHANNELS);
+let lastStorageWarningAt = 0;
+
+function warnStorage(message: string): void {
+  const now = Date.now();
+  if (now - lastStorageWarningAt < 60_000) return;
+  lastStorageWarningAt = now;
+  console.warn(message);
+}
 
 export interface DownloadEvent {
   /** ISO 8601 UTC timestamp at server-receive time. */
@@ -45,9 +57,12 @@ export async function recordDownload(event: DownloadEvent): Promise<void> {
   const normalized: DownloadEvent = { ...event, channel: safeChannel };
 
   if (!env.UPSTASH_REDIS_REST_URL || !env.UPSTASH_REDIS_REST_TOKEN) {
-    // Console fallback so a fresh deployment without Upstash still has
-    // something to grep for in Vercel function logs.
-    console.log(JSON.stringify({ kind: "download", ...normalized }));
+    return;
+  }
+
+  const redisBase = normalizeSafeHttpsBaseUrl(env.UPSTASH_REDIS_REST_URL);
+  if (!redisBase) {
+    warnStorage("[download-tracker] invalid Upstash URL; event not stored");
     return;
   }
 
@@ -66,7 +81,7 @@ export async function recordDownload(event: DownloadEvent): Promise<void> {
   ];
 
   try {
-    const res = await fetch(`${env.UPSTASH_REDIS_REST_URL}/pipeline`, {
+    const res = await fetch(`${redisBase}/pipeline`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${env.UPSTASH_REDIS_REST_TOKEN}`,
@@ -74,20 +89,23 @@ export async function recordDownload(event: DownloadEvent): Promise<void> {
       },
       body: JSON.stringify(pipeline),
       cache: "no-store",
+      signal: AbortSignal.timeout(STORAGE_TIMEOUT_MS),
     });
     if (!res.ok) {
-      console.warn(`[download-tracker] Upstash write failed: ${res.status} ${res.statusText}`);
+      warnStorage(`[download-tracker] Upstash write failed (${res.status})`);
     }
-  } catch (err) {
+  } catch {
     // Recording must never block the redirect.
-    console.warn(`[download-tracker] Upstash unreachable: ${(err as Error).message}`);
+    warnStorage("[download-tracker] Upstash unreachable");
   }
 }
 
 export interface DownloadStats {
   total: number;
   daily: Record<string, number>;
+  /** Daily counts for the currently published version. */
   byVersion: Record<string, Record<string, number>>;
+  /** Daily counts for each bounded, non-identifying channel bucket. */
   byChannel: Record<string, Record<string, number>>;
   recentEvents: DownloadEvent[];
 }
@@ -95,35 +113,55 @@ export interface DownloadStats {
 /** Read aggregated stats. Returns nulls when Upstash isn't configured. */
 export async function readDownloadStats(): Promise<DownloadStats | null> {
   if (!env.UPSTASH_REDIS_REST_URL || !env.UPSTASH_REDIS_REST_TOKEN) return null;
+  const redisBase = normalizeSafeHttpsBaseUrl(env.UPSTASH_REDIS_REST_URL);
+  if (!redisBase) return null;
 
   const pipeline = [
     ["GET", "downloads:total"],
     ["HGETALL", "downloads:daily"],
     ["LRANGE", "downloads:events", "0", "199"],
+    ["HGETALL", `downloads:version:${APP_VERSION}`],
+    ...TRACKED_CHANNELS.map((channel) => ["HGETALL", `downloads:channel:${channel}`]),
   ];
-  const res = await fetch(`${env.UPSTASH_REDIS_REST_URL}/pipeline`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${env.UPSTASH_REDIS_REST_TOKEN}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(pipeline),
-    cache: "no-store",
-  });
-  if (!res.ok) return null;
-  const data = (await res.json()) as { result: unknown }[];
+  try {
+    const res = await fetch(`${redisBase}/pipeline`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${env.UPSTASH_REDIS_REST_TOKEN}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(pipeline),
+      cache: "no-store",
+      signal: AbortSignal.timeout(STORAGE_TIMEOUT_MS),
+    });
+    if (!res.ok) return null;
+    const data = (await res.json()) as unknown;
+    if (!Array.isArray(data)) return null;
 
-  const total = Number(data[0]?.result ?? 0);
-  const daily = parseHGetAll(data[1]?.result);
-  const recent = parseEventList(data[2]?.result);
+    const rawTotal = Number((data[0] as { result?: unknown } | undefined)?.result ?? 0);
+    const total = Number.isSafeInteger(rawTotal) && rawTotal >= 0 ? rawTotal : 0;
+    const daily = parseHGetAll((data[1] as { result?: unknown } | undefined)?.result);
+    const recent = parseEventList((data[2] as { result?: unknown } | undefined)?.result);
+    const byVersion = {
+      [APP_VERSION]: parseHGetAll((data[3] as { result?: unknown } | undefined)?.result),
+    };
+    const byChannel = Object.fromEntries(
+      TRACKED_CHANNELS.map((channel, index) => [
+        channel,
+        parseHGetAll((data[4 + index] as { result?: unknown } | undefined)?.result),
+      ]),
+    );
 
-  return {
-    total,
-    daily,
-    byVersion: {}, // queryable separately if a UI ever wants the breakdown
-    byChannel: {},
-    recentEvents: recent,
-  };
+    return {
+      total,
+      daily,
+      byVersion,
+      byChannel,
+      recentEvents: recent,
+    };
+  } catch {
+    return null;
+  }
 }
 
 function parseHGetAll(raw: unknown): Record<string, number> {
@@ -132,14 +170,17 @@ function parseHGetAll(raw: unknown): Record<string, number> {
     for (let i = 0; i < raw.length; i += 2) {
       const key = String(raw[i]);
       const value = Number(raw[i + 1]);
-      if (key && !Number.isNaN(value)) out[key] = value;
+      if (key && Number.isSafeInteger(value) && value >= 0) out[key] = value;
     }
     return out;
   }
   if (raw && typeof raw === "object") {
-    return Object.fromEntries(
-      Object.entries(raw as Record<string, unknown>).map(([k, v]) => [k, Number(v)]),
-    );
+    const out: Record<string, number> = {};
+    for (const [key, rawValue] of Object.entries(raw as Record<string, unknown>)) {
+      const value = Number(rawValue);
+      if (key && Number.isSafeInteger(value) && value >= 0) out[key] = value;
+    }
+    return out;
   }
   return {};
 }
@@ -156,7 +197,7 @@ function parseEventList(raw: unknown): DownloadEvent[] {
         typeof parsed.version === "string" &&
         typeof parsed.channel === "string"
       ) {
-        out.push(parsed);
+        out.push({ ts: parsed.ts, version: parsed.version, channel: parsed.channel });
       }
     } catch {
       // Skip malformed entries — robust against legacy formats.

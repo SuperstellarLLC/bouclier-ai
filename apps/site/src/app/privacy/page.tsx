@@ -2,14 +2,27 @@ import type { Metadata } from "next";
 import Image from "next/image";
 import Link from "next/link";
 
+import { APP_URL } from "@/lib/constants";
+
+const DESCRIPTION =
+  "How Bouclier.ai processes AI traffic locally, what the website records, and what an optional false-positive report contains.";
+
 export const metadata: Metadata = {
   title: "Privacy Policy",
+  description: DESCRIPTION,
+  alternates: { canonical: `${APP_URL}/privacy` },
+  openGraph: {
+    title: "Bouclier.ai Privacy Policy",
+    description: DESCRIPTION,
+    url: `${APP_URL}/privacy`,
+    type: "article",
+  },
 };
 
 export default function PrivacyPage() {
   return (
     <main className="min-h-screen bg-white">
-      <nav className="border-border border-b">
+      <nav className="border-border border-b" aria-label="Primary">
         <div className="mx-auto flex max-w-3xl items-center justify-between px-6 py-4">
           <Link href="/" className="text-text flex items-center gap-2 text-sm font-semibold">
             <Image
@@ -34,7 +47,7 @@ export default function PrivacyPage() {
 
       <article className="mx-auto max-w-3xl px-6 py-16">
         <h1 className="text-3xl font-bold tracking-tight">Privacy Notice</h1>
-        <p className="text-text-secondary mt-2 text-sm">Last updated: 27 May 2026</p>
+        <p className="text-text-secondary mt-2 text-sm">Last updated: 28 August 2026</p>
 
         {/* Loud prototype banner mirroring the Terms — privacy posture is also research-grade. */}
         <div className="mt-10 rounded-xl border-2 border-amber-300 bg-amber-50 p-6">
@@ -55,13 +68,13 @@ export default function PrivacyPage() {
         {/* Summary box */}
         <div className="border-accent-green/30 mt-6 rounded-xl border-2 bg-emerald-50 p-6">
           <p className="font-medium text-emerald-900">
-            Bouclier.ai runs entirely on your device and inspects your AI traffic locally. It never
-            transmits your prompts or responses automatically — no analytics, no crash reporting, no
-            user accounts, nothing gathered in the background. Data reaches a bouclier.ai server in
-            only three narrow, non-sensitive cases: the app checks for its own updates (fetching our
-            signed release feed); an anonymous timestamp is recorded when you click Download on this
-            site; and, only if you explicitly choose to, a redacted false-positive report that you
-            review in full before it is sent. Full scope described below.
+            Detection runs on your device. Allowed AI requests and responses still travel to the
+            provider you configured, but Bouclier does not automatically send their content to its
+            own servers. The app has no user accounts, analytics, or crash reporting. It does check
+            for updates; the Site records a timestamp, app version, and channel when a download is
+            requested; and you can explicitly send a best-effort-redacted false-positive report
+            after reviewing it. Hosting providers also receive ordinary HTTP transport metadata.
+            Full scope is described below.
           </p>
         </div>
 
@@ -70,10 +83,12 @@ export default function PrivacyPage() {
           <code>ANTHROPIC_BASE_URL</code> / <code>OPENAI_BASE_URL</code>) instead of the provider
           directly; the gateway re-issues each request to the real provider over TLS and streams the
           response back. There is no system-wide traffic interception, no certificate authority, and
-          no decryption of traffic the gateway wasn&apos;t explicitly pointed at. Text prompt bodies
-          and request headers are forwarded byte-for-byte; the Software never modifies a request. It
-          either forwards it unchanged or, when injection is detected in untrusted content and
-          blocking is enabled, refuses it locally with a 422.
+          no decryption of traffic the gateway wasn&apos;t explicitly pointed at. Model-visible body
+          bytes and end-to-end headers such as Authorization are preserved. As an HTTP proxy, the
+          gateway rewrites Host and Content-Length and strips hop-by-hop and Proxy-Authorization
+          headers. It never rewrites the prompt body: that body is forwarded unchanged or, when a
+          finding in untrusted content crosses the refusal threshold and blocking is enabled, the
+          request is refused locally with a 422.
         </Section>
 
         <Section title="Providers reached">
@@ -82,28 +97,31 @@ export default function PrivacyPage() {
             api.openai.com, api.anthropic.com
           </div>
           <p className="text-text-secondary mt-3 text-sm">
-            Organizations using MDM can override the upstream host/port via managed app
-            configuration.
+            The current gateway supports these two provider hosts. MDM can set the local gateway
+            port, but does not add a live upstream provider route.
           </p>
         </Section>
 
         <Section title="Network connections">
           <ol className="list-decimal space-y-3 pl-5">
             <li>
-              <strong>AI API forwarding</strong> — forwarding your requests to their intended
-              destination, byte-for-byte. Nothing is modified; a request is either forwarded
-              unchanged or refused locally.
+              <strong>AI API forwarding</strong> — forwarding model-visible request bodies to their
+              intended destination without rewriting those bytes. End-to-end headers are preserved;
+              proxy routing and framing headers are normalized as described above. A body is
+              forwarded unchanged or its request is refused locally.
             </li>
             <li>
               <strong>Update check</strong> — checking for software updates via appcast.xml hosted
               on bouclier.ai. Transmits app version, macOS version, CPU architecture, and preferred
-              language. No personal data or request content.
+              language. No prompt or report content; the hosting layer still receives ordinary HTTP
+              transport metadata such as the transit IP and request time.
             </li>
             <li>
-              <strong>SIEM webhook (enterprise only)</strong> — if and only if configured by an
+              <strong>SIEM webhook (MDM-managed only)</strong> — if and only if configured by an
               organization&apos;s IT administrator via MDM, detection event metadata (timestamp,
-              host, event kind) is sent to that organization-controlled endpoint. Never enabled by
-              default. Cannot be configured by the user.
+              event kind, host, match count, pattern names, severity, request-body size, and app
+              version) is sent to that organization-controlled endpoint. Never enabled by default.
+              Cannot be configured by the user. Prompt bodies are not included.
             </li>
           </ol>
         </Section>
@@ -111,12 +129,12 @@ export default function PrivacyPage() {
         <Section title="Marketing site (bouclier.ai)">
           <p>
             When you click the &quot;Download&quot; button on bouclier.ai, the server records a
-            single anonymous event consisting of <strong>(a) the time of the click</strong>,{" "}
+            single application-level event consisting of <strong>(a) the time of the click</strong>,{" "}
             <strong>(b) the requested app version</strong>, and{" "}
             <strong>(c) the channel string</strong> (e.g. &quot;site&quot;) that the link carries.
-            That&apos;s it.
+            That record contains no user identifier.
           </p>
-          <p className="mt-3">We do not record, store, or transmit:</p>
+          <p className="mt-3">The Bouclier-controlled download record does not include:</p>
           <ul className="mt-2 list-disc space-y-1 pl-5">
             <li>your IP address;</li>
             <li>your user-agent string or device fingerprint;</li>
@@ -125,10 +143,13 @@ export default function PrivacyPage() {
             <li>any cookie, session token, or other identifier.</li>
           </ul>
           <p className="mt-3 text-sm">
-            The event is recorded so we can see whether anyone is downloading the beta. It cannot be
-            linked back to you. The marketing site does not use Google Analytics, Plausible,
-            PostHog, Mixpanel, Segment, Fathom, or any equivalent product analytics tool, and never
-            has.
+            The event is recorded so we can measure beta downloads. Separately, Vercel receives the
+            HTTP request needed to serve the Site and redirect the download and may log standard
+            transport metadata; see &quot;Sub-processors&quot;. The Site does not load a product
+            analytics service or set an analytics identifier. The recent-event list is capped at
+            5,000 entries, so older event rows fall off as new downloads arrive. Anonymous lifetime,
+            daily, version, and channel counters are retained for service operations until the
+            download store is reset.
           </p>
         </Section>
 
@@ -155,8 +176,8 @@ export default function PrivacyPage() {
             <li className="flex gap-2">
               <span className="bg-text-secondary mt-2 h-1 w-1 shrink-0 rounded-full" />
               <span>
-                <strong>Daily stats</strong> — date, requests inspected, injections blocked.
-                Retained 365 days.
+                <strong>Daily stats</strong> — date, requests inspected, requests blocked by the
+                detector. Retained 365 days.
               </span>
             </li>
             <li className="flex gap-2">
@@ -169,44 +190,62 @@ export default function PrivacyPage() {
           </ul>
         </Section>
 
-        <Section title="Data we collect">
-          None by default. Bouclier.ai has no user accounts, no analytics, no crash reporting, and
-          no passive telemetry. The one exception is entirely user-initiated: if you tap
-          &quot;Report false positive&quot; on a block, a redacted copy of that single flagged span
-          is sent to us (see &quot;Data we share&quot;). Nothing is collected unless you take that
-          action.
-        </Section>
-
-        <Section title="Data we share">
+        <Section title="Data Bouclier receives">
           <p>
-            Nothing automatically. The SIEM webhook feature sends metadata to infrastructure
-            controlled by the organization&apos;s IT administrator, not to Bouclier.ai or any third
-            party.
+            The app has no user accounts, product analytics, crash reporting, or passive prompt
+            telemetry. Bouclier servers do receive the update and Site requests described above; the
+            download endpoint stores only the scoped event fields and anonymous counters described
+            above.
           </p>
           <p className="mt-3">
-            The one thing shared <em>with Bouclier.ai</em> is a false-positive report you explicitly
-            send. Tapping &quot;Report false positive&quot; on a block transmits a redacted copy of
-            that one flagged span — secrets and PII scrubbed on your Mac, and shown to you in full
-            for review before anything is sent — to bouclier.ai so we can tune the detector and stop
-            blocking legitimate content. The report carries the matched pattern names, the signal
-            scores, and the redacted excerpt; it does <strong>not</strong> carry your IP address,
-            user-agent, or any identifier. Nothing is sent unless you tap the button and confirm.
+            If you choose &quot;Report false positive&quot;, we receive and store that report for
+            detector tuning. Our retention period is <strong>90 days</strong>: a report becomes
+            eligible for deletion after that period and is pruned on the next valid report intake. A
+            deployment that must delete expired rows while intake is idle must run the scheduled
+            daily cleanup documented in the deployment guide. On-device redaction is best effort,
+            not a guarantee: its excerpt, locator, target host, or optional note could still contain
+            personal or confidential information. The app shows the report before sending it; do not
+            confirm if it contains anything you do not want to share.
+          </p>
+        </Section>
+
+        <Section title="When data leaves your device">
+          <p>
+            Allowed AI requests are forwarded to the provider you configured. The update checker
+            contacts Bouclier&apos;s hosting layer. The SIEM webhook sends detection metadata to
+            infrastructure controlled by the organization&apos;s IT administrator, only when that
+            administrator configures it.
+          </p>
+          <p className="mt-3">
+            A false-positive report reaches Bouclier.ai only when you choose it, review the rendered
+            payload, and confirm. The report carries the app version, matched pattern names and
+            count, signal scores, target host, locator, a salted fingerprint, your optional note,
+            and the best-effort-redacted excerpt. It can also include the best-effort-redacted
+            classifier passage that most influenced the score and that passage&apos;s score. The
+            application payload does not add your IP address or user-agent, although the hosting
+            layer necessarily receives ordinary transport metadata for the HTTP request.
           </p>
         </Section>
 
         <Section title="Injection inspection method">
           <p>
-            The Software inspects request bodies on-device for prompt-injection patterns in
-            untrusted content (tool results and other model-visible text the agent fetched itself).
-            Inspection reads the request in memory for the duration of that request; it never stores
-            or transmits it. When injection is detected and blocking is enabled, the request is
-            refused locally with a 422 — it never leaves your machine. Otherwise the request is
-            forwarded byte-for-byte.
+            The Software inspects eligible routed request bodies on-device when they contain a
+            supported untrusted-content shape (tool results and other model-visible text the agent
+            fetched itself). Principal-only requests bypass injection scoring in normal mode. When a
+            supported untrusted shape is present, principal spans may also be scored and logged for
+            context but cannot trigger a normal-mode refusal. A managed strict posture can change
+            that principal policy. Inspection reads the request in memory for the duration of that
+            request; Bouclier does not store the full request or send it to its own servers. When a
+            finding crosses the refusal threshold and blocking is enabled, the request is refused
+            locally with a 422 — it never reaches the AI provider. Otherwise its model-visible body
+            is forwarded byte-for-byte to that provider.
           </p>
           <p className="mt-3">
-            Text prompt bodies and HTTP request headers are forwarded byte-for-byte; the Software
-            does not modify outbound prompts or headers at all. A request is delivered unchanged or
-            refused, never rewritten. This is pinned by an end-to-end test in the public repository.
+            Prompt-body bytes and end-to-end headers such as Authorization, x-api-key, and trace IDs
+            are preserved. Host and Content-Length are regenerated for the upstream connection, and
+            hop-by-hop and Proxy-Authorization headers are stripped. The body is delivered unchanged
+            or its request is refused, never rewritten. End-to-end tests pin these boundaries in the
+            public repository.
           </p>
           <p className="mt-3 text-sm">
             The attachment-PII detection engine described in earlier versions of this policy is not
@@ -229,33 +268,36 @@ export default function PrivacyPage() {
 
         <Section title="Your rights">
           <p>
-            Because no personal data is collected by the Software or transmitted to any
-            Bouclier.ai-controlled server, there is no profile, account, or stored record we could
-            give you access to, rectify, port, or erase on your behalf. The data the Software
-            generates lives on your device and is fully under your control: stored under{" "}
-            <code>~/Library/Application Support/ai.bouclier.app/</code> and removable at any time by
-            uninstalling the app or by deleting the application support directory.
+            Most data the Software generates lives on your device and is under your control: stored
+            under <code>~/Library/Application Support/ai.bouclier.app/</code> and removable by
+            deleting that application support directory. Removing the app bundle does not
+            automatically delete this data. The Site&apos;s download record has no user identifier.
+            An optional false-positive report may contain information about you despite redaction;
+            if you kept its fingerprint or report preview, include that when contacting us about
+            access or deletion.
           </p>
           <p className="mt-3 text-sm">
             For data subjects in Switzerland (revised FADP) and the European Economic Area (GDPR),
             the rights of access, rectification, deletion, restriction of processing, objection, and
-            data portability formally apply to any personal data we hold — which, as described
-            above, is none beyond a single anonymous click event on the Site. You may nevertheless
-            contact us using the address below to confirm this status.
+            data portability may apply to personal data we hold. Contact us using the address below;
+            we may need enough information to locate a report without collecting a new identifier.
           </p>
         </Section>
 
         <Section title="Children">
           The Software is not directed at children under the age of sixteen (16). We do not
-          knowingly collect data from anyone, including children.
+          knowingly solicit personal data from children; do not submit a false-positive report on
+          behalf of a child.
         </Section>
 
         <Section title="Sub-processors">
-          The Site is hosted on Vercel Inc. infrastructure. Vercel may, in the ordinary course of
-          delivering web pages, log standard HTTP request metadata at its edge nodes (transit IP,
-          request path, status code, timestamp) for periods set by its own policy. We do not
-          aggregate, analyse, or persist that data on our side. No other sub-processor receives any
-          information generated by the Software or the Site.
+          The Site is hosted on Vercel Inc. infrastructure. Vercel may log standard HTTP request
+          metadata at its edge nodes (transit IP, request path, status code, timestamp) for periods
+          set by its policy. When configured, Upstash stores the application-level download counters
+          and rolling events. It also holds a submitted report&apos;s proof-of-work timestamp,
+          fingerprint, and nonce for 180 seconds to prevent replay. Neon or Vercel Postgres stores
+          optional false-positive reports. Those services receive the scoped fields described above;
+          they do not receive prompt traffic automatically from the gateway.
         </Section>
 
         <Section title="Governing law and exclusive jurisdiction">
@@ -271,13 +313,17 @@ export default function PrivacyPage() {
         <Section title="Changes to this Notice">
           We may update this Notice at any time by publishing a revised version on the Site. The
           &quot;Last updated&quot; date above identifies the current version. Material changes
-          affecting how personal data is processed will be summarised in the project changelog and,
-          where reasonably practicable, surfaced in the in-app &quot;What&apos;s new&quot; sheet
-          shown on first launch of a new version.
+          affecting how personal data is processed will be summarised in the public project
+          changelog and the release notes linked from the update channel.
         </Section>
 
         <Section title="Contact">
-          <p>Contact: apps@superstellar.io</p>
+          <p>
+            Contact:{" "}
+            <a href="mailto:apps@superstellar.io" className="text-bouclier hover:underline">
+              apps@superstellar.io
+            </a>
+          </p>
           <p className="mt-3 text-sm">
             Postal address for written privacy requests will be provided on request.
           </p>
@@ -290,6 +336,9 @@ export default function PrivacyPage() {
           <div className="flex gap-6">
             <Link href="/" className="hover:text-text transition-colors">
               Home
+            </Link>
+            <Link href="/terms" className="hover:text-text transition-colors">
+              Terms
             </Link>
           </div>
         </div>

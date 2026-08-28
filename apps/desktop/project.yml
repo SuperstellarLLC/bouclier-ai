@@ -5,15 +5,11 @@ options:
     macOS: "15.0"
   createIntermediateGroups: true
 
-# Signing settings only matter when generating an Xcode project for a
-# signed release build (`xcodegen && xcodebuild -scheme Bouclier
-# -configuration Release`). Contributors who just want to build and run
-# locally can use `swift build` / `swift run` directly — those paths
-# don't touch these values. To build a signed copy on a different
-# Apple Developer team, override these in your own checkout — they're
-# left in because the maintainer ships the signed DMG from this exact
-# config; the team ID is otherwise visible in any `codesign -dvv` of
-# the published binary.
+# This is the optional XcodeGen project for IDE users. The signed release
+# remains built by scripts/build-app.sh from Package.swift, so this file
+# must mirror the SwiftPM targets rather than defining a second product.
+# To sign an IDE build on another Apple Developer team, override the team
+# and profile in your own checkout.
 settings:
   base:
     DEVELOPMENT_TEAM: U86PR842AK
@@ -36,17 +32,33 @@ packages:
   Sparkle:
     url: https://github.com/sparkle-project/Sparkle.git
     from: "2.6.0"
+  swift-transformers:
+    url: https://github.com/huggingface/swift-transformers.git
+    from: "0.1.12"
 
 targets:
+  BouclierCore:
+    type: library.static
+    platform: macOS
+    sources:
+      - path: Sources/BouclierCore
+    settings:
+      base:
+        SWIFT_VERSION: "6.0"
+
   Bouclier:
     type: application
     platform: macOS
     sources:
       - path: Sources/Bouclier
-    resources:
-      - path: Sources/Bouclier/Resources
+        excludes:
+          - Resources/Info.plist
+          - Resources/GeneratedInfo.plist
+          - Resources/Bouclier.icns
+          - Resources/PromptGuardTokenizer/.cache
       - path: icon/Bouclier.icns
     dependencies:
+      - target: BouclierCore
       - package: GRDB
       - package: swift-nio
         product: NIO
@@ -63,6 +75,8 @@ targets:
       - package: swift-nio-transport-services
         product: NIOTransportServices
       - package: Sparkle
+      - package: swift-transformers
+        product: Transformers
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: ai.bouclier.app
@@ -70,6 +84,8 @@ targets:
         CODE_SIGN_ENTITLEMENTS: Bouclier.entitlements
         ENABLE_HARDENED_RUNTIME: YES
         SWIFT_VERSION: "6.0"
+        MARKETING_VERSION: "0.9.10"
+        CURRENT_PROJECT_VERSION: "8"
         LD_RUNPATH_SEARCH_PATHS:
           - "@executable_path/../Frameworks"
       configs:
@@ -81,6 +97,9 @@ targets:
         CFBundleName: Bouclier
         CFBundleDisplayName: Bouclier
         CFBundleIconFile: Bouclier
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
+        LSMinimumSystemVersion: "15.0"
         LSUIElement: true
         SUPublicEDKey: "QNMtWO7H9Z9Hv1J9bAsunleicPvJVP2bMJQezjV3vmM="
         SUFeedURL: "https://www.bouclier.ai/appcast.xml"
@@ -91,15 +110,19 @@ targets:
     platform: macOS
     sources:
       - path: Sources/MCPWrapper
+    dependencies:
+      - target: BouclierCore
     settings:
       base:
         SWIFT_VERSION: "6.0"
 
-  bouclier-ai-env:
+  bouclier-cli:
     type: tool
     platform: macOS
     sources:
-      - path: Sources/EnvHelper
+      - path: Sources/BouclierCLI
+    dependencies:
+      - target: BouclierCore
     settings:
       base:
         SWIFT_VERSION: "6.0"

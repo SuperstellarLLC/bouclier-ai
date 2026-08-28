@@ -40,22 +40,23 @@ export function scanPII(content: string, options?: PIIScanOptions): PIIDetection
     }
   }
 
-  // Sort by start, then by detector rank (lower wins), then by longer span first.
+  // Resolve overlaps by detector priority first, regardless of which candidate
+  // starts a few characters earlier. This is the contract of PII_DETECTORS:
+  // a broad, lower-priority candidate must never swallow a more specific
+  // provider token merely because its regex began first.
   raw.sort((a, b) => {
-    if (a.d.start !== b.d.start) return a.d.start - b.d.start;
     if (a.rank !== b.rank) return a.rank - b.rank;
-    return a.d.end !== b.d.end ? b.d.end - a.d.end : 0;
+    if (a.d.start !== b.d.start) return a.d.start - b.d.start;
+    return b.d.end - a.d.end;
   });
 
-  const out: PIIDetection[] = [];
-  let lastEnd = -1;
+  const selected: PIIDetection[] = [];
   for (const { d } of raw) {
-    if (d.start >= lastEnd) {
-      out.push(d);
-      lastEnd = d.end;
+    if (!selected.some((existing) => d.start < existing.end && existing.start < d.end)) {
+      selected.push(d);
     }
   }
-  return out;
+  return selected.sort((a, b) => a.start - b.start || a.end - b.end);
 }
 
 /**
@@ -76,6 +77,16 @@ export function applyRedactions(
   let out = "";
   let cursor = 0;
   for (const d of detections) {
+    if (
+      !Number.isInteger(d.start) ||
+      !Number.isInteger(d.end) ||
+      d.start < cursor ||
+      d.end <= d.start ||
+      d.end > content.length ||
+      content.slice(d.start, d.end) !== d.value
+    ) {
+      throw new RangeError("detections must be ordered, non-overlapping spans from the input");
+    }
     out += content.slice(cursor, d.start);
     out += mintToken(d);
     cursor = d.end;

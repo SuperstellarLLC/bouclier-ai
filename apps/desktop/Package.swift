@@ -56,7 +56,7 @@ let package = Package(
         ),
         .executableTarget(
             name: "MCPWrapper",
-            dependencies: [],
+            dependencies: ["BouclierCore"],
             path: "Sources/MCPWrapper",
             swiftSettings: [
                 .swiftLanguageMode(.v6),

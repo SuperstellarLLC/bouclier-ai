@@ -1,77 +1,13 @@
 import Foundation
 
-// MARK: - Cloud Metadata Guard
-
-/// Hosts that point at cloud-instance metadata services — never
-/// tunnelled or proxied to, regardless of mode. SSRF guard shared by
-/// `GatewayServer`'s base-URL override validation and `SecretRule`'s
-/// host-binding validation.
-enum NetworkGuards {
-    static func isCloudMetadataHost(_ host: String) -> Bool {
-        let h = host.lowercased()
-        return h == "169.254.169.254"
-            || h == "metadata.google.internal"
-            || h == "metadata.azure.com"
-            || h == "[fd00:ec2::254]"
-    }
-}
-
-// MARK: - Corporate Proxy Detection
-
-enum CorporateProxy {
-    struct Config {
-        let host: String
-        let port: Int
-    }
-
-    /// Detect upstream corporate proxy from environment variables.
-    /// Only URLs that pass `ManagedConfigValidator.validatedProxyURL`
-    /// are accepted — scheme must be http/https, host must be a valid
-    /// RFC 1123 hostname, port must be in the unprivileged range.
-    ///
-    /// Loopback hosts are deliberately ignored. With v0.5.0's
-    /// `ShellEnvInjector`, the Bouclier process itself inherits
-    /// `HTTPS_PROXY=http://127.0.0.1:8484` from the launchctl session,
-    /// and naively trusting that env would make the proxy try to relay
-    /// every upstream request *through itself* — an instant TLS-handshake
-    /// loop that times out every API call. A real corporate proxy is by
-    /// definition not on the loopback, so dropping these candidates
-    /// costs nothing legitimate.
-    static func detect() -> Config? {
-        let env = ProcessInfo.processInfo.environment
-        let candidates = [
-            env["HTTPS_PROXY"], env["https_proxy"],
-            env["HTTP_PROXY"], env["http_proxy"],
-        ]
-        for raw in candidates {
-            guard let url = ManagedConfigValidator.validatedProxyURL(raw),
-                  let host = url.host,
-                  !isLoopbackHost(host)
-            else { continue }
-            return Config(host: host, port: url.port ?? 8080)
-        }
-        return nil
-    }
-
-    static func isLoopbackHost(_ host: String) -> Bool {
-        let h = host.lowercased()
-        return h == "localhost"
-            || h == "127.0.0.1"
-            || h.hasPrefix("127.")
-            || h == "::1"
-            || h == "[::1]"
-            // Unspecified / wildcard addresses route to loopback on macOS, so
-            // they must be rejected too — otherwise `http://0.0.0.0:<port>` in
-            // a `*_TARGET_API_URL` slips past this guard and repoints
-            // credential-bearing traffic at a local listener.
-            || h == "0.0.0.0"
-            || h == "0"
-            || h == "::"
-            || h == "[::]"
-    }
-}
-
 // MARK: - Request Log
+
+enum InjectionScanSkipReason: String, Sendable {
+    case protectionDisabled = "protection-disabled"
+    case engineUnavailable = "engine-unavailable"
+    case oversized = "oversized"
+    case unsupportedContentEncoding = "unsupported-content-encoding"
+}
 
 struct RequestLog: Sendable {
     let timestamp: Date
@@ -87,6 +23,15 @@ struct RequestLog: Sendable {
     let entropyAnomaly: Double
     let fusedScore: Double
     let mlAvailable: Bool
+    /// A detector finding that was deliberately forwarded (monitor mode,
+    /// below the enforcement threshold, or operator release). Separate from
+    /// `detected`, which means the request was actually refused.
+    let injectionFlagged: Bool
+    /// True only when the injection gate/engine inspected this request.
+    /// Passthrough and limit skips must not inflate "requests inspected" or
+    /// bytes-scanned telemetry.
+    let inspectionPerformed: Bool
+    let scanSkippedReason: InjectionScanSkipReason?
     /// Detection categories and severities that fired on this request,
     /// aggregated across findings. Feed the diagnostics metrics registry's
     /// per-category / per-severity tallies. Empty when nothing matched.
@@ -131,7 +76,10 @@ struct RequestLog: Sendable {
         locator: String? = nil,
         categories: [String] = [],
         severities: [String] = [],
-        scanDurationSeconds: TimeInterval = 0
+        scanDurationSeconds: TimeInterval = 0,
+        injectionFlagged: Bool = false,
+        inspectionPerformed: Bool = true,
+        scanSkippedReason: InjectionScanSkipReason? = nil
     ) {
         self.timestamp = timestamp
         self.targetHost = targetHost
@@ -143,6 +91,9 @@ struct RequestLog: Sendable {
         self.entropyAnomaly = entropyAnomaly
         self.fusedScore = fusedScore
         self.mlAvailable = mlAvailable
+        self.injectionFlagged = injectionFlagged
+        self.inspectionPerformed = inspectionPerformed
+        self.scanSkippedReason = scanSkippedReason
         self.categories = categories
         self.severities = severities
         self.scanDurationSeconds = scanDurationSeconds

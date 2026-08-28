@@ -95,6 +95,87 @@ struct ResponseActionInspectorTests {
         #expect(insp.findings.first?.trifecta == true)
     }
 
+    @Test("Pending tool IDs are bounded across both provider stream shapes")
+    func pendingToolIDsAreBounded() {
+        let insp = ResponseActionInspector(filter: exfilFilter(), requestHadUntrusted: true)
+        let anthropicCount = ResponseActionInspector.maxPendingToolCalls / 2
+        let openAICount = ResponseActionInspector.maxPendingToolCalls - anthropicCount
+
+        for index in 0..<anthropicCount {
+            insp.ingest(frame([
+                "type": "content_block_start", "index": index,
+                "content_block": ["type": "tool_use", "name": "tool_\(index)", "input": [:]],
+            ]))
+        }
+        for index in 0..<openAICount {
+            insp.ingest(frame(["choices": [["index": 0, "delta": ["tool_calls": [
+                ["index": index, "function": ["name": "tool_\(index)"]],
+            ]]]]]))
+        }
+
+        #expect(insp.pendingToolCallCount == ResponseActionInspector.maxPendingToolCalls)
+        #expect(!insp.isDisabledByResourceLimit)
+
+        insp.ingest(frame([
+            "type": "content_block_start", "index": anthropicCount,
+            "content_block": ["type": "tool_use", "name": "one_too_many", "input": [:]],
+        ]))
+
+        #expect(insp.isDisabledByResourceLimit)
+        #expect(insp.pendingToolCallCount == 0)
+        #expect(insp.pendingArgumentBytes == 0)
+    }
+
+    @Test("Endless small argument deltas disable monitoring at the aggregate byte bound")
+    func cumulativeArgumentBytesAreBounded() {
+        let insp = ResponseActionInspector(filter: exfilFilter(), requestHadUntrusted: true)
+        insp.ingest(frame(["choices": [["index": 0, "delta": ["tool_calls": [
+            ["index": 0, "function": ["name": "long_running_tool"]],
+        ]]]]]))
+
+        let fragment = String(repeating: "x", count: 1024)
+        let admittedFragments = ResponseActionInspector.maxPendingArgumentBytes / fragment.utf8.count
+        for _ in 0..<admittedFragments {
+            insp.ingest(frame(["choices": [["index": 0, "delta": ["tool_calls": [
+                ["index": 0, "function": ["arguments": fragment]],
+            ]]]]]))
+        }
+
+        #expect(!insp.isDisabledByResourceLimit)
+        #expect(insp.pendingArgumentBytes == ResponseActionInspector.maxPendingArgumentBytes)
+
+        insp.ingest(frame(["choices": [["index": 0, "delta": ["tool_calls": [
+            ["index": 0, "function": ["arguments": "x"]],
+        ]]]]]))
+
+        #expect(insp.isDisabledByResourceLimit)
+        #expect(insp.pendingToolCallCount == 0)
+        #expect(insp.pendingArgumentBytes == 0)
+
+        // The monitor remains disabled for this response instead of repeatedly
+        // allocating after an attacker crosses the limit. Relay bytes are
+        // forwarded by GatewayRelayHandler independently of this observer.
+        insp.ingest(anthropicExfilStream())
+        insp.finish()
+        #expect(insp.findings.isEmpty)
+    }
+
+    @Test("One oversized response chunk is refused before buffering")
+    func oversizedChunkIsNotBuffered() {
+        let insp = ResponseActionInspector(filter: exfilFilter(), requestHadUntrusted: true)
+        let oversized = String(
+            repeating: "x",
+            count: ResponseActionInspector.maxBufferBytes + 1
+        )
+
+        insp.ingest(oversized)
+
+        #expect(insp.isDisabledByResourceLimit)
+        #expect(insp.pendingToolCallCount == 0)
+        #expect(insp.pendingArgumentBytes == 0)
+        #expect(insp.findings.isEmpty)
+    }
+
     // MARK: Negative / hygiene
 
     @Test("A benign tool call raises nothing")
@@ -138,5 +219,22 @@ struct ResponseActionInspectorTests {
         )
         insp.finish()
         #expect(insp.findings.count == 1, "the benign second request adds no new finding")
+    }
+
+    @Test("Shared relay session follows runtime enable/disable without stale provenance")
+    func dynamicRelaySession() {
+        let session = ResponseInspectionSession()
+        #expect(session.ingest(anthropicExfilStream()).isEmpty,
+                "a relay created while monitoring is off must remain byte-only")
+
+        session.begin(filter: exfilFilter(), requestHadUntrusted: false)
+        let principalOnly = session.ingest(anthropicExfilStream()) + session.finish()
+        #expect(principalOnly.count == 1)
+        #expect(principalOnly.first?.trifecta == false)
+
+        session.begin(filter: exfilFilter(), requestHadUntrusted: true)
+        session.disable()
+        #expect(session.ingest(anthropicExfilStream()).isEmpty,
+                "turning monitoring off must discard the prior request flag")
     }
 }

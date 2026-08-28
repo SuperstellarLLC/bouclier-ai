@@ -2,7 +2,19 @@
 // Route handlers run server-side; the default jsdom env makes t3-env treat
 // `env.UPSTASH_*` (server-only) access as a client leak and throw.
 import { NextRequest } from "next/server";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const routeMocks = vi.hoisted(() => ({
+  recordReport: vi.fn(),
+  claimPowStamp: vi.fn(),
+  env: { REPORT_POW_BITS: 8 } as { REPORT_POW_BITS?: number },
+}));
+vi.mock("@/env", () => ({ env: routeMocks.env }));
+vi.mock("@/lib/pow-nonce-store", () => ({ claimPowStamp: routeMocks.claimPowStamp }));
+vi.mock("@/lib/report-store", async () => {
+  const actual = await vi.importActual<Record<string, unknown>>("@/lib/report-store");
+  return { ...actual, recordReport: routeMocks.recordReport };
+});
 
 import { GET, POST } from "@/app/api/report/route";
 import { env } from "@/env";
@@ -22,7 +34,7 @@ const validInput = {
   spanExcerpt: "…offending span excerpt…",
   topWindow: "…top window…",
   topWindowScore: 0.99,
-  fingerprint: "abc123",
+  fingerprint: "a".repeat(64),
   note: "this is a lint diff, not an attack",
 };
 
@@ -50,6 +62,10 @@ describe("normalizeReport", () => {
     expect(normalizeReport({ ...validInput, spanExcerpt: "" })).toBeNull();
     expect(normalizeReport({ ...validInput, spanExcerpt: undefined })).toBeNull();
     expect(normalizeReport({ ...validInput, targetHost: "" })).toBeNull();
+    expect(normalizeReport({ ...validInput, targetHost: "not a host" })).toBeNull();
+    expect(normalizeReport({ ...validInput, targetHost: "https://example.com" })).toBeNull();
+    expect(normalizeReport({ ...validInput, fingerprint: "" })).toBeNull();
+    expect(normalizeReport({ ...validInput, fingerprint: "abc123" })).toBeNull();
   });
 
   it("accepts a valid report and does not fabricate a timestamp", () => {
@@ -58,7 +74,7 @@ describe("normalizeReport", () => {
     expect(r?.spanExcerpt).toBe(validInput.spanExcerpt);
     expect(r?.patternNames).toEqual(["system-prompt-extraction"]);
     // `ts` is stamped server-side in recordReport, never in the normalizer.
-    expect((r as Record<string, unknown>).ts).toBeUndefined();
+    expect(r).not.toHaveProperty("ts");
   });
 
   it("hard-caps oversized strings and pattern lists", () => {
@@ -72,26 +88,57 @@ describe("normalizeReport", () => {
     expect(r?.patternNames[0]?.length).toBe(LIMITS.patternName);
   });
 
-  it("coerces non-finite / wrong-typed numbers and empty optionals", () => {
+  it("rejects non-finite, wrong-typed, out-of-range, and fractional numeric fields", () => {
+    expect(normalizeReport({ ...validInput, fusedScore: "high" })).toBeNull();
+    expect(normalizeReport({ ...validInput, mlScore: Number.NaN })).toBeNull();
+    expect(normalizeReport({ ...validInput, entropyAnomaly: 1.1 })).toBeNull();
+    expect(normalizeReport({ ...validInput, benignMultiplier: -0.1 })).toBeNull();
+    expect(normalizeReport({ ...validInput, matchCount: 1.5 })).toBeNull();
+    expect(normalizeReport({ ...validInput, topWindow: 42 })).toBeNull();
+    expect(normalizeReport({ ...validInput, note: 42 })).toBeNull();
+    expect(normalizeReport({ ...validInput, patternNames: ["ok", 42] })).toBeNull();
+  });
+
+  it("rejects NUL in every persisted free-text field before PostgreSQL", () => {
+    expect(normalizeReport({ ...validInput, spanExcerpt: "before\u0000after" })).toBeNull();
+    expect(normalizeReport({ ...validInput, topWindow: "before\u0000after" })).toBeNull();
+    expect(normalizeReport({ ...validInput, note: "before\u0000after" })).toBeNull();
+  });
+
+  it("trims metadata and empty notes without altering the report excerpt", () => {
     const r = normalizeReport({
       ...validInput,
-      fusedScore: "high",
-      mlScore: Number.NaN,
-      matchCount: undefined,
-      topWindow: 42,
-      note: "",
+      appVersion: " 0.9.8 ",
+      targetHost: " api.anthropic.com ",
+      locator: " body.messages[0] ",
+      note: "   ",
     });
-    expect(r?.fusedScore).toBe(0);
-    expect(r?.mlScore).toBeNull();
-    expect(r?.matchCount).toBe(0);
-    expect(r?.topWindow).toBeNull();
-    expect(r?.note).toBeNull();
+    expect(r).toMatchObject({
+      appVersion: "0.9.8",
+      targetHost: "api.anthropic.com",
+      locator: "body.messages[0]",
+      note: null,
+      spanExcerpt: validInput.spanExcerpt,
+    });
   });
 });
 
 describe("POST /api/report", () => {
+  beforeEach(() => {
+    routeMocks.env.REPORT_POW_BITS = 8;
+    routeMocks.recordReport.mockReset();
+    routeMocks.recordReport.mockResolvedValue("recorded");
+    routeMocks.claimPowStamp.mockReset();
+    routeMocks.claimPowStamp.mockResolvedValue("unavailable");
+  });
+
   it("415s a non-JSON content type", async () => {
     const res = await POST(postRequest(JSON.stringify(validInput), "text/plain"));
+    expect(res.status).toBe(415);
+  });
+
+  it("does not accept a content type that merely contains application/json", async () => {
+    const res = await POST(postRequest(JSON.stringify(validInput), "text/application/json"));
     expect(res.status).toBe(415);
   });
 
@@ -129,6 +176,28 @@ describe("POST /api/report", () => {
       postRequest(JSON.stringify({ ...validInput, pow: { timestamp: stale, nonce } })),
     );
     expect(res.status).toBe(403);
+  });
+
+  it("429s honestly when the atomic store quota is exhausted", async () => {
+    routeMocks.recordReport.mockResolvedValueOnce("rate-limited");
+    const res = await POST(postRequest(JSON.stringify(withPow(validInput))));
+    expect(res.status).toBe(429);
+    expect(res.headers.get("retry-after")).toBe("60");
+  });
+
+  it("503s instead of claiming success when report storage is unavailable", async () => {
+    routeMocks.recordReport.mockResolvedValueOnce("storage-unavailable");
+    const res = await POST(postRequest(JSON.stringify(withPow(validInput))));
+    expect(res.status).toBe(503);
+    expect(await res.json()).toMatchObject({ ok: false });
+  });
+
+  it("skips replay-cache claims when proof of work is explicitly disabled", async () => {
+    routeMocks.env.REPORT_POW_BITS = 0;
+    const res = await POST(postRequest(JSON.stringify(validInput)));
+    expect(res.status).toBe(200);
+    expect(routeMocks.claimPowStamp).not.toHaveBeenCalled();
+    expect(routeMocks.recordReport).toHaveBeenCalledOnce();
   });
 });
 

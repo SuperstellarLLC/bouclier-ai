@@ -35,6 +35,8 @@ jobs:
       - run: pnpm format:check
       - name: Test release-script helpers
         run: bash apps/desktop/scripts/prompts_test.sh
+      - name: Test PromptGuard artifact verifier
+        run: python3 -B -m unittest apps/desktop/scripts/verify_promptguard_artifacts_test.py
 
   test-patterns:
     name: Test patterns
@@ -49,6 +51,8 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @bouclier-ai/patterns build
+      - name: Verify desktop pattern bundle is current
+        run: node scripts/check-pattern-sync.mjs
       - run: pnpm --filter @bouclier-ai/patterns test
 
   test-site:
@@ -147,6 +151,8 @@ jobs:
       - name: Run Swift tests
         working-directory: apps/desktop
         run: swift test
+      - name: Package and verify unsigned app bundle
+        run: VERSION=0.0.0 apps/desktop/scripts/build-app.sh
 
   security:
     name: Security audit (npm)
@@ -160,4 +166,4 @@ jobs:
           node-version-file: .nvmrc
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm audit --audit-level=high
+      - run: pnpm audit --audit-level=moderate

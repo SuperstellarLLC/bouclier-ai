@@ -1,5 +1,103 @@
 import SwiftUI
 
+/// Separates the user's persisted protection intent from an operational
+/// listener. Shared by the menu and Settings so neither surface can describe
+/// a merely requested state as active protection.
+enum DesktopProtectionState: Equatable {
+    case off(gatewayRunning: Bool)
+    case requested
+    case degraded
+    case operational
+
+    static func resolve(
+        protectionActive: Bool,
+        gatewayRunning: Bool,
+        detectionEngineDegraded: Bool
+    ) -> Self {
+        guard protectionActive else { return .off(gatewayRunning: gatewayRunning) }
+        guard gatewayRunning else { return .requested }
+        return detectionEngineDegraded ? .degraded : .operational
+    }
+
+    /// Explain the selected finding action without presenting configuration as
+    /// live enforcement. Only an operational gateway may use present-tense
+    /// Monitoring/Blocking copy; every other state says what is selected and
+    /// why it is not currently an operational action.
+    func findingActionDescription(
+        blockingEnabled: Bool,
+        detectorDisabledByPolicy: Bool
+    ) -> String {
+        let selectedAction = blockingEnabled ? "Block" : "Monitor"
+
+        switch self {
+        case .off(let gatewayRunning):
+            if gatewayRunning {
+                return "\(selectedAction) is selected, but protection is off. The gateway is in passthrough, so routed traffic is relayed without inspection and no finding action is currently applied."
+            }
+            return "\(selectedAction) is selected, but protection is off and the gateway is stopped. No finding action is currently applied."
+        case .requested:
+            return "\(selectedAction) is selected, but the gateway is not listening yet. Traffic is not protected, and the finding action will not apply until startup completes."
+        case .degraded:
+            if detectorDisabledByPolicy {
+                return "Injection detection is disabled by managed policy. Routed traffic is relayed without injection inspection, so the selected finding action is not currently applied."
+            }
+            return "\(selectedAction) is selected, but protection is degraded. Review Protection Status before relying on this finding action."
+        case .operational:
+            return blockingEnabled
+                ? "Blocking: Bouclier refuses detector findings and encoded bodies it cannot safely inspect. Supported bodies are fully inspected up to 8 MiB; larger bodies receive a bounded 24-window sample, so a clean or inconclusive sample is forwarded with a partial-coverage notice. A fingerprinted detector finding can use Unblock; encoded bodies require Monitoring or an uncompressed request. The hard 64 MiB transport cap applies in either mode."
+                : "Monitoring: Bouclier records suspicious content, but allows model-visible request-body content through unchanged. Your work cannot be interrupted by a detection."
+        }
+    }
+}
+
+/// Pure presentation seam for the always-visible menu-bar item. Keeping this
+/// next to `DesktopProtectionState` prevents the compact icon from drifting
+/// from the more detailed panel and makes the complete state table testable.
+struct DesktopMenuBarPresentation: Equatable {
+    let iconName: String
+    let accessibilityLabel: String
+
+    static func resolve(
+        state: DesktopProtectionState,
+        blockingEnabled: Bool,
+        errorMessage: String?
+    ) -> Self {
+        if let errorMessage {
+            return Self(
+                iconName: "exclamationmark.shield.fill",
+                accessibilityLabel: "Bouclier.ai — needs attention: \(errorMessage)"
+            )
+        }
+
+        switch state {
+        case .off(let gatewayRunning):
+            return Self(
+                iconName: "shield.slash",
+                accessibilityLabel: gatewayRunning
+                    ? "Bouclier.ai — protection off, gateway passthrough"
+                    : "Bouclier.ai — protection off"
+            )
+        case .requested:
+            return Self(
+                iconName: "exclamationmark.shield.fill",
+                accessibilityLabel: "Bouclier.ai — protection requested but gateway is not running"
+            )
+        case .degraded:
+            return Self(
+                iconName: "exclamationmark.shield.fill",
+                accessibilityLabel: "Bouclier.ai — protection degraded; open Bouclier for details"
+            )
+        case .operational:
+            return Self(
+                iconName: blockingEnabled ? "checkmark.shield.fill" : "eye.fill",
+                accessibilityLabel: blockingEnabled
+                    ? "Bouclier.ai — blocking suspicious requests"
+                    : "Bouclier.ai — monitoring suspicious requests"
+            )
+        }
+    }
+}
+
 /// The menu-bar panel. Designed to answer one question in under a second —
 /// "is my AI traffic protected?" — with a calm hero + master switch, then
 /// surface the firewall status and a glanceable activity line.
@@ -7,6 +105,7 @@ import SwiftUI
 struct MenuBarView: View {
     @ObservedObject var proxyManager: ProxyManager
     @ObservedObject var updater: AutoUpdater
+    @AppStorage("injectionBlockEnabled") private var userBlockingEnabled = false
     @Environment(\.openSettings) private var openSettings
 
     var body: some View {
@@ -77,9 +176,19 @@ struct MenuBarView: View {
                 .toggleStyle(.switch)
                 .labelsHidden()
                 .help(proxyManager.protectionActive
-                    ? "Pause protection (traffic keeps flowing, uninspected)"
-                    : "Turn on protection")
+                    ? (ManagedConfig.preventDisable
+                       ? "Disabling protection is prevented by your organization"
+                       : (proxyManager.configurationMutationLocked
+                          ? "Configuration cleanup is in progress"
+                          : "Pause protection (traffic keeps flowing, uninspected)"))
+                    : (proxyManager.configurationMutationLocked
+                       ? "Configuration cleanup is in progress"
+                       : "Turn on protection"))
                 .accessibilityLabel("Protection")
+                .disabled(
+                    proxyManager.configurationMutationLocked
+                        || (proxyManager.protectionActive && ManagedConfig.preventDisable)
+                )
         }
     }
 
@@ -91,34 +200,71 @@ struct MenuBarView: View {
         Binding(
             get: { proxyManager.protectionActive },
             set: { on in
+                guard !proxyManager.configurationMutationLocked else { return }
                 if on { proxyManager.enableStandard() } else { proxyManager.disableStandard() }
             }
         )
     }
 
     private var heroIcon: String {
-        if proxyManager.errorMessage != nil { return "exclamationmark.shield.fill" }
-        return proxyManager.protectionActive ? "checkmark.shield.fill" : "shield.slash"
+        DesktopMenuBarPresentation.resolve(
+            state: protectionState,
+            blockingEnabled: blockingEnabled,
+            errorMessage: proxyManager.errorMessage
+        ).iconName
     }
 
     private var heroTint: Color {
         if proxyManager.errorMessage != nil { return .red }
-        return proxyManager.protectionActive ? .green : .secondary
+        switch protectionState {
+        case .requested, .degraded:
+            return .orange
+        case .off:
+            return .secondary
+        case .operational:
+            return blockingEnabled ? .green : .blue
+        }
     }
 
     private var heroTitle: String {
         if proxyManager.errorMessage != nil { return "Needs attention" }
-        return proxyManager.protectionActive ? "Protected" : "Off"
+        switch protectionState {
+        case .off:
+            return "Off"
+        case .requested:
+            return "Protection requested"
+        case .degraded:
+            return "Degraded"
+        case .operational:
+            return blockingEnabled ? "Blocking" : "Monitoring"
+        }
     }
 
     private var heroSubtitle: String {
-        if proxyManager.errorMessage != nil { return "Protection couldn't start — see below." }
-        if proxyManager.protectionActive {
-            return "Your AI traffic is inspected for prompt injection in untrusted tool output."
+        if proxyManager.errorMessage != nil { return "An operation needs attention — see details below." }
+        switch protectionState {
+        case .requested:
+            return "The gateway is not listening yet. Traffic is not protected until startup completes."
+        case .degraded:
+            if !proxyManager.detectorEnabled {
+                return "Injection detection is disabled by managed policy; routed traffic is relayed without injection inspection."
+            }
+            if !proxyManager.patternTierHealthy {
+                return "Only \(proxyManager.patternCount) emergency patterns loaded; reinstall before relying on protection."
+            }
+            if proxyManager.mlTierUnavailable {
+                return "The pattern tier is active, but on-device ML failed to load; reinstall or check Logs."
+            }
+            return "The detection engine is degraded; review Logs before relying on protection."
+        case .operational:
+            return blockingEnabled
+                ? "Routed detector findings are refused; between 8 MiB and the hard 64 MiB cap, only 24 windows are sampled and a clean or inconclusive sample passes."
+                : "Routed findings are logged, but model-visible request-body content is allowed through unchanged."
+        case .off(let gatewayRunning):
+            return gatewayRunning
+                ? "Passthrough: traffic flows uninspected so active sessions keep working. Turn on to inspect."
+                : "Turn on to inspect your AI traffic for prompt injection."
         }
-        return proxyManager.isRunning
-            ? "Passthrough: traffic flows uninspected so active sessions keep working. Turn on to inspect."
-            : "Turn on to inspect your AI traffic for prompt injection."
     }
 
     private func errorBanner(_ error: String) -> some View {
@@ -156,9 +302,28 @@ struct MenuBarView: View {
 
     private var firewallSubtitle: String {
         let n = proxyManager.patternCount
+        switch protectionState {
+        case .off(let gatewayRunning):
+            return gatewayRunning
+                ? "Gateway passthrough · protection off"
+                : "Protection off"
+        case .requested:
+            return "Gateway starting · protection not active"
+        case .degraded:
+            guard n > 0 else { return "Detection unavailable · protection degraded" }
+            if !proxyManager.patternTierHealthy {
+                return "\(n) emergency patterns only · protection degraded"
+            }
+            let ml = proxyManager.mlTierUnavailable ? " · ML unavailable" : ""
+            return "\(n) patterns\(ml) · protection degraded"
+        case .operational:
+            break
+        }
         guard n > 0 else { return "Loading detection patterns…" }
-        let mode = FeatureFlags.injectionBlock ? "enforcing" : "monitoring"
-        let ml = proxyManager.mlTierActive ? " + ML" : ""
+        let mode = blockingEnabled ? "blocking" : "monitoring"
+        let ml = proxyManager.mlTierActive
+            ? " + ML"
+            : (proxyManager.mlTierUnavailable ? " · ML unavailable" : " · ML loading")
         return "\(n) patterns\(ml) · \(mode)"
     }
 
@@ -169,7 +334,26 @@ struct MenuBarView: View {
         let recents = Array(proxyManager.logs.prefix(3))
         Text("Activity").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
 
-        if proxyManager.stats.requestsScanned == 0 && recents.isEmpty {
+        if case .off = protectionState {
+            HStack(spacing: 6) {
+                Image(systemName: "shield.slash").font(.caption).foregroundStyle(.secondary)
+                Text("Gateway passthrough — current traffic is not inspected.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            .padding(.top, 4)
+        } else if !proxyManager.detectorEnabled {
+            HStack(spacing: 6) {
+                Image(systemName: "exclamationmark.shield.fill").font(.caption).foregroundStyle(.orange)
+                Text("Injection detection is disabled by managed policy — current traffic is not inspected.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            .padding(.top, 4)
+        } else if proxyManager.stats.requestsScanned == 0,
+           proxyManager.stats.requestsSkippedInspection == 0,
+           proxyManager.stats.injectionFindingsFlagged == 0,
+           proxyManager.stats.injectionsBlocked == 0,
+           proxyManager.stats.requestsBlockedByInspectionLimit == 0,
+           recents.isEmpty {
             HStack(spacing: 6) {
                 Image(systemName: "checkmark.circle").font(.caption).foregroundStyle(.secondary)
                 Text("Watching your AI traffic — nothing to report yet.")
@@ -222,8 +406,16 @@ struct MenuBarView: View {
     private var activitySummary: String {
         let n = proxyManager.stats.requestsScanned
         let blocked = proxyManager.stats.injectionsBlocked
+        let limitBlocked = proxyManager.stats.requestsBlockedByInspectionLimit
+        let flagged = proxyManager.stats.injectionFindingsFlagged
+        let skipped = proxyManager.stats.requestsSkippedInspection
         let base = "\(n) request\(n == 1 ? "" : "s") inspected"
-        return blocked > 0 ? "\(base) · \(blocked) blocked" : "\(base) · all clear"
+        var details: [String] = []
+        if blocked > 0 { details.append("\(blocked) blocked") }
+        if limitBlocked > 0 { details.append("\(limitBlocked) refused uninspected") }
+        if flagged > 0 { details.append("\(flagged) finding\(flagged == 1 ? "" : "s") allowed") }
+        if skipped > 0 { details.append("\(skipped) not inspected") }
+        return details.isEmpty ? "\(base) · all clear" : ([base] + details).joined(separator: " · ")
     }
 
     private func relativeTime(_ date: Date) -> String {
@@ -242,8 +434,15 @@ struct MenuBarView: View {
             MenuActionRow(title: "Check for Updates…", systemImage: "arrow.triangle.2.circlepath",
                           disabled: !updater.canCheckForUpdates) { updater.checkForUpdates() }
             MenuActionRow(title: "Export Diagnostics…", systemImage: "square.and.arrow.up") { exportDiagnostics() }
-            MenuActionRow(title: "Quit Bouclier.ai", systemImage: "power", shortcut: "q") {
-                proxyManager.stop()
+            MenuActionRow(
+                title: managedActiveLock ? "Quit prevented by your organization" : "Quit Bouclier.ai",
+                systemImage: "power",
+                disabled: managedActiveLock,
+                shortcut: "q"
+            ) {
+                // AppDelegate performs the transient passthrough handoff.
+                // Calling stop() here first clears liveGatewayPort and
+                // defeats that continuity path, breaking live agent sessions.
                 NSApplication.shared.terminate(nil)
             }
             HStack {
@@ -270,6 +469,22 @@ struct MenuBarView: View {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—"
     }
 
+    private var blockingEnabled: Bool {
+        FeatureFlags.managedInjectionBlock ?? userBlockingEnabled
+    }
+
+    private var protectionState: DesktopProtectionState {
+        .resolve(
+            protectionActive: proxyManager.protectionActive,
+            gatewayRunning: proxyManager.isRunning,
+            detectionEngineDegraded: proxyManager.detectionEngineDegraded
+        )
+    }
+
+    private var managedActiveLock: Bool {
+        proxyManager.protectionActive && ManagedConfig.preventDisable
+    }
+
     private func exportDiagnostics() {
         Task { @MainActor in
             let snapshot = await Metrics.shared.snapshot()
@@ -280,7 +495,7 @@ struct MenuBarView: View {
                 metricsSnapshot: snapshot,
                 dailyStats: daily,
                 recentLogs: logs,
-                allowedHosts: SystemProxy.interceptedDomains
+                allowedHosts: SystemProxy.diagnosticAllowedHosts
             )
 
             let panel = NSSavePanel()
@@ -358,4 +573,3 @@ private struct OptionalShortcut: ViewModifier {
         if let key { content.keyboardShortcut(key) } else { content }
     }
 }
-

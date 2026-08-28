@@ -60,9 +60,14 @@ docker-compose.override.yml
 *.xcworkspace/
 DerivedData/
 Package.resolved
+# Applications should commit their resolved dependency graph so CI and signed
+# releases do not silently select newer Swift package revisions.
+!apps/desktop/Package.resolved
 
 # ML conversion venv + HuggingFace cache
 apps/desktop/.venv-ml/
+__pycache__/
+*.py[cod]
 
 # CoreML model + tokenizer — both produced by apps/desktop/scripts/
 # ensure-model.sh (convert-*.py) at release time from Meta's gated

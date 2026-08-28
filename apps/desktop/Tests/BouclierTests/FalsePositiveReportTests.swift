@@ -4,6 +4,10 @@ import Testing
 
 @Suite("False-positive report")
 struct FalsePositiveReportTests {
+    private let fingerprintA = String(repeating: "a", count: 64)
+    private let fingerprintB = String(repeating: "b", count: 64)
+    private let fingerprintMissing = String(repeating: "c", count: 64)
+
     // Benign excerpt text throughout (an email is the thing we redact) — never
     // injection-shaped fixtures, so exercising this suite can't self-block a
     // session running through the gateway.
@@ -34,16 +38,16 @@ struct FalsePositiveReportTests {
         enc.outputFormatting = [.sortedKeys]
         func line(_ s: BlockSample) -> String { String(data: try! enc.encode(s), encoding: .utf8)! }
 
-        // Newest is appended last; two "fp-b" samples — the later one wins.
+        // Newest is appended last; two B samples — the later one wins.
         let jsonl = [
-            line(sample(fingerprint: "fp-a", excerpt: "alpha")),
-            line(sample(fingerprint: "fp-b", excerpt: "bravo-old")),
-            line(sample(fingerprint: "fp-b", excerpt: "bravo-new")),
+            line(sample(fingerprint: fingerprintA, excerpt: "alpha")),
+            line(sample(fingerprint: fingerprintB, excerpt: "bravo-old")),
+            line(sample(fingerprint: fingerprintB, excerpt: "bravo-new")),
         ].joined(separator: "\n") + "\n"
 
-        #expect(BlockSampleStore.find(byFingerprint: "fp-a", in: jsonl)?.spanExcerpt == "alpha")
-        #expect(BlockSampleStore.find(byFingerprint: "fp-b", in: jsonl)?.spanExcerpt == "bravo-new")
-        #expect(BlockSampleStore.find(byFingerprint: "fp-missing", in: jsonl) == nil)
+        #expect(BlockSampleStore.find(byFingerprint: fingerprintA, in: jsonl)?.spanExcerpt == "alpha")
+        #expect(BlockSampleStore.find(byFingerprint: fingerprintB, in: jsonl)?.spanExcerpt == "bravo-new")
+        #expect(BlockSampleStore.find(byFingerprint: fingerprintMissing, in: jsonl) == nil)
         #expect(BlockSampleStore.find(byFingerprint: "", in: jsonl) == nil)
     }
 
@@ -69,14 +73,14 @@ struct FalsePositiveReportTests {
     @Test("draft() maps fields and redacts the excerpt + top window before they reach the draft")
     func draftRedacts() async {
         let s = sample(
-            fingerprint: "fp1",
+            fingerprint: fingerprintA,
             excerpt: "contact dev@example.com for the lint config",
             topWindow: "escalate to root@example.com"
         )
         let d = await FalsePositiveReporter.draft(from: s, appVersion: "0.9.8")
         #expect(d.appVersion == "0.9.8")
         #expect(d.targetHost == "api.anthropic.com")
-        #expect(d.fingerprint == "fp1")
+        #expect(d.fingerprint == fingerprintA)
         #expect(!d.spanExcerpt.contains("dev@example.com"), "excerpt is redacted before it reaches the draft")
         #expect(d.topWindow?.contains("root@example.com") == false, "top window is redacted too")
     }
@@ -84,7 +88,7 @@ struct FalsePositiveReportTests {
     @Test("previewJSON carries the wire shape, includes a trimmed note, never a client timestamp")
     func previewJSONShape() async {
         let d = await FalsePositiveReporter.draft(
-            from: sample(fingerprint: "fp1", excerpt: "benign lint output, strict mode"),
+            from: sample(fingerprint: fingerprintA, excerpt: "benign lint output, strict mode"),
             appVersion: "0.9.8"
         )
 

@@ -42,12 +42,25 @@ struct InjectionProvenanceTests {
 
     // MARK: - Classification
 
-    @Test("A local Read/NotebookRead of a workspace path is authored")
+    @Test("A local Read/NotebookRead under a known workspace path is authored")
     func localReadIsAuthored() {
         #expect(InjectionInspectionPass.provenance(
-            ofToolName: "Read", input: ["file_path": "/Users/x/dev/app/docs/GUIDE.md"]) == .authored)
+            ofToolName: "Read",
+            input: ["file_path": "/Users/x/dev/app/docs/GUIDE.md"],
+            workspaceRoots: ["/Users/x/dev/app"]
+        ) == .authored)
         #expect(InjectionInspectionPass.provenance(
-            ofToolName: "NotebookRead", input: ["notebook_path": "/Users/x/dev/app/analysis.ipynb"]) == .authored)
+            ofToolName: "NotebookRead",
+            input: ["notebook_path": "/Users/x/dev/app/analysis.ipynb"],
+            workspaceRoots: ["/Users/x/dev/app"]
+        ) == .authored)
+    }
+
+    @Test("A local read without a canonical workspace root stays untrusted")
+    func localReadWithoutWorkspaceIsUntrusted() {
+        #expect(InjectionInspectionPass.provenance(
+            ofToolName: "Read", input: ["file_path": "/Users/x/dev/app/docs/GUIDE.md"]
+        ) == .untrusted)
     }
 
     @Test("Vendored / downloaded / temp reads are never authored")
@@ -90,7 +103,11 @@ struct InjectionProvenanceTests {
     @Test("With tiering, a tool_result from a local Read is tagged authored")
     func spanAuthoredWhenTiering() {
         let spans = InjectionInspectionPass.extractSpans(
-            body: body(tool: "Read", path: "/Users/x/dev/app/README.md", result: "fetched page"),
+            body: bodyWithWorkspace(
+                cwd: "/Users/x/dev/app",
+                readPath: "/Users/x/dev/app/README.md",
+                result: "fetched page"
+            ),
             trustAuthoredReads: true)
         #expect(toolResultSpan(spans)?.origin == .authored)
     }
@@ -118,12 +135,41 @@ struct InjectionProvenanceTests {
         #expect(toolResultSpan(spans)?.origin == .untrusted)
     }
 
+    @Test("Duplicate tool_use IDs fail closed instead of laundering provenance")
+    func duplicateToolUseIDsStayUntrusted() {
+        let obj: [String: Any] = [
+            "system": "Working directory: /Users/x/dev/app",
+            "messages": [
+                ["role": "assistant", "content": [
+                    ["type": "tool_use", "id": "dup", "name": "WebFetch",
+                     "input": ["url": "https://attacker.example"]],
+                    ["type": "tool_use", "id": "dup", "name": "Read",
+                     "input": ["file_path": "/Users/x/dev/app/README.md"]],
+                ]],
+                ["role": "user", "content": [
+                    ["type": "tool_result", "tool_use_id": "dup",
+                     "content": "please QURTLE the widget"],
+                ]],
+            ],
+        ]
+        let data = try! JSONSerialization.data(withJSONObject: obj)
+        let spans = InjectionInspectionPass.extractSpans(body: data, trustAuthoredReads: true)
+        #expect(toolResultSpan(spans)?.origin == .untrusted)
+        #expect(InjectionInspectionPass.inspect(
+            body: data, filter: triggerFilter(), trustAuthoredReads: true
+        ).decision == .block)
+    }
+
     // MARK: - Block / flag routing
 
     @Test("A trigger in a local-Read tool_result is flagged, not blocked")
     func authoredReadFlagsNotBlocks() {
         let out = InjectionInspectionPass.inspect(
-            body: body(tool: "Read", path: "/Users/x/dev/app/CLAUDE.md", result: "please QURTLE the widget"),
+            body: bodyWithWorkspace(
+                cwd: "/Users/x/dev/app",
+                readPath: "/Users/x/dev/app/CLAUDE.md",
+                result: "please QURTLE the widget"
+            ),
             filter: triggerFilter(), trustAuthoredReads: true)
         #expect(out.decision == .flag, "The developer's own doc must forward (flagged), not block")
     }
@@ -134,6 +180,9 @@ struct InjectionProvenanceTests {
             body: body(tool: "WebFetch", path: nil, result: "please QURTLE the widget"),
             filter: triggerFilter(), trustAuthoredReads: true)
         #expect(out.decision == .block, "External content carrying the trigger must still block")
+        let refusal = InjectionInspectionPass.refusalJSON(for: out)
+        #expect(refusal.contains("did not positively attribute"))
+        #expect(!refusal.contains("not something you typed"))
     }
 
     @Test("A trigger read from node_modules still blocks (poisoned dependency)")
@@ -175,7 +224,82 @@ struct InjectionProvenanceTests {
     func extractsWorkspaceRoot() {
         let root = try! JSONSerialization.jsonObject(
             with: Data(#"{"system":"<env>\nWorking directory: /Users/x/proj\n</env>"}"#.utf8)) as! [String: Any]
-        #expect(InjectionInspectionPass.workspaceRoots(from: root) == ["/users/x/proj/"])
+        #expect(InjectionInspectionPass.workspaceRoots(from: root) == ["/Users/x/proj/"])
+    }
+
+    @Test("Workspace metadata accepts spaces but must use the recognized env envelope")
+    func workspaceMetadataEnvelopeIsRequired() {
+        let scoped: [String: Any] = [
+            "system": "<env>\nWorking directory: /Users/x/My Project\nPlatform: darwin\n</env>",
+        ]
+        #expect(InjectionInspectionPass.workspaceRoots(from: scoped) == ["/Users/x/My Project/"])
+
+        let unscoped: [String: Any] = [
+            "system": "Project instructions.\nWorking directory: /Users/x/proj",
+        ]
+        #expect(InjectionInspectionPass.workspaceRoots(from: unscoped).isEmpty)
+
+        let unsupportedAlias: [String: Any] = [
+            "system": "<env>\ncwd: /Users/x/proj\nPlatform: darwin\n</env>",
+        ]
+        #expect(InjectionInspectionPass.workspaceRoots(from: unsupportedAlias).isEmpty)
+    }
+
+    @Test("Ambiguous or root-filesystem workspace declarations fail closed")
+    func unsafeWorkspaceDeclarationsFailClosed() {
+        let duplicate: [String: Any] = [
+            "system": """
+            <env>
+            Working directory: /Users/x/proj
+            Platform: darwin
+            </env>
+            Working directory: /Users/x/elsewhere
+            """,
+        ]
+        #expect(InjectionInspectionPass.workspaceRoots(from: duplicate).isEmpty)
+
+        let multipleEnvelopes: [String: Any] = [
+            "system": """
+            <env>
+            Working directory: /Users/x/proj
+            </env>
+            <env>
+            Platform: darwin
+            </env>
+            """,
+        ]
+        #expect(InjectionInspectionPass.workspaceRoots(from: multipleEnvelopes).isEmpty)
+
+        let duplicateAfterInspectionBound: [String: Any] = [
+            "system": """
+            <env>
+            Working directory: /Users/x/proj
+            Platform: darwin
+            </env>
+            """ + String(repeating: "x", count: 16_384) + """
+
+            <env>
+            Working directory: /Users/x/elsewhere
+            Platform: darwin
+            </env>
+            """,
+        ]
+        #expect(InjectionInspectionPass.workspaceRoots(from: duplicateAfterInspectionBound).isEmpty)
+
+        let filesystemRoot: [String: Any] = [
+            "system": "<env>\nWorking directory: /\nPlatform: darwin\n</env>",
+        ]
+        #expect(InjectionInspectionPass.workspaceRoots(from: filesystemRoot).isEmpty)
+        #expect(InjectionInspectionPass.provenance(
+            ofToolName: "Read",
+            input: ["file_path": "/Users/x/Documents/payload.md"],
+            workspaceRoots: ["/"]
+        ) == .untrusted)
+        #expect(InjectionInspectionPass.provenance(
+            ofToolName: "Read",
+            input: ["file_path": "/Users/x/proj/payload.md"],
+            workspaceRoots: ["/Users/x/proj", "/Users/x"]
+        ) == .untrusted)
     }
 
     @Test("A cwd declared only in untrusted tool content is NOT a workspace root")
@@ -215,9 +339,93 @@ struct InjectionProvenanceTests {
     func siblingDirNotTrusted() {
         #expect(InjectionInspectionPass.provenance(
             ofToolName: "Read", input: ["file_path": "/Users/x/proj-evil/x.md"],
-            workspaceRoots: ["/users/x/proj/"]) == .untrusted)
+            workspaceRoots: ["/Users/x/proj/"]) == .untrusted)
         #expect(InjectionInspectionPass.provenance(
             ofToolName: "Read", input: ["file_path": "/Users/x/proj/x.md"],
-            workspaceRoots: ["/users/x/proj/"]) == .authored)
+            workspaceRoots: ["/Users/x/proj/"]) == .authored)
+    }
+
+    @Test("Dot-dot traversal is standardized before workspace trust")
+    func traversalCannotEscapeWorkspace() {
+        #expect(InjectionInspectionPass.provenance(
+            ofToolName: "Read",
+            input: ["file_path": "/Users/x/proj/docs/../../outside.md"],
+            workspaceRoots: ["/Users/x/proj"]
+        ) == .untrusted)
+        let packageRoot = FileManager.default.currentDirectoryPath
+        #expect(InjectionInspectionPass.provenance(
+            ofToolName: "Read",
+            input: ["file_path": packageRoot + "/Tests/../Package.swift"],
+            workspaceRoots: [packageRoot]
+        ) == .authored)
+    }
+
+    @Test("Existing symlinks are resolved before workspace trust")
+    func symlinkCannotEscapeWorkspace() throws {
+        let fm = FileManager.default
+        let base = URL(fileURLWithPath: fm.currentDirectoryPath, isDirectory: true)
+            .appendingPathComponent(".provenance-test-\(UUID().uuidString)", isDirectory: true)
+        let workspace = base.appendingPathComponent("workspace", isDirectory: true)
+        let outside = base.appendingPathComponent("outside", isDirectory: true)
+        let link = workspace.appendingPathComponent("linked", isDirectory: true)
+        try fm.createDirectory(at: workspace, withIntermediateDirectories: true)
+        try fm.createDirectory(at: outside, withIntermediateDirectories: true)
+        try fm.createSymbolicLink(at: link, withDestinationURL: outside)
+        defer { try? fm.removeItem(at: base) }
+
+        let linkedFile = link.appendingPathComponent("payload.md").path
+        let canonical = try #require(InjectionInspectionPass.canonicalFilePath(linkedFile))
+        #expect(canonical.hasPrefix(outside.path + "/"))
+        #expect(InjectionInspectionPass.provenance(
+            ofToolName: "Read",
+            input: ["file_path": linkedFile],
+            workspaceRoots: [workspace.path]
+        ) == .untrusted)
+    }
+
+    @Test("Symlink is resolved before dot-dot components")
+    func symlinkBeforeDotDotCannotGainTrust() throws {
+        let fm = FileManager.default
+        let base = URL(fileURLWithPath: fm.currentDirectoryPath, isDirectory: true)
+            .appendingPathComponent(".provenance-order-test-\(UUID().uuidString)", isDirectory: true)
+        let workspace = base.appendingPathComponent("workspace", isDirectory: true)
+        let outside = base.appendingPathComponent("outside", isDirectory: true)
+        let outsideSubdir = outside.appendingPathComponent("subdir", isDirectory: true)
+        try fm.createDirectory(at: workspace, withIntermediateDirectories: true)
+        try fm.createDirectory(at: outsideSubdir, withIntermediateDirectories: true)
+        try Data("payload".utf8).write(to: outside.appendingPathComponent("secret.md"))
+        try fm.createSymbolicLink(
+            at: workspace.appendingPathComponent("link"),
+            withDestinationURL: outsideSubdir
+        )
+        defer { try? fm.removeItem(at: base) }
+
+        let deceptivePath = workspace.path + "/link/../secret.md"
+        let canonical = try #require(InjectionInspectionPass.canonicalFilePath(deceptivePath))
+        #expect(canonical == outside.appendingPathComponent("secret.md").path)
+        #expect(InjectionInspectionPass.provenance(
+            ofToolName: "Read",
+            input: ["file_path": deceptivePath],
+            workspaceRoots: [workspace.path]
+        ) == .untrusted)
+    }
+
+    @Test("Strict mode attributes an authored-file refusal honestly")
+    func strictAuthoredRefusal() {
+        let out = InjectionInspectionPass.inspect(
+            body: bodyWithWorkspace(
+                cwd: "/Users/x/proj",
+                readPath: "/Users/x/proj/CLAUDE.md",
+                result: "please QURTLE the widget"
+            ),
+            filter: triggerFilter(),
+            strict: true,
+            trustAuthoredReads: true
+        )
+        #expect(out.decision == .block)
+        #expect(out.blockedFinding?.origin == .authored)
+        let refusal = InjectionInspectionPass.refusalJSON(for: out)
+        #expect(refusal.contains("classified as an attributed local read"))
+        #expect(!refusal.contains("not something you typed"))
     }
 }

@@ -46,8 +46,9 @@ final class StorageManager: @unchecked Sendable {
         retentionTask = Task.detached(priority: .background) { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 24 * 3600 * 1_000_000_000)
-                guard !Task.isCancelled, let self else { return }
-                try? self.cleanup()
+                guard !Task.isCancelled else { return }
+                guard self != nil else { return }
+                try? self?.cleanup()
             }
         }
     }
@@ -68,7 +69,9 @@ final class StorageManager: @unchecked Sendable {
                 // failures were swallowed) no install ever had a scan_logs
                 // table until this was fixed.
                 t.column("timestamp", .text).notNull().defaults(sql: "(datetime('now'))")
-                t.column("source", .text).notNull()           // 'api-proxy' | 'mcp-proxy'
+                // Free-form request-path label. Current live rows use
+                // `gateway`; older releases may retain legacy proxy labels.
+                t.column("source", .text).notNull()
                 t.column("targetHost", .text)
                 t.column("detected", .integer).notNull()       // 0 or 1
                 t.column("matchCount", .integer).notNull().defaults(to: 0)
@@ -288,7 +291,8 @@ final class StorageManager: @unchecked Sendable {
         mlScore: Float?,
         entropyAnomaly: Double,
         fusedScore: Double,
-        mlAvailable: Bool
+        mlAvailable: Bool,
+        countAsScanned: Bool = true
     ) {
         do {
             try dbPool.write { db in
@@ -322,20 +326,25 @@ final class StorageManager: @unchecked Sendable {
                 //     Previously this added `matchCount`, so a flagged-but-
                 //     forwarded request with pattern hits inflated the
                 //     "blocked" figure — a request that was never blocked.
-                //   - an ML/entropy-only block (detected, matchCount 0):
-                //     +1, so it isn't undercounted to zero.
-                //   - a regex block: +matchCount.
-                let blockedIncrement = detected ? max(1, matchCount) : 0
+                //   - any detector block (ML-only or one/many regex hits):
+                //     +1. `matchCount` remains on the scan row as evidence,
+                //     but overlapping signals must not inflate a request
+                //     counter.
+                let blockedIncrement = detected ? 1 : 0
+                let scannedIncrement = countAsScanned ? 1 : 0
                 let today = Self.todayString()
                 try db.execute(
                     sql: """
                         INSERT INTO daily_stats (date, requestsScanned, injectionsBlocked)
-                        VALUES (?, 1, ?)
+                        VALUES (?, ?, ?)
                         ON CONFLICT(date) DO UPDATE SET
-                            requestsScanned = requestsScanned + 1,
+                            requestsScanned = requestsScanned + ?,
                             injectionsBlocked = injectionsBlocked + ?
                         """,
-                    arguments: [today, blockedIncrement, blockedIncrement]
+                    arguments: [
+                        today, scannedIncrement, blockedIncrement,
+                        scannedIncrement, blockedIncrement,
+                    ]
                 )
             }
         } catch {

@@ -24,7 +24,7 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   verify:
@@ -42,28 +42,43 @@ jobs:
       - name: Install workspace deps
         run: pnpm install --frozen-lockfile
 
+      - name: Verify tag and product versions agree
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          SITE_VERSION=$(sed -nE 's/^export const APP_VERSION = "([0-9]+\.[0-9]+\.[0-9]+)";$/\1/p' apps/site/src/lib/constants.ts)
+          PROJECT_VERSION=$(sed -nE 's/^        MARKETING_VERSION: "([0-9]+\.[0-9]+\.[0-9]+)"$/\1/p' apps/desktop/project.yml)
+          DESKTOP_VERSION=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' apps/desktop/Sources/Bouclier/Resources/Info.plist)
+          APPCAST_VERSION=$(sed -nE 's/^[[:space:]]*<sparkle:version>([^<]+)<\/sparkle:version>$/\1/p' apps/site/public/appcast.xml | head -n 1)
+          APPCAST_SHORT_VERSION=$(sed -nE 's/^[[:space:]]*<sparkle:shortVersionString>([^<]+)<\/sparkle:shortVersionString>$/\1/p' apps/site/public/appcast.xml | head -n 1)
+          test "$VERSION" = "$SITE_VERSION"
+          test "$VERSION" = "$PROJECT_VERSION"
+          test "$VERSION" = "$DESKTOP_VERSION"
+          test "$VERSION" = "$APPCAST_VERSION"
+          test "$VERSION" = "$APPCAST_SHORT_VERSION"
+          grep -Fq "## [$VERSION]" CHANGELOG.md
+
       - name: Build shared patterns package
         run: pnpm --filter @bouclier-ai/patterns build
 
       - name: Sync patterns into desktop bundle
         run: apps/desktop/scripts/sync-patterns.sh
 
-      - name: Build Swift package (release)
-        working-directory: apps/desktop
-        run: swift build -c release
+      - name: Build and archive unsigned app bundle
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}" apps/desktop/scripts/build-app.sh --release
+          ditto -c -k --keepParent \
+            apps/desktop/build/Bouclier-ai.app \
+            "apps/desktop/build/Bouclier-ai-${GITHUB_REF_NAME}-unsigned.zip"
 
       - name: Run Swift tests
         working-directory: apps/desktop
         run: swift test
 
-      - name: Upload unsigned binaries
+      - name: Upload unsigned packaged app
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: bouclier-${{ github.ref_name }}-unsigned
-          path: |
-            apps/desktop/.build/release/Bouclier
-            apps/desktop/.build/release/bouclier-ai-mcp-wrapper
-            apps/desktop/.build/release/bouclier-ai-env
+          path: apps/desktop/build/Bouclier-ai-${{ github.ref_name }}-unsigned.zip
           retention-days: 14
           if-no-files-found: error
 
@@ -72,6 +87,8 @@ jobs:
     runs-on: ubuntu-latest
     needs: verify
     timeout-minutes: 5
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
