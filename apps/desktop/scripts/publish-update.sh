@@ -1,6 +1,14 @@
 #!/bin/bash
 set -euo pipefail
 
+# This utility only needs the Sparkle signing key in Keychain. Prevent unrelated
+# caller credentials from reaching codesign, Xcode tools, sign_update, or XML
+# validation when it is invoked directly rather than through release.sh.
+unset BLOB_READ_WRITE_TOKEN
+unset HF_TOKEN
+unset HUGGING_FACE_HUB_TOKEN
+unset APP_PASSWORD
+
 # Publishes a Sparkle update for Bouclier.ai.
 #
 # Prerequisites:
@@ -102,18 +110,45 @@ if [ -n "$BUILT_VERSION" ]; then
   echo "  Latest build on disk: $BUILT_VERSION"
 fi
 prompt_with_default VERSION "Version" "${BUILT_VERSION:-0.0.0}"
+if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+  echo "ERROR: version must be a numeric semantic version (for example 0.9.11)." >&2
+  exit 1
+fi
 prompt_with_default DOWNLOAD_BASE_URL "Vercel Blob public URL" \
   "https://0tdi95zyjwsefpzx.public.blob.vercel-storage.com/download"
+DOWNLOAD_BASE_URL="${DOWNLOAD_BASE_URL%/}"
+if ! valid_download_base_url "$DOWNLOAD_BASE_URL"; then
+  echo "ERROR: Vercel Blob public URL must be a safe HTTPS base URL." >&2
+  exit 1
+fi
 
 DMG="$PROJECT_DIR/build/Bouclier-ai-v${VERSION}-macOS.dmg"
 SIGN_UPDATE="$PROJECT_DIR/.build/artifacts/sparkle/Sparkle/bin/sign_update"
 APPCAST_OUT="$SITE_DIR/public/appcast.xml"
 
-if [ ! -f "$DMG" ]; then
+for required_command in codesign xcrun spctl stat openssl xmllint; do
+  if ! command -v "$required_command" >/dev/null 2>&1; then
+    echo "ERROR: required appcast command is unavailable: $required_command" >&2
+    exit 1
+  fi
+done
+if ! xcrun --find stapler >/dev/null 2>&1; then
+  echo "ERROR: required Xcode release tool is unavailable: stapler" >&2
+  exit 1
+fi
+
+if [ ! -f "$DMG" ] || [ -L "$DMG" ]; then
   echo "ERROR: DMG not found at $DMG"
   echo "Run: VERSION=$VERSION ./scripts/build-app.sh --release --sign"
   exit 1
 fi
+
+# A standalone appcast invocation must not bless an unsigned or merely
+# app-notarized container. release.sh already performed these checks, but
+# repeating them is cheap and keeps this public utility safe on its own.
+codesign --verify --strict --verbose=2 "$DMG"
+xcrun stapler validate -v "$DMG"
+spctl --assess --type open --context context:primary-signature -vv "$DMG"
 
 if [ ! -x "$SIGN_UPDATE" ]; then
   echo "ERROR: sign_update not found. Run 'swift build' first to fetch Sparkle artifacts."
@@ -145,10 +180,44 @@ echo "$SIGNATURE"
 # (BSD grep on macOS — no -P flag)
 ED_SIG=$(echo "$SIGNATURE" | sed -n 's/.*sparkle:edSignature="\([^"]*\)".*/\1/p')
 LENGTH=$(echo "$SIGNATURE" | sed -n 's/.*length="\([^"]*\)".*/\1/p')
-DMG_SIZE=$(stat -f%z "$DMG" 2>/dev/null || stat --format=%s "$DMG")
+DMG_SIZE=$(portable_file_size "$DMG")
 
-# Use LENGTH from sign_update if available, fall back to file size
-LENGTH="${LENGTH:-$DMG_SIZE}"
+APPCAST_TMP=""
+SIGNATURE_BYTES=""
+cleanup_publish_update() {
+  if [ -n "$APPCAST_TMP" ]; then
+    rm -f "$APPCAST_TMP"
+  fi
+  if [ -n "$SIGNATURE_BYTES" ]; then
+    rm -f "$SIGNATURE_BYTES"
+  fi
+}
+trap cleanup_publish_update EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+# Sparkle uses a 64-byte Ed25519 signature encoded as canonical base64. Treat
+# parser drift or partial sign_update output as a hard release failure rather
+# than publishing an enclosure that every installed client will reject.
+SIGNATURE_BYTES=$(mktemp /tmp/bouclier-sparkle-signature.XXXXXX)
+if ! [[ "$ED_SIG" =~ ^[A-Za-z0-9+/]{86}==$ ]] \
+  || ! printf '%s' "$ED_SIG" | openssl base64 -d -A > "$SIGNATURE_BYTES"; then
+  echo "ERROR: sign_update did not return a canonical Ed25519 signature." >&2
+  exit 1
+fi
+DECODED_SIGNATURE_SIZE=$(portable_file_size "$SIGNATURE_BYTES")
+CANONICAL_SIGNATURE=$(openssl base64 -A -in "$SIGNATURE_BYTES")
+if [ "$DECODED_SIGNATURE_SIZE" != "64" ] || [ "$CANONICAL_SIGNATURE" != "$ED_SIG" ]; then
+  echo "ERROR: Sparkle signature is not canonical base64 for exactly 64 bytes." >&2
+  exit 1
+fi
+rm -f "$SIGNATURE_BYTES"
+SIGNATURE_BYTES=""
+
+if ! [[ "$LENGTH" =~ ^[1-9][0-9]*$ ]] || [ "$LENGTH" != "$DMG_SIZE" ]; then
+  echo "ERROR: sign_update length '${LENGTH:-missing}' does not match the ${DMG_SIZE}-byte DMG." >&2
+  exit 1
+fi
 
 DATE=$(date -R 2>/dev/null || date -u +"%a, %d %b %Y %H:%M:%S %z")
 
@@ -157,7 +226,8 @@ DMG_URL="${DOWNLOAD_BASE_URL}/Bouclier-ai-v${VERSION}-macOS.dmg"
 echo ""
 echo "Generating appcast.xml..."
 
-cat > "$APPCAST_OUT" << EOF
+APPCAST_TMP=$(mktemp "${APPCAST_OUT}.tmp.XXXXXX")
+cat > "$APPCAST_TMP" << EOF
 <?xml version="1.0" encoding="utf-8"?>
 <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" xmlns:dc="http://purl.org/dc/elements/1.1/">
   <channel>
@@ -186,13 +256,17 @@ ${CHANGELOG_HTML}
 </rss>
 EOF
 
+chmod 644 "$APPCAST_TMP"
+if ! xmllint --noout "$APPCAST_TMP"; then
+  echo "ERROR: generated appcast is not well-formed XML; existing appcast was preserved." >&2
+  exit 1
+fi
+mv "$APPCAST_TMP" "$APPCAST_OUT"
+APPCAST_TMP=""
+
 echo "Wrote: $APPCAST_OUT"
 echo ""
-echo "Next steps:"
-echo "  1. Upload the DMG:  vercel blob put build/Bouclier-ai-v${VERSION}-macOS.dmg \\"
-echo "                       --pathname download/Bouclier-ai-v${VERSION}-macOS.dmg --access public --allow-overwrite"
-echo "     (requires BLOB_READ_WRITE_TOKEN env var or folder linked to a Blob project)"
-echo "     NOTE: the 'download/' pathname prefix must match DOWNLOAD_BASE_URL, or the"
-echo "     site/appcast point at /download/... while the DMG lands at /... and 404s."
-echo "  2. Deploy the site: merge to main (Vercel git integration deploys bouclier.ai)."
-echo "  3. Existing users will get the update automatically via Sparkle."
+if [ "${RELEASE_PIPELINE:-}" != "1" ]; then
+  echo "Standalone appcast generation does not complete a release."
+  echo "Use ./scripts/release.sh for the coordinated metadata, upload, and verification transaction."
+fi

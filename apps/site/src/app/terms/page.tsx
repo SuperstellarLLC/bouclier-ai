@@ -2,10 +2,10 @@ import type { Metadata } from "next";
 import Image from "next/image";
 import Link from "next/link";
 
-import { APP_URL, STATUS_MCP_AVAILABLE } from "@/lib/constants";
+import { APP_URL } from "@/lib/constants";
 
 const DESCRIPTION =
-  "Terms for evaluating the Bouclier.ai research prototype, including its intended use, limitations, and open-source licensing.";
+  "Terms for Bouclier.ai, including its experimental limitations and open-source licensing boundary.";
 
 export const metadata: Metadata = {
   title: "Terms of Use",
@@ -50,63 +50,63 @@ export default function TermsPage() {
 
       <article className="mx-auto max-w-3xl px-6 py-16">
         <h1 className="text-3xl font-bold tracking-tight">Terms of Use</h1>
-        <p className="text-text-secondary mt-2 text-sm">Last updated: 28 August 2026</p>
+        <p className="text-text-secondary mt-2 text-sm">Last updated: 29 August 2026</p>
 
         {/* Loud prototype banner — anyone evaluating the software must see this first. */}
         <div className="mt-10 rounded-xl border-2 border-amber-300 bg-amber-50 p-6">
           <p className="font-semibold text-amber-900">
-            Bouclier.ai is a research prototype. It is not a commercial product.
+            Bouclier.ai is experimental, pre-1.0 software.
           </p>
           <p className="mt-2 text-sm text-amber-900">
-            The Software is published for evaluation, security research, academic study, and
-            personal experimentation only. It is <strong>not</strong> a commercial product, is{" "}
-            <strong>not</strong> sold, licensed for a fee, or offered for production use, and is{" "}
-            <strong>not</strong> intended for regulated workloads, safety-critical systems,
-            healthcare, financial services, payment processing, identity verification, fraud
-            prevention, or any environment in which a detection failure could cause harm, financial
-            loss, regulatory non-compliance, or other material damage. Detection is best-effort;
-            false negatives and false positives will occur. You may not deploy the Software as a
-            security control on which any other person or system relies. Use at your own risk and at
-            your own cost.
+            Detection is best-effort and has not been independently validated or certified for
+            regulated or safety-critical workloads. False negatives and false positives will occur.
+            Evaluate the Software against your own threat model, use additional safeguards, and do
+            not rely on it as the sole control where failure could cause harm, financial loss, or
+            regulatory non-compliance. The source code is offered under open-source licences; those
+            licences, not these Terms, govern your rights to use, copy, modify, and distribute the
+            licensed code.
           </p>
         </div>
 
         <Section title="1. Acceptance">
           <p>
-            By downloading, installing, or running Bouclier.ai (the &quot;Software&quot;), or by
-            accessing the website at bouclier.ai (the &quot;Site&quot;), you agree to these Terms of
-            Use. If you do not agree, do not install or use the Software, and do not access the
-            Site. These terms apply to all components of the Software including the macOS
-            application, the local proxy, the read-only CLI
-            {STATUS_MCP_AVAILABLE ? ", the bundled read-only MCP status server" : ""}, the regex
-            pattern library, the on-device classifiers, the Site, and any related artifacts,
-            documentation, or sample data.
+            These Terms are between you and Superstellar GmbH (English: Superstellar LLC;
+            &quot;Superstellar&quot;, &quot;we&quot;, or &quot;us&quot;). By accessing the website
+            at bouclier.ai (the &quot;Site&quot;) or using distribution, update, reporting, or other
+            services that we provide for Bouclier.ai (the &quot;Software&quot;), you agree to these
+            Terms of Use. These Terms also state important limitations and disclaimers for Software
+            distributed through the Site. Your rights in the Software&apos;s source code and its
+            open-source components are governed by the applicable licences. If these Terms conflict
+            with an applicable open-source licence, that licence controls for the licensed material.
+            Use of code under such a licence is not conditioned on accepting these Terms. If you do
+            not agree to these Terms, do not use the Site or our related services.
           </p>
         </Section>
 
-        <Section title="2. Research prototype — not a commercial product">
+        <Section title="2. Experimental software and source licensing">
           <p>
-            The Software is a research prototype published as the output of independent security and
-            machine-learning research. It is not a commercial product. We do not sell or licence the
-            Software for a fee, make no representations regarding its fitness for any operational
-            purpose, and offer no service-level agreement, paid support tier, professional services,
-            uptime commitment, or commercial obligation of any kind.
+            The Software is an experimental security and machine-learning project whose source code
+            is open source under Apache 2.0. Signed release builds also include the Meta Prompt
+            Guard 2 model under the separate Llama 4 Community License. The Software is pre-1.0 and
+            comes without a service-level agreement, paid support tier, professional services,
+            uptime commitment, certification, or assurance of fitness for any operational purpose.
           </p>
           <p className="mt-3">
-            The Software is published under the Apache License, Version 2.0; you are welcome to
-            read, audit, modify, fork, and rebuild the source. The project&apos;s intent is research
-            output — independent security testing, academic engagement, and contributor feedback are
-            welcome. Deployment of the Software in any environment where its failure would cause
-            loss, harm, regulatory consequence, or third-party reliance is expressly outside the
-            project&apos;s intended use and is undertaken solely at the deploying party&apos;s risk.
+            Bouclier&apos;s source code is published under the Apache License, Version 2.0, except
+            where a file or bundled component identifies another licence. The applicable licence
+            governs your rights to use, reproduce, modify, and distribute that material. These Terms
+            do not add a field-of-use restriction to open-source code. Operational use is not an
+            endorsement or warranty: you remain responsible for evaluating the Software, testing it
+            in your environment, and choosing safeguards appropriate to the consequences of failure.
+            Security testing, academic engagement, and contributor feedback are welcome.
           </p>
           <p className="mt-3">
             Pre-1.0 version numbering reflects this status. APIs, detection behaviour, file formats,
             default settings, the detection pattern set, the refusal thresholds, and the scope of
             inspected traffic may change without notice between releases. Features described in
             marketing materials, documentation, the README, the changelog, or in-app text may be
-            removed, altered, or replaced at any time. You must not rely on any specific behaviour
-            persisting across releases.
+            removed, altered, or replaced at any time. Do not assume that a specific behaviour will
+            persist across releases without testing the version you deploy.
           </p>
         </Section>
 
@@ -198,10 +198,10 @@ export default function TermsPage() {
             </li>
             <li>
               You are solely responsible for evaluating whether the Software is appropriate for your
-              environment, your data, and your obligations. You must not deploy the Software in any
-              environment in which a detection failure — a missed injection, or a false positive
-              that refuses legitimate work — could cause harm to you, to your employer, to your
-              customers, or to any third party.
+              environment, your data, and your obligations. Where a missed injection or a false
+              positive could cause harm to you, your employer, your customers, or another party,
+              treat Bouclier as defence in depth, perform your own risk review, and use additional
+              controls rather than relying on it as the sole safeguard.
             </li>
             <li>
               You are solely responsible for the configuration of every Software setting, including
@@ -220,7 +220,7 @@ export default function TermsPage() {
 
         <Section title="7. Limitation of liability">
           <p className="font-semibold">
-            TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, IN NO EVENT SHALL BOUCLIER.AI, ITS
+            TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, IN NO EVENT SHALL SUPERSTELLAR, ITS
             CONTRIBUTORS, AGENTS, AFFILIATES, OR LICENSORS BE LIABLE FOR ANY INDIRECT, INCIDENTAL,
             SPECIAL, CONSEQUENTIAL, OR PUNITIVE DAMAGES, OR ANY LOSS OF PROFITS, REVENUE, DATA,
             GOODWILL, USE, OR OTHER INTANGIBLE LOSSES, ARISING OUT OF OR RELATING TO YOUR USE OF OR
@@ -231,7 +231,7 @@ export default function TermsPage() {
           <p className="mt-3 font-semibold">
             OUR TOTAL CUMULATIVE LIABILITY ARISING OUT OF OR RELATING TO THE SOFTWARE, REGARDLESS OF
             THE FORM OF ACTION, SHALL NOT EXCEED FIFTY EUROS (€50) OR THE AMOUNT YOU HAVE PAID TO
-            BOUCLIER.AI FOR THE SOFTWARE IN THE TWELVE (12) MONTHS PRECEDING THE EVENT GIVING RISE
+            SUPERSTELLAR FOR THE SOFTWARE IN THE TWELVE (12) MONTHS PRECEDING THE EVENT GIVING RISE
             TO THE LIABILITY, WHICHEVER IS LOWER.
           </p>
           <p className="mt-3 text-sm">
@@ -243,13 +243,11 @@ export default function TermsPage() {
 
         <Section title="8. Indemnification">
           <p>
-            You agree to indemnify, defend, and hold harmless Bouclier.ai, its contributors, agents,
-            affiliates, and licensors from and against any and all claims, damages, obligations,
-            losses, liabilities, costs, debts, and expenses (including but not limited to legal
-            fees) arising from your use of, or inability to use, the Software; your violation of
-            these Terms; your violation of any third-party right, including without limitation any
-            copyright, property, privacy, or data-protection right; or your violation of any law,
-            rule, or regulation.
+            To the extent permitted by applicable law, you agree to indemnify, defend, and hold
+            harmless Superstellar, its contributors, agents, affiliates, and licensors from claims
+            arising from content you submit through the Site or our reporting services, your
+            violation of these Terms, your violation of a third-party right, or your violation of
+            applicable law. This section does not alter rights granted by an open-source licence.
           </p>
         </Section>
 
@@ -263,7 +261,7 @@ export default function TermsPage() {
             review the payload. Site requests, update checks, optional reports, and all other
             outbound connections are described in the{" "}
             <Link href="/privacy" className="text-bouclier hover:underline">
-              Privacy Policy
+              Privacy Notice
             </Link>
             . We cannot recover or restore content kept only on your device, undo provider actions,
             or intervene in interactions between your computer and those providers.
@@ -287,23 +285,24 @@ export default function TermsPage() {
         <Section title="11. Third-party and open-source components">
           <p>
             The Software incorporates third-party and open-source components, including (without
-            limitation) the Built with Llama: the Meta Llama Prompt Guard 2 integration (governed by
-            the Llama 4 Community License; the release build bundles the model and runs inference
-            locally through CoreML), Microsoft Presidio recognition patterns derived from public
-            references, and the Swift, NIO, GRDB, and CryptoKit ecosystems. If the model cannot
-            load, detection continues with the local pattern tier. The corresponding notices are
-            bundled with the Software and reproduced in the project&apos;s LICENSE and NOTICE files.
-            These components remain governed by their respective licences.
+            limitation) the Meta Llama Prompt Guard 2 integration (&quot;Built with Llama&quot;; the
+            signed release build bundles the model under the Llama 4 Community License and runs
+            inference locally through CoreML), Sparkle, GRDB, SwiftNIO, and swift-transformers. If
+            the model cannot load, detection continues with the local pattern tier. Corresponding
+            licence and notice texts are bundled with signed releases and indexed in the repository
+            at <code>LICENSES/THIRD-PARTY-NOTICES.txt</code>. Each component remains governed by its
+            respective licence.
           </p>
         </Section>
 
         <Section title="12. Updates and changes">
           <p>
             We may release updates to the Software through Sparkle or other mechanisms. Updates may
-            add, remove, or change behaviour. Continued use of the Software after an update
-            constitutes acceptance of the updated Software and these Terms. We may modify these
-            Terms at any time by publishing a revised version on the website; the &quot;Last
-            updated&quot; date above identifies the current version.
+            add, remove, or change behaviour. We may modify these Terms at any time by publishing a
+            revised version on the website; the &quot;Last updated&quot; date above identifies the
+            current version. Continued use of the Site or our related services after that
+            publication constitutes acceptance of the revised Terms. Your continued use of
+            open-source code remains governed by its applicable licence.
           </p>
         </Section>
 
@@ -325,10 +324,10 @@ export default function TermsPage() {
           </p>
           <p className="mt-3 font-semibold">
             Any dispute, controversy, or claim arising out of, related to, or in connection with
-            these Terms, the Software, the Site, or any matter governed by these Terms — including
-            disputes regarding their existence, validity, breach, termination, or non-contractual
-            obligations connected to them — shall be subject to the exclusive jurisdiction of the
-            ordinary courts of the Canton of Zug, Switzerland.
+            these Terms, the Site, our related services, or any matter governed by these Terms —
+            including disputes regarding their existence, validity, breach, termination, or
+            non-contractual obligations connected to them — shall be subject to the exclusive
+            jurisdiction of the ordinary courts of the Canton of Zug, Switzerland.
           </p>
           <p className="mt-3 text-sm">
             To the extent that mandatorily-applicable consumer-protection law of your habitual
@@ -336,7 +335,7 @@ export default function TermsPage() {
             jurisdiction, that right is preserved. Nothing in this clause prevents us from seeking
             injunctive, declaratory, or other equitable relief before any court of competent
             jurisdiction in respect of a threatened or actual infringement of intellectual property
-            rights, breach of confidentiality, or unauthorised use of the Software.
+            rights, breach of confidentiality, or misuse of the Site or our services.
           </p>
         </Section>
 
@@ -345,23 +344,32 @@ export default function TermsPage() {
             If any provision of these Terms is found unenforceable, the remaining provisions shall
             continue in full force, and the unenforceable provision shall be construed to give
             effect to its intent to the fullest extent permitted by law. These Terms, together with
-            the Privacy Policy and any licences accompanying open-source components, constitute the
-            entire agreement between you and us with respect to the Software, and supersede any
-            prior or contemporaneous communications.
+            the Privacy Notice, constitute the entire agreement between you and us regarding the
+            Site and related services, and supersede prior or contemporaneous communications on that
+            subject. Open-source licences separately govern the code and components to which they
+            apply.
           </p>
         </Section>
 
         <Section title="16. Contact">
           <p>
-            Contact:{" "}
+            Superstellar GmbH (English: Superstellar LLC)
+            <br />
+            Baarerstrasse 52
+            <br />
+            6300 Zug, Switzerland
+            <br />
+            UID CHE-433.879.620
+            <br />
+            Email:{" "}
             <a href="mailto:apps@superstellar.io" className="text-bouclier hover:underline">
               apps@superstellar.io
             </a>
           </p>
           <p className="mt-3 text-sm">
-            If anything in these Terms is unclear, contact us before you install or use the
-            Software. We will not interpret your continued use as acceptance of any clause you have
-            raised in good faith for clarification.
+            If anything in these Terms is unclear, contact us before using the Site or related
+            services. Using open-source code within the rights granted by its applicable licence
+            does not by itself constitute acceptance of separate Site terms.
           </p>
         </Section>
       </article>

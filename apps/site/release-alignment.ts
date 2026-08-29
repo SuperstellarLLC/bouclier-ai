@@ -4,6 +4,8 @@
  * production deployment must not replace the honest 0.9.10 site until the
  * matching signed desktop release is represented by the committed appcast.
  */
+import { normalizeSafeHttpsBaseUrl } from "./src/lib/safe-base-url";
+
 export const SITE_COPY_MIN_DESKTOP_VERSION = "0.9.11";
 
 export const SELF_HOSTED_DEPLOYMENT_ENV_VAR = "BOUCLIER_DEPLOYMENT_ENV";
@@ -13,6 +15,7 @@ export interface ProductionReleaseAlignmentInput {
   selfHostedEnvironment: string | undefined;
   desktopVersion: string;
   appcastXml: string | undefined;
+  downloadRedirectBase: string | undefined;
 }
 
 function parseVersion(value: string): readonly [number, number, number] | undefined {
@@ -72,7 +75,11 @@ function refuse(reason: string): never {
   throw new Error(`Refusing production site deploy: ${reason}`);
 }
 
-function assertMatchingAppcast(desktopVersion: string, appcastXml: string | undefined): void {
+function assertMatchingAppcast(
+  desktopVersion: string,
+  appcastXml: string | undefined,
+  downloadRedirectBase: string,
+): void {
   if (!appcastXml?.trim()) {
     refuse("the committed public/appcast.xml is missing or empty.");
   }
@@ -135,6 +142,11 @@ function assertMatchingAppcast(desktopVersion: string, appcastXml: string | unde
       `the first appcast enclosure must be an HTTPS URL for the exact ${expectedFilename} artifact, without credentials, query, or fragment.`,
     );
   }
+
+  const enclosureBase = normalizeSafeHttpsBaseUrl(new URL(".", parsedUrl).href);
+  if (enclosureBase !== downloadRedirectBase) {
+    refuse("the first appcast enclosure directory must exactly match DOWNLOAD_REDIRECT_BASE.");
+  }
 }
 
 export function assertProductionReleaseAlignment({
@@ -142,6 +154,7 @@ export function assertProductionReleaseAlignment({
   selfHostedEnvironment,
   desktopVersion,
   appcastXml,
+  downloadRedirectBase,
 }: ProductionReleaseAlignmentInput): void {
   if (!isProductionDeployment(vercelEnvironment, selfHostedEnvironment)) return;
 
@@ -151,5 +164,15 @@ export function assertProductionReleaseAlignment({
     );
   }
 
-  assertMatchingAppcast(desktopVersion, appcastXml);
+  if (!downloadRedirectBase) {
+    refuse("DOWNLOAD_REDIRECT_BASE is required for a production deployment.");
+  }
+  const normalizedDownloadRedirectBase = normalizeSafeHttpsBaseUrl(downloadRedirectBase);
+  if (!normalizedDownloadRedirectBase) {
+    refuse(
+      "DOWNLOAD_REDIRECT_BASE must be a safe HTTPS base URL without credentials, query, or fragment.",
+    );
+  }
+
+  assertMatchingAppcast(desktopVersion, appcastXml, normalizedDownloadRedirectBase);
 }

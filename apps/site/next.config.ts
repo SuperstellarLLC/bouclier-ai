@@ -18,6 +18,7 @@ assertProductionReleaseAlignment({
   vercelEnvironment,
   selfHostedEnvironment,
   desktopVersion: APP_VERSION,
+  downloadRedirectBase: process.env.DOWNLOAD_REDIRECT_BASE,
   // Local and Vercel preview builds intentionally remain usable while a
   // release is being prepared. Production builds alone consume and validate
   // the appcast committed beside this config.

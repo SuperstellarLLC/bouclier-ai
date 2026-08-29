@@ -27,8 +27,8 @@ discussions, or any other channel — you agree to follow it.
 ## Reporting
 
 If you witness or experience behaviour that violates this policy,
-report it privately to **conduct@bouclier.ai**. Reports are read by
-the project maintainers only. We will acknowledge receipt within two
+report it privately to **apps@superstellar.io** with “Code of Conduct” in the
+subject. Reports are read by the project maintainers only. We will acknowledge receipt within two
 business days, investigate confidentially, and take action
 proportional to the impact and intent — ranging from a private
 warning to a permanent ban from the project.

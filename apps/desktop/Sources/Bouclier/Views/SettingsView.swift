@@ -694,16 +694,16 @@ struct AboutView: View {
 
             Divider().frame(width: 200)
 
-            // Defensive disclaimer mirroring the website Terms. Surfaced
-            // here so users in regulated environments can't miss it.
+            // Safety disclaimer mirroring the website Terms without narrowing
+            // the rights granted by the project's open-source licences.
             HStack(spacing: 6) {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .foregroundStyle(.orange)
                     .font(.caption)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Experimental software")
+                    Text("Experimental, pre-1.0 software")
                         .font(.caption.weight(.semibold))
-                    Text("Not intended for production or regulated workloads. Detection is best-effort.")
+                    Text("Detection is best-effort. Validate it for your risks and use defence in depth.")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                 }
@@ -725,8 +725,14 @@ struct AboutView: View {
                     }
                 }
                 .buttonStyle(.link)
-                if let noticeURL = Bundle.main.url(forResource: "NOTICE", withExtension: "txt") {
-                    Button("Third-party notices") { NSWorkspace.shared.open(noticeURL) }
+                if let noticeURL = Bundle.main.url(
+                    forResource: "THIRD-PARTY-NOTICES",
+                    withExtension: "txt",
+                    subdirectory: "LICENSES"
+                ) {
+                    Button("Licenses & notices") {
+                        NSWorkspace.shared.open(noticeURL.deletingLastPathComponent())
+                    }
                         .buttonStyle(.link)
                 }
             }

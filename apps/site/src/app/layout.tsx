@@ -4,7 +4,7 @@ import { APP_DESCRIPTION, APP_NAME, APP_URL } from "@/lib/constants";
 
 import "./globals.css";
 
-const DESCRIPTION = `${APP_DESCRIPTION} Experimental beta — not for production.`;
+const DESCRIPTION = `${APP_DESCRIPTION} Experimental, pre-1.0 software; use as defence in depth.`;
 
 export const metadata: Metadata = {
   title: {

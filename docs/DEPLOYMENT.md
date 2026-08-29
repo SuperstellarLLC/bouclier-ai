@@ -51,12 +51,17 @@ with `BOUCLIER_DEPLOYMENT_ENV=production`, stops unless the appcast's first item
 - has a canonical base64 Sparkle Ed25519 signature that decodes to exactly 64
   bytes, plus a positive artifact length; and
 - points over HTTPS to the exact `Bouclier-ai-vVERSION-macOS.dmg` filename,
-  without credentials, a query, or a fragment.
+  without credentials, a query, or a fragment; and
+- uses the exact normalized origin, port, and directory path configured in
+  `DOWNLOAD_REDIRECT_BASE`, so the site button and Sparkle cannot drift to
+  different artifacts.
 
 The production Dockerfile sets `BOUCLIER_DEPLOYMENT_ENV=production` during its
-build stage, so it cannot bypass this check. Ordinary local builds and Vercel
-preview deployments deliberately skip it, allowing release-candidate QA before
-the signed DMG and appcast are ready.
+build stage, so it cannot bypass this check. Pass the public download directory
+with `--build-arg DOWNLOAD_REDIRECT_BASE=...`; the supplied Compose file obtains
+the same value from `apps/site/.env.local` for both the build and runtime.
+Ordinary local builds and Vercel preview deployments deliberately skip the
+gate, allowing release-candidate QA before the signed DMG and appcast are ready.
 
 ## Self-hosting (Docker, no Vercel edge)
 

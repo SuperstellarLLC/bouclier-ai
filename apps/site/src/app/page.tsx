@@ -131,18 +131,15 @@ export default function Home() {
 
             <div className="mx-auto mt-5 max-w-2xl rounded-xl border-2 border-amber-300 bg-amber-50 p-4 text-left">
               <p className="text-sm font-semibold text-amber-900">
-                Beta — research prototype. Not meant to be used live.
+                Beta — experimental, pre-1.0 software.
               </p>
               <p className="mt-1 text-xs leading-relaxed text-amber-900">
-                Bouclier is published for evaluation, security research, and personal
-                experimentation. It is <strong>not a commercial product</strong>, is{" "}
-                <strong>not supported</strong>, and is{" "}
-                <strong>
-                  not meant for production, regulated workloads, or any environment where a failure
-                  could cause harm
-                </strong>
-                . Detection is best-effort and evadable by a determined attacker — it raises cost,
-                it is not a guarantee. See the{" "}
+                Bouclier&apos;s source code is Apache-2.0 open source; signed releases also include
+                Meta Prompt Guard 2 under its separate Llama 4 Community License. The project comes
+                without an SLA or commercial support and has not been independently validated or
+                certified for regulated or safety-critical workloads. Detection is best-effort and
+                evadable by a determined attacker: evaluate it against your own threat model and
+                never rely on it as the sole control where a failure could cause harm. See the{" "}
                 <Link href="/terms" className="underline">
                   Terms
                 </Link>{" "}
@@ -335,7 +332,7 @@ export default function Home() {
                 {benchmark.measuredRelease} would have refused{" "}
                 {benchmark.benignCorpus.blockedPercent}% with blocking enabled (
                 {benchmark.benignCorpus.notInjectBlockedPercent}% on NotInject alone). This is the
-                number that matters for staying out of your way, and it&apos;s the hard one to game.
+                false-refusal pressure test for this corpus, not a claim about all benign inputs.
               </p>
             </div>
             <div className="border-border min-w-0 rounded-2xl border bg-white p-6">
@@ -374,7 +371,7 @@ export default function Home() {
               Bouclier v{benchmark.measuredRelease} at the untrusted blocking threshold of{" "}
               {benchmark.pipeline.untrustedBlockThreshold}; this evidence stays pinned to that
               release. Newer versions are not represented until the harness is rerun and a new
-              provenance record is published.
+              provenance record is published. {benchmark.reproducibility.note}
             </p>
           </div>
 
@@ -383,7 +380,7 @@ export default function Home() {
               href={benchmark.sourceUrl}
               className="border-border text-text hover:border-bouclier/30 inline-flex items-center gap-2 rounded-xl border bg-white px-5 py-3 text-sm font-semibold shadow-sm transition-all hover:shadow-md"
             >
-              Reproduce the v{benchmark.measuredRelease} measurement — harness + corpora
+              Inspect the v{benchmark.measuredRelease} harness and corpus sources
               <span aria-hidden>→</span>
             </a>
           </div>
@@ -627,7 +624,7 @@ export default function Home() {
           <p className="text-text-secondary mt-4 text-xs">
             Built with Llama. Meta Prompt Guard 2 runs locally in the macOS app. <br />
             Experimental, pre-1.0 software. Detection is best-effort; false positives and false
-            negatives will occur. Not intended for production or regulated workloads — see{" "}
+            negatives will occur. It is not a substitute for controls matched to your risk — see{" "}
             <Link href="/terms" className="hover:text-text underline">
               Terms
             </Link>

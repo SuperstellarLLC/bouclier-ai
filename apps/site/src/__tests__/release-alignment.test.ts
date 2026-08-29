@@ -47,30 +47,38 @@ function assertAlignment({
   selfHostedEnvironment,
   desktopVersion = releaseVersion,
   appcastXml = appcast(),
+  downloadRedirectBase = "https://downloads.example/releases",
 }: {
   vercelEnvironment?: string;
   selfHostedEnvironment?: string;
   desktopVersion?: string;
   appcastXml?: string;
+  downloadRedirectBase?: string;
 } = {}): void {
   assertProductionReleaseAlignment({
     vercelEnvironment,
     selfHostedEnvironment,
     desktopVersion,
     appcastXml,
+    downloadRedirectBase,
   });
 }
 
 describe("production release alignment", () => {
   it("keeps local and Vercel preview builds available for release QA", () => {
     expect(() =>
-      assertAlignment({ desktopVersion: "0.9.10", appcastXml: undefined }),
+      assertAlignment({
+        desktopVersion: "0.9.10",
+        appcastXml: undefined,
+        downloadRedirectBase: undefined,
+      }),
     ).not.toThrow();
     expect(() =>
       assertAlignment({
         vercelEnvironment: "preview",
         desktopVersion: "0.9.10",
         appcastXml: undefined,
+        downloadRedirectBase: "http://user:secret@downloads.example/releases?token=secret",
       }),
     ).not.toThrow();
   });
@@ -87,11 +95,29 @@ describe("production release alignment", () => {
 
   it("activates the self-hosted gate before the Docker site build", () => {
     const dockerfile = readFileSync(resolve(process.cwd(), "Dockerfile"), "utf8");
+    const compose = readFileSync(resolve(process.cwd(), "docker-compose.yml"), "utf8");
+    const readme = readFileSync(resolve(process.cwd(), "README.md"), "utf8");
     const gate = "ENV BOUCLIER_DEPLOYMENT_ENV=production";
     const build = "RUN pnpm --filter site build";
+    const publicBaseArgument = "ARG DOWNLOAD_REDIRECT_BASE";
+    const publicBaseEnvironment = "ENV DOWNLOAD_REDIRECT_BASE=$DOWNLOAD_REDIRECT_BASE";
+    const productionDownloadBase =
+      "https://0tdi95zyjwsefpzx.public.blob.vercel-storage.com/download";
+    const requiredComposeValue =
+      "${DOWNLOAD_REDIRECT_BASE:?set DOWNLOAD_REDIRECT_BASE in apps/site/.env.local}";
 
     expect(dockerfile.indexOf(gate)).toBeGreaterThan(-1);
     expect(dockerfile.indexOf(gate)).toBeLessThan(dockerfile.indexOf(build));
+    expect(dockerfile.indexOf(publicBaseArgument)).toBeGreaterThan(-1);
+    expect(dockerfile.indexOf(publicBaseArgument)).toBeLessThan(dockerfile.indexOf(build));
+    expect(dockerfile.indexOf(publicBaseEnvironment)).toBeGreaterThan(-1);
+    expect(dockerfile.indexOf(publicBaseEnvironment)).toBeLessThan(dockerfile.indexOf(build));
+    expect(
+      compose.match(new RegExp(requiredComposeValue.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g")),
+    ).toHaveLength(2);
+    expect(dockerfile).toContain(`--build-arg DOWNLOAD_REDIRECT_BASE=${productionDownloadBase}`);
+    expect(readme).toContain(`--build-arg DOWNLOAD_REDIRECT_BASE=${productionDownloadBase}`);
+    expect(readme).toContain("--env-file apps/site/.env.local");
   });
 
   it("requires a desktop version new enough for the production copy", () => {
@@ -101,6 +127,49 @@ describe("production release alignment", () => {
     expect(versionAtLeast("0.9.11", "0.9.11")).toBe(true);
     expect(versionAtLeast("0.10.0", "0.9.11")).toBe(true);
     expect(versionAtLeast("0.9.11-preview", "0.9.11")).toBe(false);
+  });
+
+  it("requires one safe production download base and accepts a trailing slash", () => {
+    expect(() =>
+      assertProductionReleaseAlignment({
+        vercelEnvironment: "production",
+        selfHostedEnvironment: undefined,
+        desktopVersion: releaseVersion,
+        appcastXml: appcast(),
+        downloadRedirectBase: undefined,
+      }),
+    ).toThrow(/DOWNLOAD_REDIRECT_BASE is required/);
+
+    for (const downloadRedirectBase of [
+      "http://downloads.example/releases",
+      "https://user:secret@downloads.example/releases",
+      "https://downloads.example/releases?token=secret",
+      "https://downloads.example/releases#latest",
+      "not a URL",
+    ]) {
+      expect(() =>
+        assertAlignment({ vercelEnvironment: "production", downloadRedirectBase }),
+      ).toThrow(/must be a safe HTTPS base URL/);
+    }
+
+    expect(() =>
+      assertAlignment({
+        vercelEnvironment: "production",
+        downloadRedirectBase: "https://downloads.example/releases/",
+      }),
+    ).not.toThrow();
+  });
+
+  it.each([
+    ["a different host", "https://mirror.example/releases"],
+    ["a different port", "https://downloads.example:8443/releases"],
+    ["a parent path", "https://downloads.example"],
+    ["a sibling path", "https://downloads.example/download"],
+    ["a nested path", "https://downloads.example/releases/stable"],
+  ])("rejects an appcast enclosure whose base uses %s", (_label, downloadRedirectBase) => {
+    expect(() =>
+      assertAlignment({ vercelEnvironment: "production", downloadRedirectBase }),
+    ).toThrow(/enclosure directory must exactly match DOWNLOAD_REDIRECT_BASE/);
   });
 
   it("validates the first appcast item rather than a matching later item", () => {

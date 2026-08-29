@@ -59,7 +59,7 @@ if [ "$FORCE" = false ] && { \
   [ -e "$MLPACKAGE" ] || [ -L "$MLPACKAGE" ] \
     || [ -e "$TOKENIZER" ] || [ -L "$TOKENIZER" ]; \
 }; then
-  if "$BASEPY" "$ARTIFACT_VERIFIER"; then
+  if "$BASEPY" -I "$ARTIFACT_VERIFIER"; then
     size_mb=$(du -sm "$MLPACKAGE" | cut -f1)
     echo "  ✓ CoreML model already present and verified (${size_mb}MB)"
     echo "    Pass --force to rebuild from the pinned source revision"
@@ -76,45 +76,49 @@ echo "  (first run ~5 min + ~350MB download; subsequent runs are instant)"
 # ── Venv ────────────────────────────────────────
 PY="$VENV/bin/python3"
 
-# (Re)create the venv if it's missing, broken (no working pip — a stale
-# .venv-ml can lack pip entirely, which failed with "pip: command not
-# found"), or built outside the supported Python 3.11–3.12 range.
-needs_venv=false
-if [ ! -x "$PY" ] || ! "$PY" -m pip --version >/dev/null 2>&1; then
-  needs_venv=true
-elif [ "$("$PY" -c 'import sys; print(1 if (3,11) <= sys.version_info[:2] <= (3,12) else 0)' 2>/dev/null || echo 0)" != "1" ]; then
-  echo "  Existing .venv-ml is not Python 3.11–3.12 — rebuilding."
-  needs_venv=true
-fi
-
-if [ "$needs_venv" = true ]; then
-  echo "  Creating Python venv at .venv-ml/ ($("$BASEPY" --version 2>&1))..."
+# A conversion is rare and security-sensitive. Never reuse the ignored venv:
+# an otherwise valid existing environment can contain unlisted packages,
+# sitecustomize.py, or executable .pth files that run before pip gets a chance
+# to verify the lock. A reviewed artifact already exited above, so rebuilding
+# this environment costs nothing on the normal release path.
+if [ -e "$VENV" ] || [ -L "$VENV" ]; then
+  echo "  Removing the previous untrusted conversion environment."
   rm -rf "$VENV"
-  "$BASEPY" -m venv "$VENV"
-  # Some base pythons produce a venv without pip; ensurepip backfills it.
-  "$PY" -m ensurepip --upgrade >/dev/null 2>&1 || true
 fi
+echo "  Creating a fresh isolated Python venv at .venv-ml/ ($("$BASEPY" --version 2>&1))..."
+"$BASEPY" -I -m venv "$VENV"
+# Some base pythons produce a venv without pip; ensurepip backfills it.
+"$PY" -I -m ensurepip --upgrade >/dev/null 2>&1 || true
 
-if ! "$PY" -m pip --version >/dev/null 2>&1; then
+if ! "$PY" -I -m pip --isolated --version >/dev/null 2>&1; then
   echo "ERROR: could not get a working pip inside $VENV." >&2
   echo "       Your base python ($BASEPY) may lack ensurepip. Try: $BASEPY -m ensurepip" >&2
   exit 1
 fi
 
 # ── Deps ────────────────────────────────────────
-# The full conversion environment is exact-pinned. The final artifact verifier
-# is the second line of defence: a compromised or incompatible package cannot
-# silently produce different bytes for a release.
-echo "  Installing exact PromptGuard conversion dependencies..."
-"$PY" -m pip install --quiet --no-deps --requirement "$REQUIREMENTS_LOCK"
-"$PY" -m pip check
+# The complete conversion closure is exact-pinned and hash-locked to the
+# reviewed Apple-silicon wheels for both supported Python versions. Refuse
+# source distributions, unlisted artifacts, implicit dependencies, and a
+# previously installed unverified environment. The final artifact verifier is
+# the second line of defence: even reviewed dependencies cannot silently
+# produce different release bytes.
+echo "  Installing hash-verified PromptGuard conversion dependencies..."
+"$PY" -I -m pip --isolated install \
+  --quiet \
+  --force-reinstall \
+  --no-deps \
+  --only-binary=:all: \
+  --require-hashes \
+  --requirement "$REQUIREMENTS_LOCK"
+"$PY" -I -m pip --isolated check
 
 # ── HuggingFace auth ────────────────────────────
 # PromptGuard 2 is a gated model. We can't interactively log the user in
 # from inside a release pipeline, so fail fast with actionable guidance.
 # Check auth via the library (token is shared across CLIs via
 # ~/.cache/huggingface/token or the HF_TOKEN env var).
-if ! "$PY" -c "from huggingface_hub import whoami; whoami()" >/dev/null 2>&1; then
+if ! "$PY" -I -c "from huggingface_hub import whoami; whoami()" >/dev/null 2>&1; then
   cat >&2 << EOF
 
 ERROR: Not authenticated with HuggingFace.
@@ -131,10 +135,10 @@ EOF
 fi
 
 # ── Convert ─────────────────────────────────────
-"$PY" "$SCRIPT_DIR/convert-promptguard.py"
+"$PY" -I "$SCRIPT_DIR/convert-promptguard.py"
 
 # ── Verify ──────────────────────────────────────
-"$PY" "$ARTIFACT_VERIFIER"
+"$PY" -I "$ARTIFACT_VERIFIER"
 
 size_mb=$(du -sm "$MLPACKAGE" | cut -f1)
 echo "  ✓ CoreML model built and verified (${size_mb}MB)"

@@ -1,0 +1,74 @@
+Bouclier.ai Third-Party Software Notices
+========================================
+
+This deterministic inventory covers software included in the distributed
+Bouclier-ai.app. Swift package versions and revisions match
+apps/desktop/Package.resolved. Exact upstream license and NOTICE texts are
+stored beside this file under ThirdParty/.
+
+Bouclier.ai itself is licensed under the Apache License, Version 2.0. The
+canonical project license is ../LICENSE in the repository and is bundled as
+../LICENSE.txt in a signed app.
+
+Runtime Swift packages
+----------------------
+
+GRDB.swift 7.10.0
+Revision: 36e30a6f1ef10e4194f6af0cff90888526f0c115
+License: ThirdParty/GRDB.swift.txt
+
+Jinja 1.3.0 (transitive dependency of swift-transformers)
+Revision: 5c0a87846dfd36ca6621795ad2f09fdaab82b739
+License: ThirdParty/Jinja.txt
+
+Sparkle 2.9.1
+Revision: 066e75a8b3e99962685d6a90cdd5293ebffd9261
+License: ThirdParty/Sparkle.txt
+
+swift-atomics 1.3.0 (transitive dependency of SwiftNIO)
+Revision: b601256eab081c0f92f059e12818ac1d4f178ff7
+License: ThirdParty/swift-atomics.txt
+
+swift-collections 1.4.1 (transitive dependency of SwiftNIO)
+Revision: 6675bc0ff86e61436e615df6fc5174e043e57924
+License: ThirdParty/swift-collections.txt
+
+swift-nio 2.97.1
+Revision: 558f24a4647193b5a0e2104031b71c55d31ff83a
+License: ThirdParty/swift-nio.txt
+Notice: ThirdParty/swift-nio-NOTICE.txt
+Embedded llhttp license: ThirdParty/swift-nio-llhttp.txt
+Embedded cpp_magic.h license: ThirdParty/swift-nio-cpp_magic-uSHET.txt
+
+swift-nio-ssl 2.36.1
+Revision: df9c3406028e3297246e6e7081977a167318b692
+License: ThirdParty/swift-nio-ssl.txt
+Notice: ThirdParty/swift-nio-ssl-NOTICE.txt
+Vendored BoringSSL license: ThirdParty/swift-nio-ssl-BoringSSL.txt
+BoringSSL revision: 817ab07ebb53da35afea409ab9328f578492832d
+
+swift-nio-transport-services 1.26.0
+Revision: 60c3e187154421171721c1a38e800b390680fb5d
+License: ThirdParty/swift-nio-transport-services.txt
+
+swift-transformers 0.1.24
+Revision: f000aa7aec0e78acd0211685e4094e1fca84cd8b
+License: ThirdParty/swift-transformers.txt
+
+Model materials in signed release builds
+----------------------------------------
+
+Meta Llama Prompt Guard 2 86M
+Model revision: a8ded8e697ce7c355e395a0df51f94adb4a2fd27
+License: Llama-4-Community-License.txt
+Required attribution: Llama 4 is licensed under the Llama 4 Community
+License, Copyright © Meta Platforms, Inc. All Rights Reserved.
+
+Resolved packages not shipped at runtime
+----------------------------------------
+
+ViewInspector is used only by the Bouclier test target. swift-argument-parser
+is used only by executable products of swift-transformers that Bouclier does
+not link or distribute. swift-system is resolved by SwiftNIO but used only by
+NIO filesystem targets that Bouclier does not link. Their licenses are
+therefore not part of this runtime bundle.

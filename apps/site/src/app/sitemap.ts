@@ -2,7 +2,7 @@ import type { MetadataRoute } from "next";
 
 import { APP_URL } from "@/lib/constants";
 
-const SITE_UPDATED = "2026-08-28";
+const SITE_UPDATED = "2026-08-29";
 
 export default function sitemap(): MetadataRoute.Sitemap {
   return [

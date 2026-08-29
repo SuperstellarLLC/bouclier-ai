@@ -253,9 +253,14 @@ and use GRDB's `DatabaseMigrator` — no destructive migrations.
 ## Concurrency model
 
 The gateway itself is `swift-nio` on a `MultiThreadedEventLoopGroup`.
-Per-channel handlers stay on the event loop for the hot synchronous
-work (routing, injection inspection). GRDB writes hop into
-Swift Concurrency with `Task { … } in eventLoop.execute { … }`.
+Per-channel handlers keep routing, framing, and state transitions on their
+event loop. CPU- and allocation-heavy request inspection runs on one shared,
+process-lifetime `NIOThreadPool`, bounded to at most two workers. The channel
+hands the worker an immutable `ByteBuffer` snapshot and resumes forwarding or
+local refusal on the originating event loop when inspection completes. This
+keeps JSON decoding, detector work, and optional block-sample persistence off
+the event loop while bounding concurrent large-body allocations. GRDB access
+uses its own serialized writer through `StorageManager`.
 
 We compile with **Swift 6 strict-concurrency**. Types crossing isolation
 boundaries are `Sendable`. Where the underlying framework predates

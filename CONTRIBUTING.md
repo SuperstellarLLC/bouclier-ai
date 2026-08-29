@@ -57,7 +57,7 @@ pnpm check                     # typecheck + lint + tests + format check
 ```bash
 cd apps/desktop
 swift build                    # debug build
-swift test                     # full test suite (≈ 2 s)
+swift test                     # full test suite
 swift run Bouclier             # run the binary directly
 ```
 
@@ -124,7 +124,8 @@ shared package and regenerated desktop bundle.
 
 ## Coding style
 
-- TypeScript: `prettier` + `eslint`. `pnpm format` autofixes both.
+- TypeScript: `prettier` + `eslint`. `pnpm format` applies Prettier; run
+  `pnpm lint` separately to check ESLint rules.
 - Swift: ship the standard Apple style — 4-space indent, no trailing
   whitespace. Optional braces for one-liners are fine; prefer
   expressivity over cleverness.

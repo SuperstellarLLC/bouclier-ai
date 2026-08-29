@@ -10,6 +10,7 @@ describe("MobileNav", () => {
     const trigger = screen.getByRole("button", { name: /open menu/i });
     fireEvent.click(trigger);
 
+    expect(screen.getByText(/experimental, pre-1\.0 software/i)).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Privacy" })).toHaveAttribute("href", "/privacy");
     expect(screen.getByRole("link", { name: "Terms" })).toHaveAttribute("href", "/terms");
 
