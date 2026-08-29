@@ -3,6 +3,8 @@ services:
     build:
       context: ../..
       dockerfile: apps/site/Dockerfile
+      args:
+        DOWNLOAD_REDIRECT_BASE: "${DOWNLOAD_REDIRECT_BASE:?set DOWNLOAD_REDIRECT_BASE in apps/site/.env.local}"
     ports:
       - "3000:3000"
     env_file:
@@ -10,6 +12,7 @@ services:
     environment:
       - NODE_ENV=production
       - BOUCLIER_DEPLOYMENT_ENV=production
+      - DOWNLOAD_REDIRECT_BASE=${DOWNLOAD_REDIRECT_BASE:?set DOWNLOAD_REDIRECT_BASE in apps/site/.env.local}
     restart: unless-stopped
     healthcheck:
       test:

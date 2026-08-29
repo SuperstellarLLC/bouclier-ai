@@ -20,18 +20,16 @@
 ---
 
 > [!WARNING]
-> **Beta — research prototype. Not for live use.**
+> **Beta — experimental, pre-1.0 software.**
 >
-> Bouclier.ai is published for evaluation, security research, academic study,
-> and personal experimentation. It is **not a commercial product**, is **not
-> sold or supported**, and is **pre-1.0** — not for production or regulated
-> workloads (healthcare, payments, identity, fraud prevention, anything
-> safety-critical).
->
-> Treat it the way you treat a WAF: **defence in depth, never your only
-> control.** Injection detection is best-effort and evadable by a determined
-> attacker; false positives and false negatives will occur. A clean pass is
-> not evidence of safety. APIs and behaviour may change without notice
+> Bouclier.ai's source code is open source under Apache 2.0; signed release
+> builds also include Meta Prompt Guard 2 under the separate Llama 4 Community
+> License. The project comes without an SLA or commercial support. It has not
+> been independently validated or certified for regulated or safety-critical
+> workloads. Treat it the way you treat a WAF: **defence in depth, never your
+> only control.** Injection detection is best-effort and evadable by a
+> determined attacker; false positives and false negatives will occur. A clean
+> pass is not evidence of safety. APIs and behaviour may change without notice
 > between releases.
 >
 > If a failure could cause harm, financial loss, or regulatory consequence
@@ -108,14 +106,15 @@ Bouclier is defence in depth on the untrusted leg: it raises the cost of
 the easy attacks and shows you when one arrives. Treat it the way you
 treat a WAF, not the way you treat a proof.
 
-The on-device ML tier (Meta Prompt Guard 2, 86M) is **bundled** as of
-v0.9.1 — it runs fully on-device (CoreML, no network), which is the point:
+Signed release builds **bundle** the on-device ML tier (Meta Prompt Guard 2,
+86M) as of v0.9.1 — it runs fully on-device (CoreML, no network), which is the point:
 your traffic never leaves the machine to be classified. The tradeoff is a
 larger download (~300 MB vs ~6 MB). Even so, Prompt Guard 2 is a small
 classifier, not a frontier judge: it lifts recall on novel/multilingual
 attacks but is still evadable under adaptive/encoding attacks. The model
 is gated (Meta HuggingFace) and produced at release time by
-`scripts/ensure-model.sh`; it is not committed to the repo. The upstream model
+[`apps/desktop/scripts/ensure-model.sh`](apps/desktop/scripts/ensure-model.sh);
+it is not committed to the repo. The upstream model
 revision, complete conversion environment, and generated runtime files are
 pinned and hash-verified before a signed build can include them.
 
@@ -208,7 +207,9 @@ open a public issue.
 Apache License, Version 2.0. See [LICENSE](LICENSE).
 
 Release builds bundle the Meta Llama Prompt Guard 2 model (converted to
-CoreML by `scripts/ensure-model.sh`; the weights are gitignored and
+CoreML by
+[`apps/desktop/scripts/ensure-model.sh`](apps/desktop/scripts/ensure-model.sh);
+the weights are gitignored and
 fetched from Meta's gated HuggingFace repo at release time, not committed
 — see [ARCHITECTURE.md](ARCHITECTURE.md)). They're governed by the Llama 4
 Community License (`LICENSES/Llama-4-Community-License.txt`); see

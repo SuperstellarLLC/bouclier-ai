@@ -71,7 +71,7 @@ export function MobileNav({ downloadUrl }: { downloadUrl: string }) {
               <span className="rounded-md border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-amber-800">
                 Beta
               </span>
-              <span className="text-text-secondary text-xs">Experimental — not for production</span>
+              <span className="text-text-secondary text-xs">Experimental, pre-1.0 software</span>
             </div>
             <a
               href="#playground"

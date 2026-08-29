@@ -1,43 +1,96 @@
-# Exact environment used to produce the reviewed PromptGuard 2 CoreML
-# artifact. Update this file and promptguard-artifacts.sha256 together after a
-# deliberate conversion review. This is the complete transitive dependency
-# closure; do not replace these pins with ranges.
-attrs==26.1.0
-cattrs==25.3.0
-certifi==2026.2.25
-charset-normalizer==3.4.7
-coloredlogs==15.0.1
-coremltools==9.0
-exceptiongroup==1.3.1
-filelock==3.19.1
-flatbuffers==25.12.19
-fsspec==2025.10.0
-hf-xet==1.4.3
-huggingface_hub==0.36.2
-humanfriendly==10.0
-idna==3.11
-Jinja2==3.1.6
-MarkupSafe==3.0.3
-ml_dtypes==0.5.4
-mpmath==1.3.0
-networkx==3.2.1
-numpy==2.0.2
-onnx==1.19.1
-onnxruntime==1.19.2
-packaging==26.0
-pillow==11.3.0
-protobuf==6.33.6
-pyaml==26.2.1
-PyYAML==6.0.3
-regex==2026.1.15
-reportlab==4.5.1
-requests==2.32.5
-safetensors==0.7.0
-sentencepiece==0.2.1
-sympy==1.14.0
-tokenizers==0.22.2
-torch==2.8.0
-tqdm==4.67.3
-transformers==4.57.6
-typing_extensions==4.15.0
-urllib3==2.6.3
+# Exact, hash-locked environment used to produce the reviewed PromptGuard 2 CoreML
+# artifact. Hashes admit only the PyPI wheels selected for Apple silicon on
+# CPython 3.11 and 3.12. Update this lock and promptguard-artifacts.sha256
+# together after a deliberate conversion review.
+attrs==26.1.0 \
+    --hash=sha256:c647aa4a12dfbad9333ca4e71fe62ddc36f4e63b2d260a37a8b83d2f043ac309
+cattrs==25.3.0 \
+    --hash=sha256:9896e84e0a5bf723bc7b4b68f4481785367ce07a8a02e7e9ee6eb2819bc306ff
+certifi==2026.2.25 \
+    --hash=sha256:027692e4402ad994f1c42e52a4997a9763c646b73e4096e4d5d6db8af1d6f0fa
+charset-normalizer==3.4.7 \
+    --hash=sha256:7641bb8895e77f921102f72833904dcd9901df5d6d72a2ab8f31d04b7e51e4e7 \
+    --hash=sha256:eca9705049ad3c7345d574e3510665cb2cf844c2f2dcfe675332677f081cbd46
+coloredlogs==15.0.1 \
+    --hash=sha256:612ee75c546f53e92e70049c9dbfcc18c935a2b9a53b66085ce9ef6a6e5c0934
+coremltools==9.0 \
+    --hash=sha256:0e079fea3f13f96a30587c9f7375796ff61cad53f703bde53c56fbf1374813ed \
+    --hash=sha256:7079e8b6ff5a63f0e2c08eeeb8673e4eab8ca231d4b2eae4f7fb005e0d08a8cd
+exceptiongroup==1.3.1 \
+    --hash=sha256:a7a39a3bd276781e98394987d3a5701d0c4edffb633bb7a5144577f82c773598
+filelock==3.19.1 \
+    --hash=sha256:d38e30481def20772f5baf097c122c3babc4fcdb7e14e57049eb9d88c6dc017d
+flatbuffers==25.12.19 \
+    --hash=sha256:7634f50c427838bb021c2d66a3d1168e9d199b0607e6329399f04846d42e20b4
+fsspec==2025.10.0 \
+    --hash=sha256:7c7712353ae7d875407f97715f0e1ffcc21e33d5b24556cb1e090ae9409ec61d
+hf-xet==1.4.3 \
+    --hash=sha256:e23717ce4186b265f69afa66e6f0069fe7efbf331546f5c313d00e123dc84583
+huggingface_hub==0.36.2 \
+    --hash=sha256:48f0c8eac16145dfce371e9d2d7772854a4f591bcb56c9cf548accf531d54270
+humanfriendly==10.0 \
+    --hash=sha256:1697e1a8a8f550fd43c2865cd84542fc175a61dcb779b6fee18cf6b6ccba1477
+idna==3.11 \
+    --hash=sha256:771a87f49d9defaf64091e6e6fe9c18d4833f140bd19464795bc32d966ca37ea
+Jinja2==3.1.6 \
+    --hash=sha256:85ece4451f492d0c13c5dd7c13a64681a86afae63a5f347908daf103ce6d2f67
+MarkupSafe==3.0.3 \
+    --hash=sha256:1872df69a4de6aead3491198eaf13810b565bdbeec3ae2dc8780f14458ec73ce \
+    --hash=sha256:4bd4cd07944443f5a265608cc6aab442e4f74dff8088b0dfc8238647b8f6ae9a
+ml_dtypes==0.5.4 \
+    --hash=sha256:6c7ecb74c4bd71db68a6bea1edf8da8c34f3d9fe218f038814fd1d310ac76c90 \
+    --hash=sha256:a174837a64f5b16cab6f368171a1a03a27936b31699d167684073ff1c4237dac
+mpmath==1.3.0 \
+    --hash=sha256:a0b2b9fe80bbcd81a6647ff13108738cfb482d481d826cc0e02f5b35e5c88d2c
+networkx==3.2.1 \
+    --hash=sha256:f18c69adc97877c42332c170849c96cefa91881c99a7cb3e95b7c659ebdc1ec2
+numpy==2.0.2 \
+    --hash=sha256:807ec44583fd708a21d4a11d94aedf2f4f3c3719035c76a2bbe1fe8e217bdc57 \
+    --hash=sha256:9a92ae5c14811e390f3767053ff54eaee3bf84576d99a2456391401323f4ec2c
+onnx==1.19.1 \
+    --hash=sha256:17aaf5832126de0a5197a5864e4f09a764dd7681d3035135547959b4b6b77a09 \
+    --hash=sha256:3612193a89ddbce5c4e86150869b9258780a82fb8c4ca197723a4460178a6ce9
+onnxruntime==1.19.2 \
+    --hash=sha256:68e7051bef9cfefcbb858d2d2646536829894d72a4130c24019219442b1dd2ed \
+    --hash=sha256:d863e8acdc7232d705d49e41087e10b274c42f09e259016a46f32c34e06dc4fd
+packaging==26.0 \
+    --hash=sha256:b36f1fef9334a5588b4166f8bcd26a14e521f2b55e6b9de3aaa80d3ff7a37529
+pillow==11.3.0 \
+    --hash=sha256:921bd305b10e82b4d1f5e802b6850677f965d8394203d182f078873851dada69 \
+    --hash=sha256:9c412fddd1b77a75aa904615ebaa6001f169b26fd467b4be93aded278266b288
+protobuf==6.33.6 \
+    --hash=sha256:9720e6961b251bde64edfdab7d500725a2af5280f3f4c87e57c0208376aa8c3a
+pyaml==26.2.1 \
+    --hash=sha256:6261c2f0a2f33245286c794ad6ec234be33a73d2b05427079fd343e2812a87cf
+PyYAML==6.0.3 \
+    --hash=sha256:652cb6edd41e718550aad172851962662ff2681490a8a711af6a4d288dd96824 \
+    --hash=sha256:fc09d0aa354569bc501d4e787133afc08552722d3ab34836a80547331bb5d4a0
+regex==2026.1.15 \
+    --hash=sha256:1e8cd52557603f5c66a548f69421310886b28b7066853089e1a71ee710e1cdc1 \
+    --hash=sha256:9250d087bc92b7d4899ccd5539a1b2334e44eee85d848c4c1aef8e221d3f8c8f
+reportlab==4.5.1 \
+    --hash=sha256:06fce8cb56c83307cfa4909cdf4e6a2ddbb44e5d6ef4d2edca896d7e9769f091
+requests==2.32.5 \
+    --hash=sha256:2462f94637a34fd532264295e186976db0f5d453d1cdd31473c85a6a161affb6
+safetensors==0.7.0 \
+    --hash=sha256:94fd4858284736bb67a897a41608b5b0c2496c9bdb3bf2af1fa3409127f20d57
+sentencepiece==0.2.1 \
+    --hash=sha256:02593eca45440ef39247cee8c47322a34bdcc1d8ae83ad28ba5a899a2cf8d79a \
+    --hash=sha256:d9381351182ff9888cc80e41c632e7e274b106f450de33d67a9e8f6043da6f76
+setuptools==84.0.0 \
+    --hash=sha256:51a52592b3b99e102b609654876bd65f19f999935166d1352678931132b0c670
+sympy==1.14.0 \
+    --hash=sha256:e091cc3e99d2141a0ba2847328f5479b05d94a6635cb96148ccb3f34671bd8f5
+tokenizers==0.22.2 \
+    --hash=sha256:1e418a55456beedca4621dbab65a318981467a2b188e982a23e117f115ce5001
+torch==2.8.0 \
+    --hash=sha256:5ae0524688fb6707c57a530c2325e13bb0090b745ba7b4a2cd6a3ce262572916 \
+    --hash=sha256:619c2869db3ada2c0105487ba21b5008defcc472d23f8b80ed91ac4a380283b0
+tqdm==4.67.3 \
+    --hash=sha256:ee1e4c0e59148062281c49d80b25b67771a127c85fc9676d3be5f243206826bf
+transformers==4.57.6 \
+    --hash=sha256:4c9e9de11333ddfe5114bc872c9f370509198acf0b87a832a0ab9458e2bd0550
+typing_extensions==4.15.0 \
+    --hash=sha256:f0fa19c6845758ab08074a0cfa8b7aecb71c999ca73d62883bc25cc018c4e548
+urllib3==2.6.3 \
+    --hash=sha256:bf272323e553dfb2e87d9bfd225ca7b0f467b919d7bbd355436d3fd37cb0acd4

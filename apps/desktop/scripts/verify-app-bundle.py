@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import subprocess
 import sys
@@ -13,6 +14,42 @@ from typing import Optional
 
 EXECUTABLES = ("Bouclier", "bouclier-ai-mcp-wrapper", "bouclier-cli")
 SYSTEM_PREFIXES = ("/System/Library/", "/usr/lib/")
+COMPLIANCE_FILE_HASHES = {
+    "LICENSE.txt": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+    "NOTICE.txt": "be9e00deca977c951650fa87a84490a001f2a3d5c840b91498eab3ec337e5d22",
+    "LICENSES/Llama-4-Community-License.txt": "67a88a18344d9889b47c1880711264c4c7affa7194242d2821b8cfc2f4e0092c",
+    "LICENSES/THIRD-PARTY-NOTICES.txt": "bbbb1411532ca24ed9e87b60c5608e84cdca80db15ac57350e2923e14fd6e6c5",
+    "LICENSES/ThirdParty/GRDB.swift.txt": "9853f9dce81365fcc1d9b46004633354450164b8d17904e92e80c444545f7e87",
+    "LICENSES/ThirdParty/Jinja.txt": "fb2e2daac54953cb820d24a607ac7beb6731dd6a3802bd5ae48fe466bc6a0030",
+    "LICENSES/ThirdParty/Sparkle.txt": "389a4e4e9a32f059775b13a06e25a591445ba229d2838d26dd3e7c0c45127cfe",
+    "LICENSES/ThirdParty/swift-atomics.txt": "770af8291f708538d8ff885a0bbc4e045cd700531741c4f99528d435c14d7f55",
+    "LICENSES/ThirdParty/swift-collections.txt": "770af8291f708538d8ff885a0bbc4e045cd700531741c4f99528d435c14d7f55",
+    "LICENSES/ThirdParty/swift-nio-NOTICE.txt": "d25ed2452b3476c342082d11e4e8bf5459174d2836124f842b499850bcebc50e",
+    "LICENSES/ThirdParty/swift-nio-cpp_magic-uSHET.txt": "62a279b6a64b37680b691436c3ac1c0f6e8eeb81d8ad0a05c1dfc68f2c9ca28a",
+    "LICENSES/ThirdParty/swift-nio-llhttp.txt": "ebca854e0134cd256d673627c20499f42577eb74bacf08b9f25b626a73c91277",
+    "LICENSES/ThirdParty/swift-nio-ssl-BoringSSL.txt": "756a61a8300d105ae68e7f2993e27d41a765c946f3400422e2403b01e7ded527",
+    "LICENSES/ThirdParty/swift-nio-ssl-NOTICE.txt": "03e8ca5c65a3df21fe1ab48eef91bca7d370db56c290d8ef16eaaa09ba322abe",
+    "LICENSES/ThirdParty/swift-nio-ssl.txt": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+    "LICENSES/ThirdParty/swift-nio-transport-services.txt": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+    "LICENSES/ThirdParty/swift-nio.txt": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+    "LICENSES/ThirdParty/swift-transformers.txt": "648b81e6c6f9975c3b6cf6d630229b6c8d6f1ddaef55f5770f576adda19f3495",
+}
+RUNTIME_SWIFTPM_PINS = {
+    "grdb.swift": ("7.10.0", "36e30a6f1ef10e4194f6af0cff90888526f0c115"),
+    "jinja": ("1.3.0", "5c0a87846dfd36ca6621795ad2f09fdaab82b739"),
+    "sparkle": ("2.9.1", "066e75a8b3e99962685d6a90cdd5293ebffd9261"),
+    "swift-atomics": ("1.3.0", "b601256eab081c0f92f059e12818ac1d4f178ff7"),
+    "swift-collections": ("1.4.1", "6675bc0ff86e61436e615df6fc5174e043e57924"),
+    "swift-nio": ("2.97.1", "558f24a4647193b5a0e2104031b71c55d31ff83a"),
+    "swift-nio-ssl": ("2.36.1", "df9c3406028e3297246e6e7081977a167318b692"),
+    "swift-nio-transport-services": ("1.26.0", "60c3e187154421171721c1a38e800b390680fb5d"),
+    "swift-transformers": ("0.1.24", "f000aa7aec0e78acd0211685e4094e1fca84cd8b"),
+}
+NON_RUNTIME_SWIFTPM_PINS = {
+    "swift-argument-parser": ("1.4.0", "0fbc8848e389af3bb55c182bc19ca9d5dc2f255b"),
+    "swift-system": ("1.6.4", "7c6ad0fc39d0763e0b699210e4124afd5041c5df"),
+    "viewinspector": ("0.10.3", "e9a06346499a3a889165647e3f23f8a7b2609a1c"),
+}
 
 
 def otool(*arguments: str) -> str:
@@ -139,6 +176,55 @@ def validate_dependency(
     return f"{binary.name}: external or unresolved dependency {dependency}"
 
 
+def validate_compliance_assets(app: Path) -> list[str]:
+    resources = app / "Contents" / "Resources"
+    license_root = resources / "LICENSES"
+    problems: list[str] = []
+
+    required_directories = (
+        app / "Contents",
+        resources,
+        license_root,
+        license_root / "ThirdParty",
+    )
+    for directory in required_directories:
+        if not directory.is_dir() or directory.is_symlink():
+            problems.append(
+                f"missing or symlinked compliance directory: {directory.relative_to(app)}"
+            )
+
+    for relative, expected_digest in COMPLIANCE_FILE_HASHES.items():
+        path = resources / relative
+        if not path.is_file() or path.is_symlink():
+            problems.append(f"missing or symlinked compliance file: Contents/Resources/{relative}")
+            continue
+        try:
+            digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        except OSError as error:
+            problems.append(f"unreadable compliance file: Contents/Resources/{relative}: {error}")
+            continue
+        if digest != expected_digest:
+            problems.append(f"compliance checksum mismatch: Contents/Resources/{relative}")
+
+    expected_license_files = {
+        relative.removeprefix("LICENSES/")
+        for relative in COMPLIANCE_FILE_HASHES
+        if relative.startswith("LICENSES/")
+    }
+    if license_root.is_dir() and not license_root.is_symlink():
+        actual_license_files: set[str] = set()
+        for path in license_root.rglob("*"):
+            relative = path.relative_to(license_root).as_posix()
+            if path.is_symlink():
+                problems.append(f"symlinked compliance asset: Contents/Resources/LICENSES/{relative}")
+            elif path.is_file():
+                actual_license_files.add(relative)
+        for relative in sorted(actual_license_files - expected_license_files):
+            problems.append(f"unexpected compliance file: Contents/Resources/LICENSES/{relative}")
+
+    return problems
+
+
 def validate_promptguard(
     app: Path,
     allow_raw_promptguard: bool,
@@ -160,12 +246,6 @@ def validate_promptguard(
         tokenizer / "special_tokens_map.json",
         tokenizer / "tokenizer.json",
         tokenizer / "tokenizer_config.json",
-        app / "Contents" / "Resources" / "NOTICE.txt",
-        app
-        / "Contents"
-        / "Resources"
-        / "LICENSES"
-        / "Llama-4-Community-License.txt",
     )
     for path in required_runtime_files:
         if not path.is_file() or path.is_symlink():
@@ -229,6 +309,8 @@ def verify(
         if not path.exists():
             problems.append(f"missing packaged file: {path.relative_to(app)}")
 
+    problems.extend(validate_compliance_assets(app))
+
     cache_directories = sorted(
         path.relative_to(app).as_posix()
         for path in app.rglob(".cache")
@@ -263,7 +345,7 @@ def main() -> int:
     parser.add_argument(
         "--require-promptguard",
         action="store_true",
-        help="require tokenizer, notices, and a compiled PromptGuard model",
+        help="require tokenizer and a compiled PromptGuard model",
     )
     parser.add_argument(
         "--allow-raw-promptguard",

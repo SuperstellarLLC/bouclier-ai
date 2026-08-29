@@ -80,6 +80,9 @@ describe("Home page", () => {
     render(<Home />);
     expect(screen.getAllByText(/beta/i).length).toBeGreaterThan(0);
     expect(screen.getByText(/built with llama/i)).toBeInTheDocument();
+    expect(screen.getByText(/source code is Apache-2\.0 open source/i)).toHaveTextContent(
+      /separate Llama 4 Community License/i,
+    );
   });
 
   it("renders the download button", () => {
@@ -143,14 +146,18 @@ describe("Home page", () => {
     expect(screen.getByTestId("benchmark-provenance")).toHaveTextContent(
       /Newer versions are not represented until the harness is rerun/i,
     );
+    expect(screen.getByTestId("benchmark-provenance")).toHaveTextContent(
+      /fetched from live Hugging Face dataset endpoints without preserved dataset revisions, input hashes, or a raw result artifact/i,
+    );
     expect(
       screen.getByRole("link", {
-        name: new RegExp(`Reproduce the v${BENCHMARK_PROVENANCE.measuredRelease} measurement`),
+        name: new RegExp(`Inspect the v${BENCHMARK_PROVENANCE.measuredRelease} harness`),
       }),
     ).toHaveAttribute("href", BENCHMARK_PROVENANCE.sourceUrl);
     expect(screen.getByText(`${BENCHMARK_PROVENANCE.benignCorpus.blockedPercent}%`)).toBeVisible();
     expect(
       screen.getByText(`${BENCHMARK_PROVENANCE.instructionOverrideCorpus.detectedPercent}%`),
     ).toBeVisible();
+    expect(document.body.textContent).not.toMatch(/hard one to game/i);
   });
 });

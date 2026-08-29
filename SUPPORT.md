@@ -20,7 +20,7 @@ we read everything that comes in through the channels below.
 | Report a reproducible bug        | [Open a bug issue](https://github.com/SuperstellarLLC/bouclier-ai/issues/new/choose)       |
 | Propose a feature                | [Feature issue template](https://github.com/SuperstellarLLC/bouclier-ai/issues/new/choose) |
 | Ask a question or discuss usage  | [Discussions](https://github.com/SuperstellarLLC/bouclier-ai/discussions)                  |
-| Commercial / press / partnership | `hello@bouclier.ai`                                                                        |
+| Commercial / press / partnership | `apps@superstellar.io`                                                                     |
 
 ## What to include
 
@@ -33,7 +33,7 @@ A useful bug report contains:
   its base URL was configured.
 - Steps to reproduce, ideally with a synthetic payload.
 - A diagnostics export from the menu-bar app, or relevant lines from
-  `Console.app` filtered by `ai.bouclier`. **Review the export before
+  `Console.app` filtered by subsystem `ai.bouclier.app`. **Review the export before
   sharing it.** Routine audit records contain metadata rather than request
   bodies; the optional block-sample capture is the only local feature that
   records flagged content.

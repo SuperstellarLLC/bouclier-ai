@@ -1,5 +1,10 @@
-Bouclier.ai includes Meta Llama Prompt Guard 2 model materials for on-device prompt attack detection.
+Bouclier.ai
+Copyright 2026 Superstellar LLC
+
+Signed Bouclier.ai release builds include Meta Llama Prompt Guard 2 model materials for on-device prompt attack detection.
 
 Llama 4 is licensed under the Llama 4 Community License, Copyright © Meta Platforms, Inc. All Rights Reserved.
 
 See LICENSES/Llama-4-Community-License.txt for the full text of the license.
+Third-party software notices and license texts are indexed in
+LICENSES/THIRD-PARTY-NOTICES.txt.

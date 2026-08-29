@@ -1,4 +1,5 @@
-# ── Run from monorepo root: docker build -f apps/site/Dockerfile . ──
+# ── Run from monorepo root ────────────────────
+# docker build --build-arg DOWNLOAD_REDIRECT_BASE=https://0tdi95zyjwsefpzx.public.blob.vercel-storage.com/download -f apps/site/Dockerfile .
 
 # ── Stage 1: Dependencies ─────────────────────
 FROM node:22-alpine AS deps
@@ -24,6 +25,11 @@ COPY . .
 
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV SKIP_ENV_VALIDATION=true
+# This is a public release-directory URL, not a credential. It is required at
+# build time so next.config.ts can prove that the visible download redirect and
+# Sparkle appcast resolve to the same immutable DMG directory.
+ARG DOWNLOAD_REDIRECT_BASE
+ENV DOWNLOAD_REDIRECT_BASE=$DOWNLOAD_REDIRECT_BASE
 # Docker images are production artifacts even when built outside Vercel. This
 # enables the same signed-desktop/appcast alignment gate as VERCEL_ENV does,
 # while ordinary local `pnpm build` and Vercel previews remain available for QA.

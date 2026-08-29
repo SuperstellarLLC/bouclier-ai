@@ -108,3 +108,79 @@ default_release_version() {
     printf '%s\n' "$next"
   fi
 }
+
+# True only when $1 is a numeric x.y.z version strictly newer than $2. Release
+# artifacts use stable versioned URLs, so equality is intentionally rejected:
+# a published version must be immutable even when a local rebuild exists.
+semver_greater_than() {
+  local candidate="$1" released="$2"
+  [[ "$candidate" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || return 1
+  [[ "$released" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || return 1
+  awk -v candidate="$candidate" -v released="$released" '
+    BEGIN {
+      split(candidate, proposed, ".")
+      split(released, previous, ".")
+      for (part = 1; part <= 3; part++) {
+        if ((proposed[part] + 0) > (previous[part] + 0)) exit 0
+        if ((proposed[part] + 0) < (previous[part] + 0)) exit 1
+      }
+      exit 1
+    }
+  '
+}
+
+# Release URLs are embedded unescaped in an XML attribute and are also used to
+# derive a Blob pathname. Restrict them to HTTPS plus an intentionally small,
+# XML-safe URL alphabet instead of trying to repair arbitrary input later.
+valid_download_base_url() {
+  local url="$1"
+  [[ "$url" =~ ^https://[A-Za-z0-9.-]+(:[0-9]+)?(/[A-Za-z0-9._~%+@=-]+)*$ ]]
+}
+
+portable_file_size() {
+  local path="$1"
+  stat -f%z "$path" 2>/dev/null || stat --format=%s "$path"
+}
+
+# Confirm that the public object referenced by the appcast exists and has the
+# complete local byte length. Blob/CDN propagation can be briefly eventual, so
+# retry a few times before failing the surrounding metadata transaction.
+verify_public_file() {
+  local url="$1" path="$2"
+  local expected_size attempt headers status content_length
+  expected_size=$(portable_file_size "$path") || return 1
+
+  attempt=1
+  status=""
+  content_length=""
+  while [ "$attempt" -le 5 ]; do
+    headers=$(mktemp /tmp/bouclier-public-head.XXXXXX) || return 1
+    status=$(curl --silent --show-error --location --head \
+      --dump-header "$headers" \
+      --output /dev/null \
+      --write-out '%{http_code}' \
+      "$url") || status=""
+    content_length=$(awk '
+      /^HTTP\// { content_length_value = "" }
+      tolower($1) == "content-length:" {
+        gsub(/\r/, "", $2)
+        content_length_value = $2
+      }
+      END { print content_length_value }
+    ' "$headers")
+    rm -f "$headers"
+
+    if [ "$status" = "200" ] && [ "$content_length" = "$expected_size" ]; then
+      echo "  ✓ Public object verified (HTTP 200, ${expected_size} bytes)"
+      return 0
+    fi
+    if [ "$attempt" -lt 5 ]; then
+      sleep 2
+    fi
+    attempt=$((attempt + 1))
+  done
+
+  echo "ERROR: public artifact verification failed for $url" >&2
+  echo "       expected HTTP 200 and ${expected_size} bytes; got HTTP ${status:-none} and ${content_length:-no Content-Length}." >&2
+  return 1
+}

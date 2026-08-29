@@ -8,11 +8,11 @@ const DESCRIPTION =
   "How Bouclier.ai processes AI traffic locally, what the website records, and what an optional false-positive report contains.";
 
 export const metadata: Metadata = {
-  title: "Privacy Policy",
+  title: "Privacy Notice",
   description: DESCRIPTION,
   alternates: { canonical: `${APP_URL}/privacy` },
   openGraph: {
-    title: "Bouclier.ai Privacy Policy",
+    title: "Bouclier.ai Privacy Notice",
     description: DESCRIPTION,
     url: `${APP_URL}/privacy`,
     type: "article",
@@ -47,21 +47,21 @@ export default function PrivacyPage() {
 
       <article className="mx-auto max-w-3xl px-6 py-16">
         <h1 className="text-3xl font-bold tracking-tight">Privacy Notice</h1>
-        <p className="text-text-secondary mt-2 text-sm">Last updated: 28 August 2026</p>
+        <p className="text-text-secondary mt-2 text-sm">Last updated: 29 August 2026</p>
 
-        {/* Loud prototype banner mirroring the Terms — privacy posture is also research-grade. */}
+        {/* Prototype status does not narrow the privacy commitments below. */}
         <div className="mt-10 rounded-xl border-2 border-amber-300 bg-amber-50 p-6">
           <p className="font-semibold text-amber-900">
-            Bouclier.ai is a research prototype. It is not a commercial product.
+            Bouclier.ai is experimental, pre-1.0 software.
           </p>
           <p className="mt-2 text-sm text-amber-900">
-            The Software and the Site are published for evaluation, security research, academic
-            study, and personal experimentation only. The privacy posture described below reflects
-            this status and does not constitute a commercial data-processing offering. See the{" "}
+            This Notice describes the actual data flows of the Software and Site. Experimental
+            status does not narrow our data-protection obligations or your applicable privacy
+            rights. See the{" "}
             <Link href="/terms" className="font-medium underline">
               Terms of Use
             </Link>{" "}
-            for the full prototype framing.
+            for the Software&apos;s limitations and open-source licensing boundary.
           </p>
         </div>
 
@@ -71,12 +71,23 @@ export default function PrivacyPage() {
             Detection runs on your device. Allowed AI requests and responses still travel to the
             provider you configured, but Bouclier does not automatically send their content to its
             own servers. The app has no user accounts, analytics, or crash reporting. It does check
-            for updates; the Site records a timestamp, app version, and channel when a download is
-            requested; and you can explicitly send a best-effort-redacted false-positive report
-            after reviewing it. Hosting providers also receive ordinary HTTP transport metadata.
-            Full scope is described below.
+            for updates; when optional download metrics storage is configured, the Site records a
+            timestamp, app version, and channel when a download is requested; and you can explicitly
+            send a best-effort-redacted false-positive report after reviewing it. Hosting providers
+            also receive ordinary HTTP transport metadata. Full scope is described below.
           </p>
         </div>
+
+        <Section title="Controller">
+          <p>
+            The controller for personal data described in this Notice is Superstellar GmbH (English:
+            Superstellar LLC), Baarerstrasse 52, 6300 Zug, Switzerland, UID CHE-433.879.620. Contact{" "}
+            <a href="mailto:apps@superstellar.io" className="text-bouclier hover:underline">
+              apps@superstellar.io
+            </a>
+            .
+          </p>
+        </Section>
 
         <Section title="What Bouclier.ai does">
           Bouclier.ai runs a local gateway on your Mac. You point your AI agent&apos;s SDK at it (
@@ -128,11 +139,13 @@ export default function PrivacyPage() {
 
         <Section title="Marketing site (bouclier.ai)">
           <p>
-            When you click the &quot;Download&quot; button on bouclier.ai, the server records a
-            single application-level event consisting of <strong>(a) the time of the click</strong>,{" "}
+            When optional download metrics storage is configured and you click the
+            &quot;Download&quot; button on bouclier.ai, the server records a single
+            application-level event consisting of <strong>(a) the time of the click</strong>,{" "}
             <strong>(b) the requested app version</strong>, and{" "}
             <strong>(c) the channel string</strong> (e.g. &quot;site&quot;) that the link carries.
-            That record contains no user identifier.
+            Without that optional store, the route redirects to the download without retaining this
+            event. A stored event contains no user identifier.
           </p>
           <p className="mt-3">The Bouclier-controlled download record does not include:</p>
           <ul className="mt-2 list-disc space-y-1 pl-5">
@@ -194,8 +207,8 @@ export default function PrivacyPage() {
           <p>
             The app has no user accounts, product analytics, crash reporting, or passive prompt
             telemetry. Bouclier servers do receive the update and Site requests described above; the
-            download endpoint stores only the scoped event fields and anonymous counters described
-            above.
+            download endpoint stores the scoped event fields and anonymous counters described above
+            only when optional download metrics storage is configured.
           </p>
           <p className="mt-3">
             If you choose &quot;Report false positive&quot;, we receive and store that report for
@@ -254,16 +267,17 @@ export default function PrivacyPage() {
         </Section>
 
         <Section title="Auditing">
-          The Software is open source under Apache 2.0; the entire codebase, including the regex
-          patterns, the on-device classifier integration, and the test suite, is published at{" "}
+          The Software&apos;s source code is open source under Apache 2.0; the codebase, including
+          the regex patterns, on-device classifier integration, and test suite, is published at{" "}
           <a
             href="https://github.com/SuperstellarLLC/bouclier-ai"
             className="text-bouclier hover:underline"
           >
             github.com/SuperstellarLLC/bouclier-ai
           </a>
-          . You can audit, fork, rebuild, and verify the behaviour of every component. No additional
-          commercial audit programme is offered.
+          . Signed release builds also contain the separately licensed Meta Prompt Guard 2 model
+          under the Llama 4 Community License. You can audit, fork, and rebuild the source and
+          inspect the model integration. No additional commercial audit programme is offered.
         </Section>
 
         <Section title="Your rights">
@@ -282,6 +296,12 @@ export default function PrivacyPage() {
             data portability may apply to personal data we hold. Contact us using the address below;
             we may need enough information to locate a report without collecting a new identifier.
           </p>
+          <p className="mt-3 text-sm">
+            You may also lodge a complaint with the Swiss Federal Data Protection and Information
+            Commissioner (FDPIC). Where the GDPR applies, you may complain to the competent
+            supervisory authority in the EEA country where you live or work, or where you believe an
+            infringement occurred.
+          </p>
         </Section>
 
         <Section title="Children">
@@ -293,11 +313,45 @@ export default function PrivacyPage() {
         <Section title="Sub-processors">
           The Site is hosted on Vercel Inc. infrastructure. Vercel may log standard HTTP request
           metadata at its edge nodes (transit IP, request path, status code, timestamp) for periods
-          set by its policy. When configured, Upstash stores the application-level download counters
-          and rolling events. It also holds a submitted report&apos;s proof-of-work timestamp,
-          fingerprint, and nonce for 180 seconds to prevent replay. Neon or Vercel Postgres stores
-          optional false-positive reports. Those services receive the scoped fields described above;
-          they do not receive prompt traffic automatically from the gateway.
+          set by its policy; see Vercel&apos;s{" "}
+          <a href="https://vercel.com/legal/dpa" className="text-bouclier hover:underline">
+            data-processing addendum
+          </a>
+          . When configured, Upstash stores the application-level download counters and rolling
+          events and holds a submitted report&apos;s proof-of-work timestamp, fingerprint, and nonce
+          for 180 seconds to prevent replay; see Upstash&apos;s{" "}
+          <a href="https://upstash.com/trust/dpa.pdf" className="text-bouclier hover:underline">
+            data-processing addendum
+          </a>
+          . Neon or Vercel Postgres stores optional false-positive reports; see Neon&apos;s{" "}
+          <a href="https://neon.com/pdf/DPA.pdf" className="text-bouclier hover:underline">
+            data-processing agreement
+          </a>
+          . Those services receive the scoped fields described above; they do not receive prompt
+          traffic automatically from the gateway.
+        </Section>
+
+        <Section title="Legal bases and international transfers">
+          <p>
+            Where applicable law requires a legal basis, we rely on our legitimate interests in
+            serving and securing the Site and update channel, preventing abuse, measuring anonymous
+            downloads when that optional store is enabled, and receiving and investigating a report
+            that you deliberately submit so we can improve detector reliability. Your decision to
+            submit a report is not treated as consent on behalf of another person whose data appears
+            in it. Review the preview and remove third-party personal data, sensitive data, and
+            confidential material before sending.
+          </p>
+          <p className="mt-3">
+            Vercel, Upstash, and Neon/Databricks are United States providers. Depending on which
+            optional stores are configured and on their subprocessors, the limited data described in
+            this Notice may be processed in the United States and other countries listed by those
+            providers. Their applicable terms and data-processing addenda describe transfer
+            mechanisms including the EU Standard Contractual Clauses as adapted for Swiss transfers;
+            Neon also describes reliance on the EU-U.S. Data Privacy Framework where applicable. See
+            the provider documents linked in &quot;Sub-processors&quot;, or contact us for the
+            providers, selected storage region, and transfer mechanism used by the current
+            deployment.
+          </p>
         </Section>
 
         <Section title="Governing law and exclusive jurisdiction">
@@ -306,7 +360,9 @@ export default function PrivacyPage() {
             processing of personal data described in this Notice shall be subject to the exclusive
             jurisdiction of the ordinary courts of the Canton of Zug, Switzerland, save that any
             non-waivable right granted to a data subject by mandatorily-applicable consumer or
-            data-protection law of the subject&apos;s habitual residence is preserved.
+            data-protection law of the subject&apos;s habitual residence is preserved. This
+            paragraph does not limit your right to complain to the FDPIC or another competent
+            supervisory authority.
           </p>
         </Section>
 
@@ -319,13 +375,18 @@ export default function PrivacyPage() {
 
         <Section title="Contact">
           <p>
-            Contact:{" "}
+            Superstellar GmbH (English: Superstellar LLC)
+            <br />
+            Baarerstrasse 52
+            <br />
+            6300 Zug, Switzerland
+            <br />
+            UID CHE-433.879.620
+            <br />
+            Email:{" "}
             <a href="mailto:apps@superstellar.io" className="text-bouclier hover:underline">
               apps@superstellar.io
             </a>
-          </p>
-          <p className="mt-3 text-sm">
-            Postal address for written privacy requests will be provided on request.
           </p>
         </Section>
       </article>

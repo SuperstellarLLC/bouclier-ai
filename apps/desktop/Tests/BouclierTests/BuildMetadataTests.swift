@@ -26,4 +26,25 @@ struct BuildMetadataTests {
         #expect(package.contains(".macOS(.v15)"))
         #expect(sourcePlist.contains("<key>LSMinimumSystemVersion</key>\n    <string>15.0</string>"))
     }
+
+    @Test("Packaged app identifies the legal copyright owner")
+    func packagedAppCopyrightOwner() throws {
+        let testFile = URL(fileURLWithPath: #filePath)
+        let packageRoot = testFile
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let expected = "Copyright 2026 Superstellar LLC"
+        let script = try String(
+            contentsOf: packageRoot.appendingPathComponent("scripts/build-app.sh"),
+            encoding: .utf8
+        )
+        let sourcePlist = try String(
+            contentsOf: packageRoot.appendingPathComponent("Sources/Bouclier/Resources/Info.plist"),
+            encoding: .utf8
+        )
+
+        #expect(script.contains(expected))
+        #expect(sourcePlist.contains(expected))
+    }
 }

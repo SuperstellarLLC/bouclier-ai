@@ -158,16 +158,29 @@ if [ -f "$PROJECT_DIR/icon/Bouclier.icns" ]; then
   cp "$PROJECT_DIR/icon/Bouclier.icns" "$CONTENTS/Resources/AppIcon.icns"
 fi
 
-# Third-party notices and licenses required by bundled model materials
+# Project license plus the complete, committed runtime attribution set. The
+# standalone verifier checks every copied byte against its reviewed checksum,
+# so adding, removing, or changing a dependency license is a deliberate
+# release change rather than a best-effort copy.
 REPO_ROOT="$(dirname "$(dirname "$PROJECT_DIR")")"
-if [ -f "$REPO_ROOT/NOTICE.txt" ]; then
-  cp "$REPO_ROOT/NOTICE.txt" "$CONTENTS/Resources/NOTICE.txt"
+for compliance_source in \
+  "$REPO_ROOT/LICENSE" \
+  "$REPO_ROOT/NOTICE.txt" \
+  "$REPO_ROOT/LICENSES/THIRD-PARTY-NOTICES.txt"; do
+  if [ ! -f "$compliance_source" ] || [ -L "$compliance_source" ]; then
+    echo "ERROR: required compliance file is missing or symlinked: $compliance_source" >&2
+    exit 1
+  fi
+done
+LICENSE_SYMLINK=$(find "$REPO_ROOT/LICENSES" -type l -print -quit)
+if [ -n "$LICENSE_SYMLINK" ]; then
+  echo "ERROR: compliance assets must not contain symlinks: $LICENSE_SYMLINK" >&2
+  exit 1
 fi
-if [ -f "$REPO_ROOT/LICENSES/Llama-4-Community-License.txt" ]; then
-  mkdir -p "$CONTENTS/Resources/LICENSES"
-  cp "$REPO_ROOT/LICENSES/Llama-4-Community-License.txt" \
-    "$CONTENTS/Resources/LICENSES/Llama-4-Community-License.txt"
-fi
+cp "$REPO_ROOT/LICENSE" "$CONTENTS/Resources/LICENSE.txt"
+cp "$REPO_ROOT/NOTICE.txt" "$CONTENTS/Resources/NOTICE.txt"
+mkdir -p "$CONTENTS/Resources/LICENSES"
+cp -R "$REPO_ROOT/LICENSES/." "$CONTENTS/Resources/LICENSES/"
 
 # Sparkle framework
 mkdir -p "$CONTENTS/Frameworks"
@@ -220,7 +233,7 @@ cat > "$CONTENTS/Info.plist" << EOF
     <key>CFBundlePackageType</key><string>APPL</string>
     <key>LSUIElement</key><true/>
     <key>LSMinimumSystemVersion</key><string>15.0</string>
-    <key>NSHumanReadableCopyright</key><string>Copyright 2026 Bouclier.ai</string>
+    <key>NSHumanReadableCopyright</key><string>Copyright 2026 Superstellar LLC</string>
     <key>CFBundleIconFile</key><string>AppIcon</string>
     <key>SUPublicEDKey</key>
     <string>QNMtWO7H9Z9Hv1J9bAsunleicPvJVP2bMJQezjV3vmM=</string>

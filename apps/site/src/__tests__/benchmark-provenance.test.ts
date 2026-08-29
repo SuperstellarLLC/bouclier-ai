@@ -14,6 +14,10 @@ describe("published benchmark provenance", () => {
       sourceRevision: "9808b73ef55c35e74ed35641132f885a4d08b0d3",
       sourceUrl:
         "https://github.com/SuperstellarLLC/bouclier-ai/tree/9808b73ef55c35e74ed35641132f885a4d08b0d3/apps/desktop/benchmark",
+      reproducibility: {
+        exactRerunGuaranteed: false,
+        note: "The source revision pins the harness, but the corpora were fetched from live Hugging Face dataset endpoints without preserved dataset revisions, input hashes, or a raw result artifact. An exact rerun is therefore not guaranteed if those third-party datasets change.",
+      },
       pipeline: {
         patternCount: 161,
         dampenerCount: 8,
@@ -37,6 +41,7 @@ describe("published benchmark provenance", () => {
 
   it("is frozen deeply enough that display code cannot mutate the evidence", () => {
     expect(Object.isFrozen(BENCHMARK_PROVENANCE)).toBe(true);
+    expect(Object.isFrozen(BENCHMARK_PROVENANCE.reproducibility)).toBe(true);
     expect(Object.isFrozen(BENCHMARK_PROVENANCE.pipeline)).toBe(true);
     expect(Object.isFrozen(BENCHMARK_PROVENANCE.benignCorpus)).toBe(true);
     expect(Object.isFrozen(BENCHMARK_PROVENANCE.instructionOverrideCorpus)).toBe(true);

@@ -16,7 +16,7 @@ body:
     attributes:
       label: Version
       description: Bouclier.ai version (menu bar → About) and macOS version.
-      placeholder: "Bouclier.ai 0.4.0 on macOS 15.3 (Apple Silicon)"
+      placeholder: "Bouclier.ai 0.x.y on macOS 15.x (Apple silicon)"
     validations:
       required: true
 
@@ -50,10 +50,10 @@ body:
     id: repro
     attributes:
       label: Steps to reproduce
-      description: Numbered steps. Include the app or SDK you were using when the proxy intercepted the request.
+      description: Numbered steps. Include the compatible agent or SDK you explicitly routed through Bouclier's gateway.
       placeholder: |
-        1. Open ChatGPT desktop app
-        2. Send a prompt containing an IBAN
+        1. Enable Protection, then open a new terminal
+        2. Run a request through Claude Code or a supported provider SDK
         3. Inspect Bouclier.ai → Activity log
     validations:
       required: true
@@ -62,5 +62,4 @@ body:
     id: logs
     attributes:
       label: Relevant logs
-      description: From `~/Library/Application Support/ai.bouclier.app/logs/` or `Console.app` filtered by `ai.bouclier`. Redact request content.
-      render: shell
+      description: From the Bouclier menu, choose Export Diagnostics…, or copy relevant entries from Console.app filtered by subsystem `ai.bouclier.app`. Review and redact anything sensitive before posting.

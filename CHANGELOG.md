@@ -10,7 +10,7 @@ appcast. Write for end users, not for internal engineering notes.
 
 ## [Unreleased]
 
-## [0.9.11] — 2026-08-28
+## [0.9.11] — 2026-08-29
 
 ### Added
 
@@ -22,6 +22,9 @@ appcast. Write for end users, not for internal engineering notes.
 - **Product claims now match the live protection boundary.** Documentation and legal copy distinguish compatible clients routed through the local gateway from apps that bypass it, explain the monitor-by-default posture, disclose optional block samples and false-positive reports, and precisely describe the HTTP boundary: model-visible body bytes are unchanged or refused while proxy routing and framing headers are normalized.
 - **The browser playground now models the real decision.** You can choose principal or untrusted origin and Monitor or Block, with results labelled as forwarded, would refuse, or refused instead of implying that every detection is blocked.
 - **Response-action monitoring is temporarily withdrawn.** The earlier observer consumed arbitrary raw network chunks as if they were complete SSE frames, so it could miss or misparse tool calls. Responses remain byte-faithful, but the activity feed no longer claims response-leg visibility until a bounded, HTTP-framing-aware observer is ready.
+- **Open-source rights and risk warnings are now unambiguous.** The Terms clarify that applicable open-source licences govern use, modification, and distribution of licensed code. Experimental and safety-critical caveats are framed as non-reliance guidance, not field-of-use restrictions. The Privacy Notice identifies Superstellar GmbH as controller with its Zug address and explains legal bases and possible international processing.
+- **Published benchmark provenance states what was not preserved.** The v0.9.3 results remain pinned to their harness revision, but the site now discloses that the third-party corpora came from mutable live dataset endpoints and that dataset revisions, input hashes, and a raw result artifact were not retained. The link invites inspection of the harness and sources rather than promising an exact reproduction.
+- **Contributor-facing details match the implementation.** Architecture documentation now describes the bounded inspection worker pool, and the bug form points to Diagnostics and unified logging instead of a nonexistent logs directory.
 
 ### Fixed
 

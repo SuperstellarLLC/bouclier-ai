@@ -15,7 +15,7 @@ describe("site metadata and privacy posture", () => {
       `${APP_URL}/privacy`,
       `${APP_URL}/terms`,
     ]);
-    expect(entries.every((entry) => entry.lastModified === "2026-08-28")).toBe(true);
+    expect(entries.every((entry) => entry.lastModified === "2026-08-29")).toBe(true);
   });
 
   it("does not make browsers contact a third-party font host", () => {
@@ -39,6 +39,14 @@ describe("site metadata and privacy posture", () => {
       "utf8",
     );
     expect(articleSource).not.toMatch(/inspects every request/i);
+  });
+
+  it("frames beta status as non-reliance guidance, not a field-of-use restriction", () => {
+    for (const path of ["src/app/layout.tsx", "src/app/mobile-nav.tsx"]) {
+      const source = readFileSync(resolve(process.cwd(), path), "utf8");
+      expect(source).toMatch(/Experimental, pre-1\.0/i);
+      expect(source).not.toMatch(/not for production/i);
+    }
   });
 
   it("links to the live NotInject dataset and not the unrelated Serge site", () => {

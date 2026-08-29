@@ -13,3 +13,6 @@
 
 # Test fixture — fabricated example token to exercise the detector.
 77c1f6c4f4a553c11be7437b7d2ba1fdb9952ae5:packages/patterns/src/__tests__/pii.test.ts:slack-bot-token:244
+
+# UserDefaults ownership marker — a namespaced preference key, not a credential.
+346421c7f0a4202f4028ad38b80be37c422c4c66:apps/desktop/Sources/Bouclier/Utilities/ShellEnvInjector.swift:generic-api-key:57

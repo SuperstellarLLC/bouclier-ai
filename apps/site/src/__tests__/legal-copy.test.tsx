@@ -24,6 +24,27 @@ describe("truthful privacy and recovery copy", () => {
       screen.getByText(/counters are retained.*until the download store is reset/i),
     ).toBeInTheDocument();
     expect(screen.getByText("90 days")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /^controller$/i })).toBeInTheDocument();
+    expect(screen.getAllByText(/Superstellar GmbH/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/English: Superstellar LLC/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Baarerstrasse 52/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/CHE-433\.879\.620/i).length).toBeGreaterThan(0);
+    expect(
+      screen.getByRole("heading", { name: /legal bases and international transfers/i }),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/legitimate interests in serving and securing/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/not treated as consent on behalf of another person/i),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/may be processed in the United States and other countries/i),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/EU Standard Contractual Clauses as adapted for Swiss transfers/i),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/lodge a complaint with the Swiss Federal/i)).toBeInTheDocument();
+    expect(screen.getByText(/does not limit your right to complain/i)).toBeInTheDocument();
+    expect(screen.getByText(/without that optional store.*without retaining/i)).toBeInTheDocument();
     expect(screen.queryByText(/^none by default/i)).not.toBeInTheDocument();
   });
 
@@ -37,6 +58,16 @@ describe("truthful privacy and recovery copy", () => {
     expect(screen.getByText(/visible partial-coverage warning/i)).toBeInTheDocument();
     expect(screen.getByText(/64 MiB transport limit/i)).toBeInTheDocument();
     expect(screen.getByText(/built with llama/i)).toBeInTheDocument();
+    expect(screen.getByText(/do not add a field-of-use restriction/i)).toBeInTheDocument();
+    expect(screen.getByText(/not conditioned on accepting these Terms/i)).toBeInTheDocument();
+    expect(screen.getByText(/does not by itself constitute acceptance/i)).toBeInTheDocument();
+    expect(screen.getByText(/LICENSES\/THIRD-PARTY-NOTICES\.txt/i)).toBeInTheDocument();
+    expect(document.body.textContent).not.toMatch(/Microsoft Presidio/i);
+    expect(document.body.textContent).not.toMatch(/personal experimentation only/i);
+    expect(document.body.textContent).not.toMatch(/you (may|must) not deploy/i);
+    expect(document.body.textContent).not.toMatch(
+      /output of independent security and machine-learning research/i,
+    );
     expect(screen.queryByRole("heading", { name: /no data collection/i })).not.toBeInTheDocument();
   });
 
