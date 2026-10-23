@@ -113,7 +113,7 @@ export default function IndirectPromptInjectionPage() {
       </nav>
 
       <article className="mx-auto max-w-3xl px-6 py-16">
-        <p className="text-bouclier font-mono text-xs font-semibold uppercase tracking-wider">
+        <p className="text-bouclier font-mono text-xs font-semibold tracking-wider uppercase">
           AI security
         </p>
         <h1 className="mt-3 text-3xl font-bold tracking-tight sm:text-4xl">

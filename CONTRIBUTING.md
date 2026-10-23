@@ -35,7 +35,7 @@ Prerequisites:
 
 - Apple silicon Mac running macOS 15 (Sequoia) or later for the desktop app.
 - Xcode 16 + Command Line Tools.
-- Node 22 (`.nvmrc` in repo root) and `pnpm` 9.
+- Node 24 (`.nvmrc` in repo root) and `pnpm` 9.
 - `swift --version` must report 6.0 or later.
 
 ```bash

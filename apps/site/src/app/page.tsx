@@ -18,7 +18,7 @@ export default function Home() {
     <main className="min-h-screen">
       <a
         href="#main-content"
-        className="bg-bouclier sr-only z-[100] rounded-md px-4 py-2 text-sm font-semibold text-white focus:not-sr-only focus:fixed focus:left-4 focus:top-4"
+        className="bg-bouclier sr-only z-[100] rounded-md px-4 py-2 text-sm font-semibold text-white focus:not-sr-only focus:fixed focus:top-4 focus:left-4"
       >
         Skip to main content
       </a>
@@ -37,7 +37,7 @@ export default function Home() {
               className="rounded-[5px]"
             />
             <span className="text-text text-[15px] font-semibold tracking-tight">Bouclier.ai</span>
-            <span className="rounded-md border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-amber-800">
+            <span className="rounded-md border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold tracking-wider text-amber-800 uppercase">
               Beta
             </span>
           </Link>
@@ -92,24 +92,24 @@ export default function Home() {
       {/* ── Hero ──────────────────────────────────── */}
       <section id="main-content" className="relative overflow-hidden" tabIndex={-1}>
         <div className="from-bouclier-light/50 absolute inset-0 bg-gradient-to-b to-white" />
-        <div className="relative mx-auto max-w-5xl px-6 pb-24 pt-20 text-center">
-          <div className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2">
+        <div className="relative mx-auto max-w-5xl px-6 pt-20 pb-24 text-center">
+          <div className="pointer-events-none absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2">
             <div className="shield-ring border-bouclier/10 h-[500px] w-[500px] rounded-full border" />
           </div>
-          <div className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2">
+          <div className="pointer-events-none absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2">
             <div className="shield-ring-delayed border-bouclier/15 h-[360px] w-[360px] rounded-full border" />
           </div>
 
           <div className="hero-recede relative">
             <div className="border-bouclier/20 text-bouclier mb-6 inline-flex items-center gap-2 rounded-full border bg-white px-4 py-1.5 text-sm font-medium shadow-sm">
               <span className="bg-accent-green h-1.5 w-1.5 rounded-full" />
-              <span className="rounded-sm bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-amber-800">
+              <span className="rounded-sm bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold tracking-wider text-amber-800 uppercase">
                 Beta
               </span>
               v{APP_VERSION} — detection runs entirely on your Mac
             </div>
 
-            <h1 className="text-text mx-auto max-w-3xl text-4xl font-bold leading-[1.1] tracking-tight sm:text-6xl">
+            <h1 className="text-text mx-auto max-w-3xl text-4xl leading-[1.1] font-bold tracking-tight sm:text-6xl">
               Web pages should not
               <br />
               <span className="text-bouclier">give your agents instructions.</span>
@@ -347,7 +347,7 @@ export default function Home() {
                 {benchmark.instructionOverrideCorpus.detectedPercent}% of{" "}
                 {benchmark.instructionOverrideCorpus.total} payloads from a public
                 instruction-override corpus,{" "}
-                <code className="break-all rounded bg-zinc-100 px-1 py-0.5 text-xs">
+                <code className="rounded bg-zinc-100 px-1 py-0.5 text-xs break-all">
                   {benchmark.instructionOverrideCorpus.name}
                 </code>
                 {". "}This is detection on a <em>static</em> corpus of one attack class — read it as
@@ -608,7 +608,7 @@ export default function Home() {
                 className="rounded-[4px]"
               />
               <span className="text-text text-sm font-semibold">Bouclier.ai</span>
-              <span className="rounded-md border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-amber-800">
+              <span className="rounded-md border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-[9px] font-semibold tracking-wider text-amber-800 uppercase">
                 Beta
               </span>
             </div>
@@ -640,7 +640,7 @@ export default function Home() {
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
-    <span className="text-bouclier text-xs font-semibold uppercase tracking-widest">
+    <span className="text-bouclier text-xs font-semibold tracking-widest uppercase">
       {children}
     </span>
   );

@@ -132,7 +132,7 @@ export function Playground() {
     >
       <div className="mx-auto max-w-5xl px-6">
         <div className="reveal">
-          <span className="text-bouclier text-xs font-semibold uppercase tracking-widest">
+          <span className="text-bouclier text-xs font-semibold tracking-widest uppercase">
             Live demo
           </span>
           <h2 className="mt-3 text-3xl font-bold tracking-tight">Same words. Different verdict.</h2>
@@ -152,7 +152,7 @@ export function Playground() {
 
         <div className="reveal mt-8 flex flex-col items-start gap-5 md:flex-row">
           <fieldset className="min-w-0">
-            <legend className="text-text-secondary mb-2 text-xs font-semibold uppercase tracking-widest">
+            <legend className="text-text-secondary mb-2 text-xs font-semibold tracking-widest uppercase">
               Content source
             </legend>
             <div className="border-border grid w-full grid-cols-2 rounded-xl border bg-white p-1 shadow-sm sm:w-auto">
@@ -174,9 +174,9 @@ export function Playground() {
           </fieldset>
 
           <fieldset className="min-w-0">
-            <legend className="text-text-secondary mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-widest">
+            <legend className="text-text-secondary mb-2 flex items-center gap-2 text-xs font-semibold tracking-widest uppercase">
               Protection mode
-              <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-[9px] normal-case tracking-normal text-emerald-700">
+              <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-[9px] tracking-normal text-emerald-700 normal-case">
                 Monitor is default
               </span>
             </legend>
@@ -227,7 +227,7 @@ export function Playground() {
           {/* Input */}
           <div className="border-border overflow-hidden rounded-2xl border bg-white shadow-sm">
             <div className="border-border bg-surface flex items-center justify-between border-b px-5 py-3">
-              <span className="text-text-secondary text-xs font-semibold uppercase tracking-widest">
+              <span className="text-text-secondary text-xs font-semibold tracking-widest uppercase">
                 {origin === "untrusted" ? "Tool output" : "Your prompt"}
               </span>
               <span className="text-text-secondary font-mono text-xs">
@@ -248,7 +248,7 @@ export function Playground() {
           {/* Result */}
           <div className="border-border overflow-hidden rounded-2xl border bg-white shadow-sm">
             <div className="border-border bg-surface flex items-center justify-between border-b px-5 py-3">
-              <span className="text-text-secondary text-xs font-semibold uppercase tracking-widest">
+              <span className="text-text-secondary text-xs font-semibold tracking-widest uppercase">
                 Gateway decision
               </span>
               <VerdictPill verdict={verdict} />
@@ -265,7 +265,7 @@ export function Playground() {
 
               <div className="mt-6">
                 <div className="flex items-center justify-between">
-                  <h3 className="text-text-secondary text-xs font-semibold uppercase tracking-widest">
+                  <h3 className="text-text-secondary text-xs font-semibold tracking-widest uppercase">
                     Browser regex matches
                   </h3>
                   <span className="text-text-secondary font-mono text-xs">{matches.length}</span>
@@ -293,7 +293,7 @@ export function Playground() {
               </div>
 
               <div className="mt-6">
-                <h3 className="text-text-secondary text-xs font-semibold uppercase tracking-widest">
+                <h3 className="text-text-secondary text-xs font-semibold tracking-widest uppercase">
                   What happens to the request
                 </h3>
                 <ActionExplainer verdict={verdict} />
@@ -436,7 +436,7 @@ function VerdictPill({ verdict }: { verdict: Verdict }) {
 function Stat({ label, value }: { label: string; value: string }) {
   return (
     <div className="bg-surface border-border rounded-lg border px-3 py-2.5">
-      <div className="text-text-secondary text-[10px] font-semibold uppercase tracking-wider">
+      <div className="text-text-secondary text-[10px] font-semibold tracking-wider uppercase">
         {label}
       </div>
       <div className="text-text mt-0.5 font-mono text-sm font-semibold">{value}</div>
