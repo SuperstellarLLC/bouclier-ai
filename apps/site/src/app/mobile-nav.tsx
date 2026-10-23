@@ -64,11 +64,11 @@ export function MobileNav({ downloadUrl }: { downloadUrl: string }) {
       {open && (
         <div
           id={menuId}
-          className="border-border absolute left-0 right-0 top-full border-b bg-white px-6 py-4 shadow-sm"
+          className="border-border absolute top-full right-0 left-0 border-b bg-white px-6 py-4 shadow-sm"
         >
           <div className="flex flex-col gap-3">
             <div className="flex items-center gap-2">
-              <span className="rounded-md border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-amber-800">
+              <span className="rounded-md border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-[9px] font-semibold tracking-wider text-amber-800 uppercase">
                 Beta
               </span>
               <span className="text-text-secondary text-xs">Experimental, pre-1.0 software</span>

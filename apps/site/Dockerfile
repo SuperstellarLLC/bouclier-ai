@@ -2,7 +2,7 @@
 # docker build --build-arg DOWNLOAD_REDIRECT_BASE=https://0tdi95zyjwsefpzx.public.blob.vercel-storage.com/download -f apps/site/Dockerfile .
 
 # ── Stage 1: Dependencies ─────────────────────
-FROM node:22-alpine AS deps
+FROM node:24-alpine AS deps
 RUN apk add --no-cache libc6-compat
 RUN corepack enable pnpm
 WORKDIR /app
@@ -14,7 +14,7 @@ COPY apps/site/package.json ./apps/site/
 RUN pnpm install --frozen-lockfile
 
 # ── Stage 2: Build ────────────────────────────
-FROM node:22-alpine AS builder
+FROM node:24-alpine AS builder
 RUN corepack enable pnpm
 WORKDIR /app
 
@@ -39,7 +39,7 @@ RUN pnpm --filter @bouclier-ai/patterns build
 RUN pnpm --filter site build
 
 # ── Stage 3: Production ──────────────────────
-FROM node:22-alpine AS runner
+FROM node:24-alpine AS runner
 WORKDIR /app
 
 ENV NODE_ENV=production

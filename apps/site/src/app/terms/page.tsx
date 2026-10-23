@@ -33,7 +33,7 @@ export default function TermsPage() {
               className="rounded-[4px]"
             />
             Bouclier.ai
-            <span className="rounded-md border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-amber-800">
+            <span className="rounded-md border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-[9px] font-semibold tracking-wider text-amber-800 uppercase">
               Beta
             </span>
           </Link>
